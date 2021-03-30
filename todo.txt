@@ -1,0 +1,5 @@
+* add thoughts based on emails with brendan
+* intro section describing the overall goal
+* run black for notebooks
+* fix the screw dislocation forward notebook stuff
+* replace barycentric interp with scipy.interpolate.BarycentricInterpolator
