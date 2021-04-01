@@ -1,5 +1,10 @@
+* colab plus github == collaborative git-backed notebooks?
 * add thoughts based on emails with brendan
 * intro section describing the overall goal
 * run black for notebooks
 * fix the screw dislocation forward notebook stuff
 * replace barycentric interp with scipy.interpolate.BarycentricInterpolator
+* add writing for part 3
+* add parts 1-3 to my website
+* part doing volumetric integration.
+* explanation of quasidynamic earthquake simulation with citations for papers that explain/do it.
