@@ -2,17 +2,18 @@ name: bie_notebooks
 channels:
   - conda-forge
 dependencies:
+  - jupyterlab
   - numpy
   - scipy
   - matplotlib
   - sympy
-  - jupyterlab
   - mamba
   - pip
   - pyproj
   - gdal
   - gmsh
   - pycuda
+  - k3d
   - pip:
     - cutde
     - pygmsh
