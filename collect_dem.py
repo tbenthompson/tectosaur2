@@ -28,21 +28,6 @@ def mercator(lat, lon, zoom):
 
     return zoom, x3, y3
 
-# def get_dem_bounds(lonlat_pts):
-#     minlat = np.min(lonlat_pts[:,1])
-#     minlon = np.min(lonlat_pts[:,0])
-#     maxlat = np.max(lonlat_pts[:,1])
-#     maxlon = np.max(lonlat_pts[:,0])
-#     latrange = maxlat - minlat
-#     lonrange = maxlon - minlon
-#     bounds = (
-#         minlat - latrange * 0.1,
-#         minlon - lonrange * 0.1,
-#         maxlat + latrange * 0.1,
-#         maxlon + lonrange * 0.1
-#     )
-#     return bounds
-
 def get_dem_bounds(lonlat_pts):
     minlat = np.min(lonlat_pts[:,1])
     minlon = np.min(lonlat_pts[:,0])
@@ -157,18 +142,3 @@ def get_dem(zoom, bounds, n_width, dest_dir = 'dem_download'):
         (LON, LAT)
     )
     return LON.flatten(), LAT.flatten(), DEM.flatten()
-
-def project(inx, iny, dem, proj_name, inverse = False):
-    wgs84 = pyproj.Proj('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
-    if proj_name == 'ellps':
-        proj = pyproj.Proj('+proj=geocent +datum=WGS84 +units=m +no_defs')
-    elif proj_name.startswith('utm'):
-        zone = proj_name[3:]
-        # print(zone)
-        proj = pyproj.Proj("+proj=utm +zone=" + zone + ", +north +ellps=WGS84 +datum=WGS84 +units=m +no_defs")
-    if inverse:
-        x,y,z = pyproj.transform(proj, wgs84, inx, iny, dem)
-    else:
-        x,y,z = pyproj.transform(wgs84, proj, inx, iny, dem)
-    projected_pts = np.vstack((x,y,z)).T.copy()
-    return projected_pts
