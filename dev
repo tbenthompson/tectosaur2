@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# In Firefox, install the Live Reload extension and set up a rule for:
+# Host URL: http://localhost:8000/*
+# Source file URLs: http://localhost:8000/*
+
+set -e
+trap "kill 0" EXIT
+
+python -m http.server &> /dev/null &
+
+while true
+do
+{ git ls-files; git ls-files . --exclude-standard --others; } | entr -d jupyter-book build .
+done
+
+wait

@@ -1,4 +1,4 @@
-Content in Jupyter Book
+The triangular dislocation element (TDE) sequence
 =======================
 
 There are many ways to write content in Jupyter Book. This short section
