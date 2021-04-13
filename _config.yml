@@ -1,16 +1,17 @@
 # Book settings
 # Learn more at https://jupyterbook.org/customize/config.html
 
-title: My sample book
-author: The Jupyter Book Community
+title: The BIE Book
+author: T. Ben Thompson
+copyright: "2021"
+only_build_toc_files: true
 
 # Force re-execution of notebooks on each build.
 # See https://jupyterbook.org/content/execute.html
 execute:
-  execute_notebooks: 'off'
+  execute_notebooks: cache
   timeout: 600
 
-only_build_toc_files: true
 
 # Define the name of the latex output file for PDF builds
 latex:
@@ -35,9 +36,12 @@ html:
   comments:
     hypothesis: true
   extra_navbar: ""
+  google_analytics_id: UA-114592151-1
+  baseurl: https://tbenthompson.com/book/
 
 sphinx:
   config:
+    bibtex_reference_style: author_year
     mathjax_path: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 parse:
@@ -47,4 +51,10 @@ parse:
     - amsmath
     - dollarmath
     - html_image
-  
+    - colon_fence
+    - linkify
+    - substitution
+    - deflist
+    - html_admonition
+    - replacements
+    - smartquotes

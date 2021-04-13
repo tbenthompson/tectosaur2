@@ -19,3 +19,4 @@ dependencies:
   - pip:
     - cutde
     - pygmsh
+    - sphinxcontrib-bibtex >= 2.2.0
