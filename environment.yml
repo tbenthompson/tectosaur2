@@ -1,4 +1,4 @@
-name: bie_notebooks
+name: bie_book
 channels:
   - conda-forge
 dependencies:
@@ -15,6 +15,7 @@ dependencies:
   - pycuda
   - k3d
   - black
+  - jupyter-book
   - pip:
     - cutde
     - pygmsh
