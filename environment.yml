@@ -16,7 +16,10 @@ dependencies:
   - k3d
   - black
   - jupyter-book
+  - pyopencl
   - pip:
     - cutde
     - pygmsh
     - sphinxcontrib-bibtex >= 2.2.0
+    - loopy
+    - boxtree
