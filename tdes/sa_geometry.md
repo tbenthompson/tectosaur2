@@ -16,7 +16,7 @@ kernelspec:
 
 +++
 
-In the TDEs + Topography post, I used a mesh of the South America subduction zone. In this post, I thought it'd be fun to explain how I built that mesh. 
+In the TDEs + Topography post, I used a mesh of the South America subduction zone. In this post, I thought it'd be fun to explain how I built that mesh.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -67,7 +67,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The mesh itself looks great at first glance! But, there is a mild problem with the element orientations at the southern end of the fault mesh. They don't match the rest of the mesh. To fix the issue I can flip the triangle vertex ordering. Instead of ordering the vertices of a given triangle 0-1-2, I can flip the normal vector by ordering them 0-2-1. I'm actually going to flip the orientation of all the dark blue parts of the mesh since it's a bit nicer to follow the convention that dipping fault normal vector point upwards. This convention results in an upwards-pointing dip vector which is consistent with the upwards dip-vector found in Okada. 
+The mesh itself looks great at first glance! But, there is a mild problem with the element orientations at the southern end of the fault mesh. They don't match the rest of the mesh. To fix the issue I can flip the triangle vertex ordering. Instead of ordering the vertices of a given triangle 0-1-2, I can flip the normal vector by ordering them 0-2-1. I'm actually going to flip the orientation of all the dark blue parts of the mesh since it's a bit nicer to follow the convention that dipping fault normal vector point upwards. This convention results in an upwards-pointing dip vector which is consistent with the upwards dip-vector found in Okada.
 
 ```{code-cell} ipython3
 flip_indices = np.where(normals[:,2] < 0)
@@ -78,6 +78,55 @@ flipped_tris = fault_tris.copy()
 flipped_tris[flip_indices, 1] = fault_tris[flip_indices,2]
 flipped_tris[flip_indices, 2] = fault_tris[flip_indices,1]
 fault_tris = flipped_tris
+```
+
+## Refining the fault mesh
+
+Depending on the situation, it might be nice to refine the fault mesh for more accuracy. A simple approach is to split each triangle into four new triangles based on the midpoints of each edge.
+
+```{code-cell} ipython3
+v0 = fault_pts[fault_tris[:,0]]
+v1 = fault_pts[fault_tris[:,1]]
+v2 = fault_pts[fault_tris[:,2]]
+```
+
+```{code-cell} ipython3
+v01 = 0.5 * (v0 + v1)
+v02 = 0.5 * (v0 + v2)
+v12 = 0.5 * (v1 + v2)
+```
+
+```{code-cell} ipython3
+def plot_edge(a, b):
+    P = np.array([a[0], b[0]])
+    plt.plot(P[:,0], P[:,1], 'k-')
+
+plot_edge(v0, v1)
+plot_edge(v2, v1)
+plot_edge(v2, v0)
+plot_edge(v01, v12)
+plot_edge(v01, v02)
+plot_edge(v12, v02)
+```
+
+```{code-cell} ipython3
+new_pts = np.concatenate([fault_pts, v01, v02, v12])
+v01_idxs = fault_pts.shape[0] + 0 * v01.shape[0] + np.arange(v01.shape[0])
+v02_idxs = v01_idxs + v01.shape[0]
+v12_idxs = v01_idxs + 2 * v01.shape[0]
+```
+
+```{code-cell} ipython3
+import mesh_fncs
+
+new_tris = np.array([
+    [fault_tris[:,0], v01_idxs, v02_idxs],
+    [fault_tris[:,1], v12_idxs, v01_idxs],
+    [fault_tris[:,2], v02_idxs, v12_idxs],
+    [v01_idxs, v12_idxs, v02_idxs],
+])
+new_tris = np.transpose(new_tris, (2, 0, 1)).reshape((-1,3))
+#fault_pts, fault_tris = mesh_fncs.remove_duplicate_pts((new_pts, new_tris))
 ```
 
 ## Downloading DEM data
@@ -105,7 +154,7 @@ def download_file(x, y, z, save_path):
 
 I've wrapped this in a more advanced set of functions that allow passing a longitude-latitude bounding box and downloading the necessary files to create an interpolated digital elevation map.
 
-Let's load up the module that does the DEM collection and just test out the tools. There are two relevant parameters: `zoom` determines the resolution of the DEM data. I'm grabbing a pretty large area of data, so I use a low zoom level of 2. And `n_dem_interp_pts` determines how many interpolation points are used to interpolate the DEM to our exact desired locations from the nearby provided coordinates. 
+Let's load up the module that does the DEM collection and just test out the tools. There are two relevant parameters: `zoom` determines the resolution of the DEM data. I'm grabbing a pretty large area of data, so I use a low zoom level of 2. And `n_dem_interp_pts` determines how many interpolation points are used to interpolate the DEM to our exact desired locations from the nearby provided coordinates.
 
 ```{code-cell} ipython3
 import collect_dem
@@ -142,6 +191,9 @@ And then, just via trial and error, I found that boundary loop indices 130-258 c
 ```{code-cell} ipython3
 plt.figure(figsize = (16, 2.0))
 upper_edge_idxs = boundary_loop[130:258]
+# If we had refined the mesh above, this line will provide the 
+# correct upper_edge_idxs
+# upper_edge_idxs = boundary_loop[259:514]
 upper_edge_pts = fault_pts[upper_edge_idxs,:]
 upper_edge_pts.shape
 plt.plot(fault_pts[upper_edge_idxs, 1], fault_pts[upper_edge_idxs, 2], 'b-*', markersize = 4)
@@ -207,7 +259,7 @@ mesh = pygmsh.generate_mesh(
 )
 ```
 
-Let's plot the resulting mesh. The output format is from the `meshio` package. 
+Let's plot the resulting mesh. The output format is from the `meshio` package.
 
 ```{code-cell} ipython3
 surf_pts = mesh.points
@@ -275,5 +327,9 @@ plt.show()
 Awesome! The mesh is ready to use and I'll save it to disk for safe-keeping.
 
 ```{code-cell} ipython3
-np.save(f'sa_mesh{mesh_size_divisor}.npy', np.array([(surf_pts, surf_tris), (fault_pts, fault_tris)], dtype=object))
+np.save(f'sa_mesh{mesh_size_divisor}_{fault_tris.shape[0]}.npy', np.array([(surf_pts, surf_tris), (fault_pts, fault_tris)], dtype=object))
+```
+
+```{code-cell} ipython3
+
 ```

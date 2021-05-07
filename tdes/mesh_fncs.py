@@ -4,6 +4,29 @@ import scipy.sparse.csgraph
 import collect_dem
 import copy
 
+def remove_duplicate_pts(m, threshold=None):
+    threshold = None
+    dim = m[0].shape[1]
+    if threshold is None:
+        default_threshold_factor = 1e-13
+        spatial_range = np.max(np.max(m[0], axis = 0) - np.min(m[0], axis = 0))
+        threshold = spatial_range * default_threshold_factor
+    kd = scipy.spatial.cKDTree(m[0])
+    pairs = np.array(list(kd.query_pairs(threshold)))
+    sorted_pairs = np.sort(pairs, axis = 1)
+    sorted_pairs = sorted_pairs[np.argsort(sorted_pairs[:,1]),:]
+
+    remove_idxs = sorted_pairs[:,1]
+    remaining_idxs = np.setdiff1d(np.arange(m[0].shape[0]), remove_idxs)
+
+    old_to_new_map = np.zeros(m[0].shape[0], dtype=np.int64)
+    old_to_new_map[remaining_idxs] = np.arange(remaining_idxs.shape[0])
+    old_to_new_map[sorted_pairs[:,1]] = old_to_new_map[sorted_pairs[:,0]]
+
+    new_pts = m[0][remaining_idxs]
+    new_tris = old_to_new_map[m[1]]
+    return new_pts, new_tris
+
 def remove_unused_pts(m):
     referenced_pts = np.unique(m[1])
     new_pts = m[0][referenced_pts,:]

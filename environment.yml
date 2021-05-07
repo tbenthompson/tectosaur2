@@ -12,11 +12,13 @@ dependencies:
   - pyproj
   - gdal
   - gmsh
-  - pycuda
+  # - pycuda
   - k3d
   - black
   - jupyter-book
   - pyopencl
+  - psutil
+  - pandas
   - pip:
     - cutde
     - pygmsh

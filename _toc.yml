@@ -4,9 +4,10 @@
 - file: intro
 - file: tde_intro
   sections:
-    - file: tdes/sa_tdes
-    - file: tdes/sa_geometry
-    - file: tdes/tde_limits
+    # - file: tdes/sa_tdes
+    # - file: tdes/sa_geometry
+    - file: tdes/free_matvec
+    - file: tdes/low_rank
 - file: qbx_intro
 - file: references
 # - file: tdes/fmm_tde
