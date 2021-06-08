@@ -680,7 +680,7 @@ for i in range(10):
 Wow! We've finally built our full H-matrix! Since the whole point of this adventure has been to sparsify a dense matrix, let's see how much less memory the H-matrix uses. For this problem, the H-matrix uses about 1/9th the memory as the dense version. But, since the H-matrix scales almost linearly and the dense version scales quadratically, this compression will rapidly increase for larger problems. In the next TDE section, we'll build a much bigger H-matrix and deal with a problem that would be infeasible to handle without compression.
 
 ```python
-approx_nbytes = np.sum([U.nbytes + V.nbytes for U, V in approx_blocks_svd])
+approx_nbytes = np.sum([U.nbytes + V.nbytes for U, V in approx_blocks_gpu])
 direct_nbytes = np.sum([d.nbytes for d in direct_blocks])
 hmatrix_nbytes = approx_nbytes + direct_nbytes
 dense_nbytes = (surf_tris.shape[0] * 3) ** 2 * 8
@@ -774,8 +774,8 @@ def direct_dot(long[::1] obs_start, long[::1] obs_end,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef double* get_ptr_from_array(X):
-    cdef double[::1] X_view = X
-    cdef double* X_ptr = &X_view[0]
+    cdef double[::, ::1] X_view = X
+    cdef double* X_ptr = &X_view[0, 0]
     return X_ptr
 
 @cython.boundscheck(False)
@@ -783,7 +783,7 @@ cdef double* get_ptr_from_array(X):
 def approx_dot(long[::1] obs_start, long[::1] obs_end, 
                long[::1] src_start, long[::1] src_end, 
                approx_UV, double[::1] x_tree):
-    cdef int k
+    cdef int i, k
     cdef int block_obs_start, block_src_start
     cdef int block_obs_end, block_src_end
     cdef int block_start, n_rows, n_cols
@@ -796,68 +796,36 @@ def approx_dot(long[::1] obs_start, long[::1] obs_end,
     cdef double[::1] temp_buffer_view = temp_buffer
     
     cdef int thread_id
+    cdef int rank
     cdef double* thread_buffer_ptr
     cdef double* U_ptr
     cdef double* V_ptr
     
-    for k in prange(obs_start.shape[0], nogil=True):
-        with gil:
-            U_ptr = get_ptr_from_array(approx_UV[k][0])
-            V_ptr = get_ptr_from_array(approx_UV[k][1])
+    #for k in prange(obs_start.shape[0], nogil=True):
+    for k in range(obs_start.shape[0]):
+        
+        #with gil:
+        rank = approx_UV[k][0].shape[1]
+        U_ptr = get_ptr_from_array(approx_UV[k][0])
+        V_ptr = get_ptr_from_array(approx_UV[k][1])
         thread_id = openmp.omp_get_thread_num()
         thread_buffer_ptr = &temp_buffer_view[thread_id * max_rank]
+        for i in range(rank):
+            thread_buffer_ptr[i] = 0.0
         
         single_block_dot(
-            obs_end[k] * 3 - obs_start[k] * 3, 
+            rank,
             src_end[k] * 3 - src_start[k] * 3, 
             V_ptr, &x_tree[src_start[k] * 3], 
             thread_buffer_ptr
         )
         single_block_dot(
             obs_end[k] * 3 - obs_start[k] * 3, 
-            src_end[k] * 3 - src_start[k] * 3, 
+            rank, 
             U_ptr, thread_buffer_ptr,
             &y_tree[obs_start[k] * 3]
         )
     return y_tree_arr
-```
-
-```python
-approx_obs_starts.shape
-```
-
-```python
-%%time
-y_approx = np.zeros(n_rows)
-for i in range(len(approx_blocks_svd)):
-    obs_node, src_node = approx[i]
-    x_chunk = x_tree[src_node.idx_start*3:src_node.idx_end*3]
-    U, V = approx_blocks_svd[i]
-    y_chunk = U.dot(V.dot(x_chunk))
-    y_approx[obs_node.idx_start*3:obs_node.idx_end*3] += y_chunk
-```
-
-```python
-y_approx2 = approx_dot(approx_obs_starts, approx_obs_ends, 
-                       approx_src_starts, approx_src_ends, 
-                       approx_blocks_svd, x_tree)
-```
-
-```python
-y_approx2
-```
-
-```python
-%%timeit  
-y_tree2 = direct_dot(direct_obs_starts, direct_obs_ends, 
-                        direct_src_starts, direct_src_ends, 
-                        packed_blocks, block_starts, 
-                        x_tree)
-```
-
-```python
-%%timeit
-y_true = full_mat2d.dot(x)
 ```
 
 ```python
@@ -872,10 +840,29 @@ y_direct2 = direct_dot(direct_obs_starts, direct_obs_ends,
                     direct_src_starts, direct_src_ends, 
                     packed_blocks, block_starts, 
                     x_tree)
+
+print(np.max(np.abs(y_direct2 - y_direct)))
 ```
 
 ```python
-print(np.max(np.abs(y_direct2 - y_direct)))
+y_approx = np.zeros(n_rows)
+for i in range(len(approx_blocks_gpu)):
+    obs_node, src_node = approx[i]
+    x_chunk = x_tree[src_node.idx_start*3:src_node.idx_end*3]
+    U, V = approx_blocks_gpu[i]
+    y_chunk = U.dot(V.dot(x_chunk))
+    y_approx[obs_node.idx_start*3:obs_node.idx_end*3] += y_chunk
+
+y_approx2 = approx_dot(approx_obs_starts, approx_obs_ends, 
+                       approx_src_starts, approx_src_ends, 
+                       approx_blocks_gpu, x_tree)
+
+print(np.max(np.abs(y_approx - y_approx2)))
+```
+
+```python
+%%timeit
+y_true = full_mat2d.dot(x)
 ```
 
 ```python
