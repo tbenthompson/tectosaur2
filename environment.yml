@@ -19,6 +19,7 @@ dependencies:
   - pyopencl
   - psutil
   - pandas
+  - line_profiler
   - pip:
     - cutde
     - pygmsh

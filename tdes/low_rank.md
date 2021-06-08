@@ -14,7 +14,9 @@ jupyter:
 
 # Low rank approximation of BEM matrices with adaptive cross approximation (ACA).
 
-In the last section, I demonstrated how to avoid constructing the full dense BEM matrix by regenerating the matrix whenever they are needed. This can be helpful for reducing memory costs and, in some situations, actually results in a faster solver too. Here, I'll improve upon that solution by demonstrating how the off-diagonal blocks of a BEM matrix can be compressed via a low-rank approximation. The result will be $O(n\log n )$ solution methods that can scale up to millions of elements. Hierarchical matrices, tree-codes, fast multipole methods and several other techniques all make use of this concept.
+In the last section, I demonstrated how to avoid constructing the full dense BEM matrix by regenerating the matrix whenever they are needed. This can be helpful for reducing memory costs and, in some situations, actually results in a faster solver too. But, it still suffers from the fundamental problem of having to work with a dense matrix where each matrix-vector product is an $O(n^2)$ operation. Ultimately, for boundary integral methods to be a useful technology, we need to avoid working with dense matrices entirely. 
+
+So, here, I'll be demonstrating how the off-diagonal blocks of a BEM matrix can be dramatically compressed via a low-rank approximation. The result will be $O(n\log n)$ or $O(n)$ solution methods that can scale up to millions of elements. Hierarchical matrices (aka H-matrices), tree-codes, fast multipole methods (FMM) and several other techniques all make use of this basic concept. I'd argue that use of these linear or log-linear runtime methods is the largest distinguishing factor between "basic" BEM approaches from "advanced" or "modern" BEM approaches. So, let's dive into a tour of low rank matrices! The next section will build on the tools we build here to approximate an entire BEM problem. 
 
 To start out, let's generate, yet again, a simple self-interaction matrix for a free surface. I hid these cells since the code is nothing new.
 
@@ -22,6 +24,7 @@ To start out, let's generate, yet again, a simple self-interaction matrix for a 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 %config InlineBackend.figure_format='retina'
 
 import cutde
@@ -45,12 +48,14 @@ for i in range(n_els_per_dim):
         y1, y2 = mesh_ys[j : j + 2]
         surf_tris.append([idx(i, j), idx(i + 1, j), idx(i + 1, j + 1)])
         surf_tris.append([idx(i, j), idx(i + 1, j + 1), idx(i, j + 1)])
-        
+
 surf_tris = np.array(surf_tris, dtype=np.int64)
 surf_tri_pts = surf_pts[surf_tris]
 surf_centroids = np.mean(surf_tri_pts, axis=1)
 
-surf_surf_mat = cutde.disp_matrix(surf_centroids + np.array([0,0,0.01]), surf_pts[surf_tris], 0.25)
+surf_surf_mat = cutde.disp_matrix(
+    surf_centroids + np.array([0, 0, 0.01]), surf_pts[surf_tris], 0.25
+)
 
 lhs_reordered = np.empty_like(surf_surf_mat)
 lhs_reordered[:, :, :, 0] = surf_surf_mat[:, :, :, 1]
@@ -64,7 +69,7 @@ A = lhs_reordered
 
 ## Near-field vs far-field
 
-But, this time, let's dig in and investigate the matrix itself. In particular, we'll start by looking at two blocks of the matrix. 
+This time we'll dig in and investigate the matrix itself. In particular, we'll start by looking at two blocks of the matrix. 
 1. A "near-field" block will contain the diagonal of the matrix. Remember that the diagonal of the matrix consists of entries representing the displacement at the center of the same element on which the slip occurred. You can see the bright yellow diagonal in the figure below. The coefficients also decay rapidly away from the diagonal. 
 2. The other, a "far-field" block will consist of matrix entries coming from interactions between observation points and source elements that are very far from each other. In the figure below, there's no intense variation in coefficients. 
 
@@ -72,7 +77,7 @@ The thing to notice here is that there is, in some sense, just a lot more going 
 
 ```python
 nrows = 150
-near_field_block = A[:nrows,:nrows]
+near_field_block = A[:nrows, :nrows]
 far_field_block = A[-nrows:, :nrows]
 
 log_near = np.log10(near_field_block)
@@ -80,13 +85,13 @@ log_near[np.isnan(log_near)] = -10
 log_far = np.log10(far_field_block)
 log_far[np.isnan(log_far)] = -10
 
-fig = plt.figure(figsize=(8,4))
-plt.subplot(1,2,1)
+fig = plt.figure(figsize=(8, 4))
+plt.subplot(1, 2, 1)
 plt.imshow(log_near, vmin=-10, vmax=1)
-plt.title('Near-field')
-plt.subplot(1,2,2)
+plt.title("Near-field")
+plt.subplot(1, 2, 2)
 ims = plt.imshow(log_far, vmin=-10, vmax=1)
-plt.title('Far-field')
+plt.title("Far-field")
 cbar_ax = fig.add_axes([0.935, 0.125, 0.015, 0.75])
 cb = fig.colorbar(ims, cax=cbar_ax)
 plt.show()
@@ -99,13 +104,13 @@ x = np.random.rand(nrows)
 y1 = near_field_block.dot(x)
 y2 = far_field_block.dot(x)
 
-plt.figure(figsize = (8, 4))
-plt.subplot(1,2,1)
+plt.figure(figsize=(8, 4))
+plt.subplot(1, 2, 1)
 plt.plot(np.log10(np.abs(y1[2::3])))
-plt.title('Near-field')
-plt.subplot(1,2,2)
+plt.title("Near-field")
+plt.subplot(1, 2, 2)
 plt.plot(np.log10(np.abs(y2[2::3])))
-plt.title('Far-field')
+plt.title("Far-field")
 plt.show()
 ```
 
@@ -118,49 +123,81 @@ U_far, S_far, V_far = np.linalg.svd(far_field_block)
 
 The plot below shows the $\log_{10}$ ratio of each singular value to the first singular value. Things to note here:
 * The near-field singular values do not decay. They are almost all between 1.58 and 1.41. This reflects the behavior above where the randomness of the `x` vector was mostly preserved.
-* The far-field singular values decay very quickly. The majority of the singular values are smaller than 1e-6. In other words, the matrix has a "1e-6 approximate rank" of 24 despite technically have a rank of 150. That means that if we only care about accuracy up to about 6 digits, then we can compress this matrix by a factor of 6. 
+* The far-field singular values decay very quickly. The majority of the singular values are smaller than 1e-6. In other words, the matrix has a "1e-6 approximate rank" of 14 despite technically have a rank of 150. That means that if we only care about accuracy up to about 6 digits, then we can compress this matrix by a factor of 6. 
 
 ```python
-# The 24th singular value is below 1e-6.
-S_far[24] / S_far[0]
-```
-
-```python
-plt.plot(np.log10(S_near / S_near[0]), label = 'nearfield')
-plt.plot(np.log10(S_far / S_far[0]), label = 'farfield')
+plt.plot(np.log10(S_near / S_near[0]), label="nearfield")
+plt.plot(np.log10(S_far / S_far[0]), label="farfield")
 plt.legend()
 plt.show()
 ```
 
-## Approximation with the singular value decomposition (SVD)
-
-So, if these off-diagonal blocks of the matrix have singular values that decay quite quickly, can we approximate these blocks with just a few singular values? The answer is an emphatic yes and this idea is the basis of low-rank approximation methods. Let's explore this idea a bit more with a larger block of the matrix. Because it's also off-diagonal, this block shows the same singular value magnitude decay that we saw before. 
+The 14th singular value is below 1e-6.
 
 ```python
-block = A[-3000:,:3000]
+S_far[14] / S_far[0]
+```
+
+## Approximation with the singular value decomposition (SVD)
+
+So, if these off-diagonal blocks of the matrix have singular values that decay quite quickly, can we approximate these blocks with just a few singular values? The answer is an emphatic yes and this idea is the basis of low-rank approximation methods. Let's explore this idea a bit more with a larger block coming the lower left corner of the matrix. Because it's also off-diagonal, this block shows the same singular value magnitude decay that we saw before. 
+
+```python
+block = A[-3000:, :3000]
 U, S, V = np.linalg.svd(block)
 
 plt.plot(np.log10(S / S[0]))
 plt.show()
 ```
 
-So, what if we take all the singular values greater than $10^{-5} * S_0$ in magnitude. There are only 74 such singular values, meaning that we can compress this matrix by a factor of 10.
+To continue, it's useful to define what the relevant metric for the matrix approximation that we're going to do. A useful norm is the Frobenius norm because it depends only on the matrix entries and for a matrix $M \in \mathbb{R}^{n x m}$ is defined as:
+\begin{equation}
+\|M\|_F = \sqrt{\sum_{i,j}^{m,n} M_{ij}^2}
+\end{equation}
+An important fact is that the Frobenius norm of a matrix is the root of the sum of the square of the singular values. That is:
+\begin{equation}
+\|M\|_F = \sqrt{\sum_{k}^{min(m,n)} \sigma_k^2}
+\end{equation}
+
+So, what if we want to approximate a matrix with a particular tolerance, $\epsilon$ in terms of the Frobenius norm? One way to do it will be to compute the SVD and then find the first $K$ for which
+\begin{equation}
+\sqrt{\sum_{k=1}^K \sigma_k^2} - \|M\|_F = \sqrt{\sum_{k=K}^{min(m,n)} \sigma_k^2} < \epsilon
+\end{equation}
+
+The middle sum from $K$ to the number of rows/columns is essentially a measure of how important the dropped singular values are. So we want that sum to be smaller than our tolerance! The actual implementation below is surprisingly simple.
+
+Here, I'll choose $\epsilon = 10^{-8}$. As demonstrated below, we only need the first 40 singular values to compute such an approximation, meaning that we can compress this matrix by a factor of 37.5x!
 
 ```python
-appx_rank = np.where(S < 1e-6 * S[0])[0][0]
+eps = 1e-8
+eps
+```
+
+```python
+# Reverse the list of singular values and sum them to compute the
+# error from each level of truncation.
+frob_K = np.sqrt(np.cumsum(S[::-1] ** 2))[::-1]
+
+appx_rank = np.argmax(frob_K < eps)
 appx_rank
 ```
 
-And let's take a look at the performance and error resulting from applying this low rank approximation to a random vector. First, I'll create an random input vector `x`. Then, I'll form two matrices `Uappx` and `Vappx`. You can sort of think of these as the entrance and exit to our low-dimensional space that very efficiently represents the TDE interaction. Mutliplying `Vappx` by the 1500-dimensional `x` returns a 74-dimensional vector and then we expand back to 1500 dimensional by multiplying by `Uappx`. 
+```python
+frob_K
+```
+
+And let's take a look at the performance and error resulting from applying this low rank approximation to a random vector. First, I'll create an random input vector `x`. Then, I'll form two matrices `Uappx` and `Vappx`. You can sort of think of these as the entrance and exit to our low-dimensional space that very efficiently represents the TDE interaction. Mutliplying `Vappx` by the 3000-dimensional `x` returns a 40-dimensional vector and then we expand back to 3000 dimensional by multiplying by `Uappx`. 
 
 ```python
-x = np.random.rand(block.shape[1])
-
-Uappx = U[:,:appx_rank]
+Uappx = U[:, :appx_rank]
 Vappx = S[:appx_rank, None] * V[:appx_rank]
 ```
 
-Next, I'll calculate the correct matrix vector product, `y_true` and record the runtime. 
+Next, I'll calculate the correct matrix vector product, `y_true = block.dot(x)` and record the runtime. 
+
+```python
+x = np.random.rand(block.shape[1])
+```
 
 ```python
 full_time = %timeit -o block.dot(x)
@@ -178,17 +215,19 @@ A cursory comparison of the output suggests that the approximation is very very 
 
 ```python
 print(y_true[:5], y_appx[:5])
-
-speedup = full_time.best / lowrank_time.best
-memory_reduction = block.nbytes / (Uappx.nbytes + Vappx.nbytes)
-speedup, memory_reduction
 ```
+
+And the calculation is far, far faster!!
 
 ```python
-from myst_nb import glue
-my_variable = "here is some text!"
-glue("cool_text", my_variable)
+speedup = full_time.best / lowrank_time.best
+memory_reduction = block.nbytes / (Uappx.nbytes + Vappx.nbytes)
+print(f"speed up         = {speedup}")
+print(f"memory reduction = {memory_reduction}")
 ```
+
+## TODO: LEARN HOW TO USE {glue:} and connect the calculatio
+
 
 ```{glue:}`cool_text`
 ```
@@ -202,32 +241,36 @@ print("Hallo!")
 ```
 
 
-Let's do a bit more detailed investigation of the error and look at the $L^1$, $L^2$ and $L^{\infty}$ error. We'll also compare the Frobenius norm of the approximated matrix with the Frobenius norm of the original matrix. 
+Let's do a bit more detailed investigation of the error and look at the $L^1$, $L^2$ and $L^{\infty}$ relative error in the matrix vector product. We'll also compare the Frobenius norm of the approximated matrix with the Frobenius norm of the original matrix. 
 
 ```python
-rel_err = np.abs((y_appx - y_true) / y_true)
+abs_true = np.abs(y_true)
+l2_true = np.mean(abs_true)
+l1_true = np.mean(abs_true)
+linf_true = np.max(abs_true)
 
-l2_err = np.sqrt(np.mean(rel_err ** 2))
-l1_err = np.mean(rel_err)
-linf_err = np.max(rel_err)
-print(f'L1        = {l1_err},  L2        = {l2_err},   Linf  = {linf_err}')
-
-frob = np.sum(Uappx.dot(Vappx) ** 2)
-true_frob = np.sum(block ** 2)
-frob, true_frob, np.abs(frob - true_frob)
-print(f'appx frob = {frob}  true_frob = {true_frob},  error = {np.abs(frob-true_frob)}')
+abs_diff = np.abs(y_appx - y_true)
+l2_err = np.sqrt(np.mean(abs_diff ** 2)) / l2_true
+l1_err = np.mean(abs_diff) / l1_true
+linf_err = np.max(abs_diff) / linf_true
+true_frob = np.sqrt(np.sum(block ** 2))
+frob_err = np.sqrt(np.sum((Uappx.dot(Vappx) - block) ** 2))
+print(f"L1(UVx-y)        = {l1_err}")
+print(f"L2(UVx-y)        = {l2_err}")
+print(f"Linf(UVx-y)      = {linf_err}")
+print(f"Frobenius(M-UV) = {frob_err}")
 ```
 
-It looks like this SVD approximation worked out really well here! We're getting tolerable matrix-vector product errors that are all on the same order of magnitude as the threshold we used for the singular value cutoff. And the approximate matrix itself is extremely similar to the original matrix.
+It looks like this SVD approximation worked out really well here! We're getting very low error matrix-vector products. These errors are all somewhat similar to threshold we used for the singular value cutoff. And, based on the Frobenius error, the approximate matrix itself is extremely similar to the original matrix. The Frobenius error is just barely better than our tolerance condition. 
 
 Before we move on, I'll record these error values in a dataframe so that it's easy to compare with the fancier methods in the next two sections.
 
 ```python
 err_df = pd.DataFrame(
-    index=['Rank', 'L2(Ax-y)','L1(Ax-y)','Linf(Ax-y)','Frobenius(A)'], 
-    data=dict(true=[block.shape[0], 0, 0, 0, true_frob])
+    index=["Rank", "L2(UVx-y)", "L1(UVx-y)", "Linf(UVx-y)", "Frobenius(M-UV)"],
+    data=dict(true=[block.shape[0], 0, 0, 0, 0]),
 )
-err_df['SVD'] = [appx_rank, l2_err, l1_err, linf_err, frob]
+err_df["SVD"] = [appx_rank, l2_err, l1_err, linf_err, frob_err]
 ```
 
 ```python
@@ -236,18 +279,18 @@ err_df.T
 
 ## Adaptive cross approximation (ACA)
 
-So, we've managed to create an extremely efficient approximation our off-diagonal matrix block by using the SVD. That's definitely useful for computing fast matrix-vector products or even for computing a LU decomposition. But, it still suffers from the need to compute the entire matrix block in the first place. If we're going to be throwing all that information away immediately after computing the SVD, is there a way to avoid computing the dense matrix block in the first place? There are several solutions to this problem including randomized SVDs, but the most useful solution for our setting is the adaptive cross approximation (ACA) method. These algorithms depending on the ability to compute arbitrary individual matrix entries without computing the entire matrix. By making certain assumptions about the structure of a matrix, we can be confident that an accurate approximation can be constructed from just a few entries. 
+So, we've managed to create an extremely efficient approximation of our off-diagonal matrix block by using the SVD. That's definitely useful for computing fast matrix-vector products or even for computing a LU decomposition. But, it still suffers from the need to compute the entire matrix block in the first place (an $O(n^2)$ operation!). If we're going to be throwing all that information away immediately after computing the SVD, is there a way to avoid computing the dense matrix block in the first place? There are several solutions to this problem like randomized SVDs, but the most useful solution for our setting is the adaptive cross approximation (ACA) method. These algorithms depending on the ability to compute arbitrary individual matrix entries without computing the entire matrix. By making certain assumptions about the structure of a matrix, we can be confident that an accurate approximation can be constructed from just a few rows and columns. 
 
-The basic idea of ACA is to approximate a matrix with the as a rank 1 outer product of one row and one column of that same matrix. And then iteratively use this process to construct a approximation of arbitrary precision. Ideally, at each step, we will choose the best fitting row and column. After the first iteration, we are no longer trying to approximate the original matrix, but instead the residual matrix formed by the difference between the original matrix and the current approximation matrix. Eventually, assuming certain matrix properties that are proven true for BEM problem, the procedure will converge. 
+The basic idea of ACA is to approximate a matrix with a rank 1 outer product of one row and one column of that same matrix. And then iteratively use this process to construct an approximation of arbitrary precision. Ideally, at each step, we will choose the best fitting row and column. After the first iteration, we are no longer trying to approximate the original matrix, but instead we approximate the residual matrix formed by the difference between the original matrix and the current approximation matrix. Eventually, given certain matrix properties that have been proven true for BEM problem (TODO: CITATION?), the procedure will converge. 
 
-For the sake of real-world usage, the description above will be sufficient, but
+For the sake of real-world usage, the description above will be sufficient for understanding what's going on. But, if you want to dive into a detailed description and implementation of the method, see below! 
 
 ## ACA and ACA+, the details
 The simple version, runs like (following CITE GRASEDYCK 2005):
 
-**ACA with full pivoting**: Given a matrix $M \in \mathbb{R}^{n x m}$, we'll construct an approximation like $\sum_{k}^{r} u_k v_k^T$. The task will be to construct $u_k$ and $v_k$ on each iteration such that the Frobenius norm error eventually converges. To do that, the key will be to iteratively form rank-1 approximations to the residual matrix. The residual matrix is the matrix forming the difference between $M$ and the current approximation and can be written as $R_{ij} = M_{ij} - \sum_{k}^{r} u_{kj} v_{ki}$ which represents the entry-wise difference between the target matrix and the current approximation. The goal will be to have $R$ satisfy $\|R\|_2 < \epsilon\|M\|_2$ where $\epsilon$ is a user-specified accuracy parameter. To do this, during each iteration:
+**ACA with full pivoting**: Given a matrix $M \in \mathbb{R}^{n x m}$, we'll construct an approximation like $\sum_{k}^{r} u_k v_k^T$. The task will be to construct $u_k$ and $v_k$ on each iteration such that the Frobenius norm error eventually converges. To do that, the key will be to iteratively form rank-1 approximations to the residual matrix. The residual matrix is the matrix forming the difference between $M$ and the current approximation and can be written as $R_{ij} = M_{ij} - \sum_{k}^{r} u_{kj} v_{ki}$ representing the entry-wise difference between the target matrix and the current approximation. The goal will be to have $R$ satisfy $\|R\|_2 < \epsilon\|M\|_2$ where $\epsilon$ is a user-specified accuracy parameter. To do this, during each iteration:
 1. Determine a "pivot" $(i^*, j^*)$ as the indices that maximize $R_{ij}$.
-2. Assign: 
+2. Assign a new rank-1 component of the approximation: 
 
     \begin{align}
     u_{kj} &= R_{i^*,j} / R_{i^*,j^*} \\
@@ -256,16 +299,16 @@ The simple version, runs like (following CITE GRASEDYCK 2005):
 3. Update $R$ to account for the new rank-1 update to the approximation. 
 4. If the magnitude of the $u_k v_k$ update is small enough, stop. Otherwise, return to step 1.
 
-The reason the algorithm is called "ACA with full pivoting" is because we're allowing the algorithm to choose an arbitrary $(i^*, j^*)$ in the first step. However, that is impossible in our real-world setting because we don't have all the entries of $M$. 
+The reason the algorithm is called "ACA with full pivoting" is because we're allowing the algorithm to choose an arbitrary $(i^*, j^*)$ in the first step. However, that is impossible in our real-world setting because we don't have all the entries of $M$. Computing all the entries of $M$ is exactly what we're trying to avoid! But, this basic "full information" algorithm is instructive and can be modified slightly so that we don't need the whole matrix.
 
-**ACA+**: So, instead, most real-world application use either ACA with partial pivoting or the ACA+ algorithm. Here, I'll introduce the modifications necessary for ACA+. The main distinction is that instead of searching over all matrix indices in step 1, we will search over a subset specified by a random row and a random row. 
+**ACA+**: Most real-world application use either *ACA with partial pivoting* or the ACA+ algorithm. Here, I'll introduce the modifications necessary for ACA+. The main distinction is that instead of searching over all matrix indices in step 1, we will search over a subset specified by a random row and a random row. This row and column will be our window into the matrix. Instead of finding the largest entry across the full pivoting algorithm in step 1, we will just find the largest entry in either the row window or the column window.
 
-Before starting the iteration, we choose a random row, $i_{\mathrm{ref}}$ and random $j_{\mathrm{ref}}$. And we will maintain the corresponding row and column of the residual matrix, $R$. At the start of the algorithm $R_{i_{\mathrm{ref}}, j} = M_{i_{\mathrm{ref}}, j}$ and $R_{i, j_{\mathrm{ref}}} = M_{i, _{\mathrm{ref}}j}$ 
+The algorithm: Before starting the iteration, we choose a random row, $i_{\mathrm{ref}}$ and random $j_{\mathrm{ref}}$. And we will maintain the corresponding row and column of the residual matrix, $R$. At the start of the algorithm $R_{i_{\mathrm{ref}}, j} = M_{i_{\mathrm{ref}}, j}$ and $R_{i, j_{\mathrm{ref}}} = M_{i, _{\mathrm{ref}}j}$ 
 
 Then, the iteration proceeds like:
 1. Find the index $j^*$ that maximizes $R_{i_{\mathrm{ref}}, j}$ and the index $i^*$ that maximizes $R_{i, j_{\mathrm{ref}}}$. Essentially, we are finding the largest entries in each of these vectors. 
-2. If $R_{i_{\mathrm{ref}}, j^*} > R_{i^*, j_{\mathrm{ref}}}$ then, we compute column corresponding to $j^*$ or vice-versa or the row corresponding to $i^*$. Essentially, we are determining here whether we should pivot first based on the row or the column. 
-3. If we pivoted based on column, we should now have computed a new residual row $R_{i,j^*} = M_{i,j^*} - \sum_{k}^{r} u_{kj^*} v_{ki}$. Find the missing pivot index now by maximizing $R_{i,j^*}$ to get $i^*$. Or if we pivoted on the row, we will have a new residual column $R_{i^*,j} = M_{i^*,j} - \sum_{k}^{r} u_{kj} v_{ki^*}$ and we maximize $R_{i^*,j}$ to get $j^*$. The idea here is to finish the pivot operation from step 2 by pivoting in the dimension that we have not considered yet. At each step, we are essentially trying to find the largest residual matrix element out of all the entries we have seen so far with the goal of getting as close as possible to the full pivoting algorithm without actually needing to calculate all the residual matrix elements. In particular, note how we calculate the residual row (column) here by compute the original matrix row and then subtracting the row (column) of the current approximation. This is critical since it means that we're only compunting a single row or column of the original matrix. (Aside: Why am I referring to the identification of the largest entries as "pivoting"? This is by analogy to various matrix operations like LU decomposition where the numerical stability is best when the largest entries are handled first. ACA can also be reframed as an iterative triangular decomposition of a matrix.)
+2. If $R_{i_{\mathrm{ref}}, j^*} > R_{i^*, j_{\mathrm{ref}}}$ then, we compute the column corresponding to $j^*$ or if the opposite is true, we compute the row corresponding to $i^*$. Essentially, we are determining here whether we should pivot first based on the row or the column. 
+3. If we pivoted based on column, we should now have computed a new residual column $R_{i,j^*} = M_{i,j^*} - \sum_{k}^{r} u_{kj^*} v_{ki}$. Find the missing pivot index now by maximizing $R_{i,j^*}$ to get $i^*$. Or if we pivoted on the row, we will have a new residual row $R_{i^*,j} = M_{i^*,j} - \sum_{k}^{r} u_{kj} v_{ki^*}$ and we maximize $R_{i^*,j}$ to get $j^*$. The idea here is to finish the pivot operation from step 2 by pivoting in the dimension that we have not considered yet. At each step, we are essentially trying to find the largest residual matrix element out of all the entries we have seen so far with the goal of getting as close as possible to the full pivoting algorithm without actually needing to calculate all the residual matrix elements. Why am I referring to the identification of the largest entries as "pivoting"? This is by analogy to various matrix operations like LU decomposition where the numerical stability is best when the largest entries are handled first. ACA can also be reframed as an iterative triangular decomposition of a matrix. Before moving on, note how we calculate the residual row (column) here by computing the original matrix row and then subtracting the row (column) of the current approximation. This is critical since it means that we're only compunting a single row or column of the original matrix. 
 4. Next, just like in the full pivoting algorithm, assign: 
 
     \begin{align}
@@ -275,7 +318,7 @@ Then, the iteration proceeds like:
 5. And update the $R_{i_{\mathrm{ref}}, j}$ row and $R_{i, j_{\mathrm{ref}}}$ by subtracting the new terms of the approximation.
 6. Finally, if the magnitude of the $u_k v_k$ update is small enough, stop. Otherwise, return to step 1.
 
-I've deliberately left some of the details vague in order to make the salient features of the algorithm more prominent. But, below, I'm going to go through a full implementation of the algorithm so hopefully that will clear up any of the details.
+I hope the key difference with the full pivoting algorithm is now clear -- we only need to compute a single row and a single column of the matrix for each iteration. If the algorithm converges in a number of iterations less than the rank of the matrix $M$, then we will have computed only a small subset of the entries. I've deliberately left some of the details vague in order to make the salient features of the algorithm more prominent. But, below, I'm going to go through a full implementation of the algorithm so hopefully that will clear up any of the details. 
 
 
 ## Implementing ACA+
@@ -283,8 +326,38 @@ I've deliberately left some of the details vague in order to make the salient fe
 An implementation of ACA+ is below. I've put lots of comments throughout to help explain the details. But, if you don't want to dive in on the details here, 
 
 ```python
-def ACA_plus(M, eps, verbose=False):
-    # a quick helper function that will help find the largest entry in 
+def ACA_plus(n_rows, n_cols, calc_rows, calc_cols, eps, max_iter=None, verbose=False):
+    """
+    Run the ACA+ plus algorithm on a matrix implicitly defined by the
+    row and column computation functions passed as arguments.
+
+    :param n_rows:
+    :param n_cols:
+    :param calc_rows: A function that accepts two parameters (Istart, Iend)
+        specifying the first and last row desired and returns a numpy array
+        with shape (Iend-Istart, N_col) with the corresponding rows of the
+        input matrix
+    :param calc_cols: A function that accepts two parameters (Jstart, Jend)
+        specifying the first and last column desired and returns a numpy array
+        with shape (N_rows, Jend-Jstart) with the corresponding columns of the
+        input matrix
+    :param eps: The tolerance of the approximation. The convergence condition is
+        in terms of the difference in Frobenius norm between the target matrix
+        and the approximation
+    :param max_iter:
+    :param verbose: Should we print information at each iteration. Just included
+        for demonstration here.
+
+    :return U_ACA: The left-hand approximation matrix.
+    :return V_ACA: The right-hand approximation matrix.
+    """
+
+    us = []  # The left vectors of the approximation
+    vs = []  # The right vectors of the approximation
+    prevIstar = []  # Previously used i^* pivots
+    prevJstar = []  # Previously used j^* pivots
+
+    # a quick helper function that will help find the largest entry in
     # an array while excluding some list of `disallowed`  entries.
     def argmax_not_in_list(arr, disallowed):
         arg_sorted = arr.argsort()
@@ -296,66 +369,73 @@ def ACA_plus(M, eps, verbose=False):
                 break
         return arg_sorted[max_idx]
 
-    M = block # The matrix we'd like to approximate.
-    us = [] # The left vectors of the approximation
-    vs = [] # The right vectors of the approximation
-    prevIstar = [] # Previously used i^* pivots
-    prevJstar = [] # Previously used j^* pivots
+    # A function that will return a contiguous block of rows of the
+    # residual matrix
+    def calc_residual_rows(Istart, Iend):
+        # First calculate the rows of the original matrix.
+        out = calc_rows(Istart, Iend).copy()
+        # Then subtract the current terms of the approximation
+        for i in range(len(us)):
+            out -= us[i][Istart:Iend][:, None] * vs[i][None, :]
+        return out
 
-    # Re-usable function for finding a reference row and updating 
+    # See above, except this function calculates a block of columns.
+    def calc_residual_cols(Jstart, Jend):
+        out = calc_cols(Jstart, Jend).copy()
+        for i in range(len(us)):
+            out -= vs[i][Jstart:Jend][None, :] * us[i][:, None]
+        return out
+
+    # A function for finding a reference row and updating
     # it with respect to the already constructed approximation.
-    def reset_reference_row():
+    def reset_reference_row(Iref):
+        # When a row gets used in the approximation, we will need to
+        # reset to use a different reference row. Just, increment!
         while True:
-            Iref = np.random.randint(M.shape[0])
-            # Given the vector nature of the problem, we're going to grab
-            # an entire 3D "row", so let's get the first index
+            Iref = (Iref + 3) % n_rows
             Iref -= Iref % 3
-            # It's important to avoid re-using a row.
-            if not ((Iref + 0) in prevIstar or (Iref + 1) in prevIstar or (Iref + 2) in prevIstar):
+            if Iref not in prevIstar:
                 break
-                
-        # Grab the "row" (actually three rows corresponding to the 
+        
+        # Grab the "row" (actually three rows corresponding to the
         # x, y, and z components for a single observation point)
-        # And, of course, since we want a row of the residual matrix, not the
-        # original matrix, we need to subtract the terms of the approximation
-        out = M[Iref:Iref+3,:].copy()
-        for i in range(len(us)):
-            out -= us[i][Iref:Iref+3][:,None] * vs[i][None,:]
-        return out, Iref
+        return calc_residual_rows(Iref, Iref + 3), Iref
 
-    # Same function as above but for the column
-    def reset_reference_col():
+    # Same function as above but for the reference column
+    def reset_reference_col(Jref):
         while True:
-            Jref = np.random.randint(M.shape[1])
+            Jref = (Jref + 3) % n_cols
             Jref -= Jref % 3
-            if not ((Jref + 0) in prevJstar or (Jref + 1) in prevJstar or (Jref + 2) in prevJstar):
+            if Jref not in prevJstar:
                 break
-        out = M[:,Jref:Jref+3].copy()
-        for i in range(len(us)):
-            out -= vs[i][Jref:Jref+3][None,:] * us[i][:,None]
-        return out, Jref
-
-    # The Frobenius norm of the approximation matrix. This will be updated as
-    # we construct the approximation iteratively.
-    appx_frob = 0
+        
+        return calc_residual_cols(Jref, Jref + 3), Jref
 
     # If we haven't converged before running for max_iter, we'll stop anyway.
-    max_iter = 250
+    if max_iter is None:
+        max_iter = np.min([n_rows, n_cols])
+    else:
+        max_iter = np.min([n_rows, n_cols, max_iter])
 
     # Create a buffer for storing the R_{i^*,j} and R_{i, j^*}
-    RIstar = np.zeros_like(M[0,:])
-    RJstar = np.zeros_like(M[:,0])
+    RIstar = np.zeros(n_cols)
+    RJstar = np.zeros(n_rows)
 
-    # Choose our starting reference row and column.
-    RIref, Iref = reset_reference_row()
-    RJref, Jref = reset_reference_col()
+    # Choose our starting random reference row and column.
+    # These will get incremented by 3 inside reset_reference_row
+    # so pre-subtract that.
+    Iref = np.random.randint(n_rows) - 3
+    Jref = np.random.randint(n_cols) - 3
+    # And collect the corresponding blocks of rows/columns
+    RIref, Iref = reset_reference_row(Iref)
+    RJref, Jref = reset_reference_col(Jref)
 
     for k in range(max_iter):
-        # These two lines find the column in RIref with the largest entry (step 1 above). 
+        # These two lines find the column in RIref with the largest entry (step 1 above).
         maxabsRIref = np.max(np.abs(RIref), axis=0)
         Jstar = argmax_not_in_list(maxabsRIref, prevJstar)
 
-        # And these two find the row in RJref with the largest entry (step 1 above). 
+        # And these two find the row in RJref with the largest entry (step 1 above).
         maxabsRJref = np.max(np.abs(RJref), axis=1)
         Istar = argmax_not_in_list(maxabsRJref, prevIstar)
 
@@ -364,40 +444,26 @@ def ACA_plus(M, eps, verbose=False):
         Istar_val = maxabsRJref[Istar]
         if Istar_val > Jstar_val:
             # If we pivot first on the row, then calculate the corresponding row
-            # of the residual matrix by first grabbing the row of the original 
-            # matrix and then subtracting the current approximation.
-            RIstar[:] = M[Istar,:]
-            # Subtracting the Istar-th row of the current approximation
-            for i in range(len(us)):
-                RIstar -= us[i][Istar] * vs[i]
+            # of the residual matrix.
+            RIstar[:] = calc_residual_rows(Istar, Istar + 1)[0]
 
-            # Then find the largest entry in that row vector to identify which 
+            # Then find the largest entry in that row vector to identify which
             # column to pivot on. (See step 3 above)
             Jstar = argmax_not_in_list(np.abs(RIstar), prevJstar)
 
-            # Calculate the column by grabbing from the original matrix and 
-            # subtracting the matrix approximation we've constructed so far
-            RJstar[:] = M[:,Jstar]
-            for i in range(len(us)):
-                RJstar -= vs[i][Jstar] * us[i]
+            # Calculate the corresponding residual column!
+            RJstar[:] = calc_residual_cols(Jstar, Jstar + 1)[:, 0]
         else:
-             # If we pivot first on the column, then calculate the corresponding column
-            # of the residual matrix by first grabbing the row of the original 
-            # matrix and then subtracting the current approximation
-            RJstar[:] = M[:,Jstar]
-            # Subtract the Jstar-th column of the current approximation
-            for i in range(len(us)):
-                RJstar -= vs[i][Jstar] * us[i]
+            # If we pivot first on the column, then calculate the corresponding column
+            # of the residual matrix.
+            RJstar[:] = calc_residual_cols(Jstar, Jstar + 1)[:, 0]
 
-            # Then find the largest entry in that row vector to identify which 
+            # Then find the largest entry in that row vector to identify which
             # column to pivot on.  (See step 3 above)
             Istar = argmax_not_in_list(np.abs(RJstar), prevIstar)
 
-            # Calculate the row by grabbing from the original matrix and 
-            # subtracting the matrix approximation we've constructed so far
-            RIstar[:] = M[Istar,:]
-            for i in range(len(us)):
-                RIstar -= us[i][Istar] * vs[i]
+            # Calculate the corresponding residual row!
+            RIstar[:] = calc_residual_rows(Istar, Istar + 1)[0]
 
         # Record the pivot row and column so that we don't re-use them.
         prevIstar.append(Istar)
@@ -407,174 +473,281 @@ def ACA_plus(M, eps, verbose=False):
         vs.append(RIstar / RIstar[Jstar])
         us.append(RJstar.copy())
 
+        # How "large" was this update to the approximation?
+        step_size = np.sqrt(np.sum(us[-1] ** 2) * np.sum(vs[-1] ** 2))
+        if verbose:
+            print(
+                f"pivot row={Istar:4d}, pivot col={Jstar:4d}, "
+                f"step size={step_size:1.3e}, "
+                f"tolerance={eps:1.3e}"
+            )
+
+        # The convergence criteria will simply be whether the Frobenius norm of the
+        # step is smaller than the user provided tolerance.
+        if step_size < eps:
+            break
+
+        # We also break here if this is the last iteration to avoid wasting effort
+        # updating the reference row/column
+        if k == max_iter - 1:
+            break
+
+        # If we didn't converge, let's prep the reference residual row and
+        # column for the next iteration:
+
         # If we pivoted on the reference row, then choose a new reference row.
-        # Remember that we are using a x,y,z vector "row" or 
+        # Remember that we are using a x,y,z vector "row" or
         # set of 3 rows in an algebraic sense.
         if Iref <= Istar < Iref + 3:
-            RIref, Iref = reset_reference_row()
+            RIref, Iref = reset_reference_row(Iref)
         else:
             # If we didn't change the reference row of the residual matrix "R",
             # update the row to account for the new components of the approximation.
-            RIref -= us[-1][Iref:Iref+3][:,None] * vs[-1][None,:]
+            RIref -= us[-1][Iref : Iref + 3][:, None] * vs[-1][None, :]
 
         # If we pivoted on the reference column, then choose a new reference column.
-        # Remember that we are using a x,y,z vector "column" or 
+        # Remember that we are using a x,y,z vector "column" or
         # set of 3 columns in an algebraic sense.
         if Jref <= Jstar < Jref + 3:
-            RJref, Jref = reset_reference_col()
+            RJref, Jref = reset_reference_col(Jref)
         else:
             # If we didn't change the reference column of the residual matrix "R",
             # update the column to account for the new components of the approximation.
-            RJref -= vs[-1][Jref:Jref+3][None,:] * us[-1][:,None]
+            RJref -= vs[-1][Jref : Jref + 3][None, :] * us[-1][:, None]
 
-        # How "large" was this update to the approximation?
-        step_size_sq = np.sum(us[-1] ** 2) * np.sum(vs[-1] ** 2)
-
-        # Update the Frobenius norm of our approximate matrix. Essentially,
-        # how big are the entries?
-        appx_frob += step_size_sq
-        for j in range(len(us) - 1):
-            appx_frob += 2 * us[-1].dot(us[j]) * vs[-1].dot(vs[j])
-        if verbose:
-            print(
-                f'pivot row={Istar:4d}, pivot col={Jstar:4d}, '
-                f'step size={step_size_sq:1.3e}, '
-                f'approximate matrix frobenius norm={appx_frob:1.3e}'
-            )
-
-        # The convergence criteria will be whether the squared "size" of the current
-        # update is less than (eps ** 2) times the Frobenius norm of the approximation.
-        # This essentially means that the update is small enough that the approximation
-        # is within epsilon of the true matrix. 
-        if step_size_sq < (eps ** 2) * appx_frob:
-            break
-            
     # Return the left and right approximation matrices.
     # The approximate is such that:
     # M ~ U_ACA.dot(V_ACA)
     U_ACA = np.array(us).T
     V_ACA = np.array(vs)
-    
+
     return U_ACA, V_ACA
 ```
-
-
+And let's demonstrate the algorithm on the same block we used to demonstrate the SVD compression method. One note here: I set the error tolerance to `eps / 50.0` because the error tolerance from the ACA algorithm is imprecise. The factor of 50 is large enough to be confident that the error will be less than or equal to `eps`. We'll see in the next section how to get a tighter tolerance. 
 
 ```python
-U_ACA, V_ACA = ACA_plus(block, 1e-6, verbose=True)
+U_ACA, V_ACA = ACA_plus(
+    block.shape[0],
+    block.shape[1],
+    lambda Istart, Iend: block[Istart:Iend, :],
+    lambda Jstart, Jend: block[:, Jstart:Jend],
+    eps / 50.0,
+    verbose=True,
+)
 ```
 
-A few thoughts on the output here:
-1. Clearly, the process is converging. You can see the step size 
-1. The set of pivot rows seems quite varied while the set of pivot columns seems concentrated in a few regions (2700-3000, 0-300). Perhaps this just has to do with which elements are closest to the others? I'm not sure!
-Clearly, the process is converging! And quite quickly. As we'll see below, the ACA+ algorithm is achieving similar levels of accuracy to the SVD with only 50% more 
+Clearly, the process is converging. You can see the step sizes are converging at almost the rate we would expect from the graph of singular value magnitudes above. As we'll see below, the ACA+ algorithm is achieving similar levels of accuracy to the SVD with only about 50% more rows and columns.
+
+First, let's check the accuracy of this matrix approximation by looking at the error from a matrix-vector product.
+
+```python
+U_ACA.shape
+```
 
 ```python
 y_aca = U_ACA.dot(V_ACA.dot(x))
 ```
 
 ```python
-rel_err = np.abs((y_aca - y_true) / y_true)
+abs_diff = np.abs(y_aca - y_true)
+l2_err = np.sqrt(np.mean(abs_diff ** 2)) / l2_true
+l1_err = np.mean(abs_diff) / l1_true
+linf_err = np.max(abs_diff) / linf_true
+frob_err = np.sqrt(np.sum((U_ACA.dot(V_ACA) - block) ** 2))
+print(f"L1(UVx-y)        = {l1_err}")
+print(f"L2(UVx-y)        = {l2_err}")
+print(f"Linf(UVx-y)      = {linf_err}")
+print(f"frob error(M-UV) = {frob_err}")
 
-l2_err = np.sqrt(np.mean(rel_err ** 2))
-l1_err = np.mean(rel_err)
-linf_err = np.max(rel_err)
-frob = np.sum(U_ACA.dot(V_ACA) ** 2)
-err_df['ACA'] = [U_ACA.shape[1], l2_err, l1_err, linf_err, frob]
-l2_err, l1_err, linf_err
+err_df["ACA"] = [U_ACA.shape[1], l2_err, l1_err, linf_err, frob_err]
 ```
+
+Looking great! We specified the tolerance as `eps` for both ACA and for the SVD. ACA overshot a little and is giving accuracy substantially better than the SVD. This is not surprising given that ACA is using only local information whereas the SVD is able to be absolutely certain about the singular values.
 
 ```python
 terms = []
-err = []
+l1_mvp_errs = []
+frob_errs = []
 for i in range(500):
-    U, V = ACA_plus(block)
+    U, V = ACA_plus(
+        block.shape[0],
+        block.shape[1],
+        lambda Istart, Iend: block[Istart:Iend, :],
+        lambda Jstart, Jend: block[:, Jstart:Jend],
+        eps / 50.0,
+        verbose=False,
+    )
     terms.append(U.shape[1])
     y_aca = U.dot(V.dot(x))
-    rel_err = np.abs((y_aca - y_true) / y_true)
-    err.append(np.mean(rel_err))
+    l1_mvp_errs.append(np.mean(np.abs(y_aca - y_true)) / l1_true)
+    frob_errs.append(np.sqrt(np.sum((U.dot(V) - block) ** 2)))
 ```
 
+Before moving on, I wanted to demonstrate that the randomness inherent in the reference row/column selection in the ACA+ algorithm is not affecting the end result. See below for histograms showing the distribution of the number of approximation terms and the $L^1$ matrix-vector error of the approximate matrix. As you can see, ACA+ is producing consistent results within a small range of rank. The matrix-vector error is also consistently and acceptably good. The Frobenius error is also 5-50x below the tolerance specified. 
+
+
 ```python
-plt.figure(figsize=(10,4))
-plt.subplot(1,2,1)
-plt.hist(terms,bins=15)
-plt.xlabel('rank of approximation')
-plt.subplot(1,2,2)
-plt.hist(np.log10(err), bins=15)
-plt.xlabel('$\log_{10}(\|E\|^1)$')
+plt.figure(figsize=(13, 4))
+plt.subplot(1, 3, 1)
+plt.title("Approximation rank")
+plt.hist(terms, bins=np.arange(70, 85), color="k")
+plt.xlabel("rank of approximation")
+plt.subplot(1, 3, 2)
+plt.title("$L^1$ matrix-vector error")
+plt.hist(np.log10(l1_mvp_errs), bins=15, color="k")
+plt.xlabel("$\log_{10}(\|E\|^1)$")
+plt.subplot(1, 3, 3)
+plt.title("Frobenius Error")
+plt.hist(np.log10(frob_errs), bins=15, color="k")
+plt.gca().axvline(np.log10(eps), color="r")
+plt.xlabel("$\|E\|_{F})$")
 plt.show()
 ```
 
-## SVD Recompression
+### SVD Recompression
+
+In some sense, the approximation we built with ACA is too good. We're getting Frobenius errors much lower than we asked for. Ideally, we want an algorithm that *juuust barely* meets the tolerance condition. Unfortunately that's quite difficult when the algorithm is stuck with limited information about the matrix under consideration. So, in this final section I'll demonstrate a simple post-processing method that will reduce the size/cost of the approximation to more precisely fit the requested tolerance.
+
+The basic idea is quite simple: just do another compression of the ACA approximation matrices with the singular value decomposition. We wanted to avoid doing an SVD on the original full-size matrix block, but now that we have constructed a reduced expression, it can be worthwhile to do the extra effort to reduce it even further with an exact SVD.
+
+How exactly do we do that? I've already built an approximation that looks like:
+\begin{equation}
+M \approx UV^T
+\end{equation}
+Basically $V^T$ maps from a high-dimensional space to a low-dimensional space and then $U$ maps back from the low-dimensional space to the high-dimensional space. So, let's first extract the low-dimensional operation. To do that, perform a QR decomposition on both $U$ and $V$. Then we have:
+\begin{equation}
+UV^T = Q_UR_UR_V^TQ_V^T
+\end{equation}
+One way of thinking about this is that $Q_V^T$ and $Q_U$ are just rotations now and $R_UR_V^T$ is a square matrix in the low-dimensional subspace that is performing the non-rotational action of $M$. 
+
+Now, take the SVD:
+\begin{equation}
+R_UR_V^T = W \Sigma Z^T
+\end{equation}
+
+And we'll filter on the singular values in $\Sigma$ to reduce the rank of the matrix just like we did before with the full SVD. That's it! To reconstruct the approximation, we just need:
+\begin{align}
+\overline{U} &= Q_UW\Sigma \\
+\overline{V} &= ZQ_V \\
+M &\approx \overline{U}\overline{V}^T
+\end{align}
+
+The transformation into code is super straightforward!
 
 ```python
 UQ, UR = np.linalg.qr(U_ACA)
 VQ, VR = np.linalg.qr(V_ACA.T)
-
-W,SIG,Z = np.linalg.svd(UR.dot(VR.T))
+W, SIG, Z = np.linalg.svd(UR.dot(VR.T))
 ```
 
 ```python
-r = np.where(SIG < 1e-6 * SIG[0])[0][0]
+# Reverse the list of singular values and sum them to compute the
+# error from each level of truncation.
+frob_K = np.sqrt(np.cumsum(SIG[::-1] ** 2))[::-1]
+r = np.argmax(frob_K < eps)
 r
+print(f"Recompressing from rank {SIG.shape[0]} to rank {r}")
 ```
 
 ```python
-U_ACA2 = UQ.dot(W[:,:r] * SIG[:r])
-V_ACA2 = Z[:r,:].dot(VQ.T)
+U_ACA2 = UQ.dot(W[:, :r] * SIG[:r])
+V_ACA2 = Z[:r, :].dot(VQ.T)
+```
 
+Just seven lines of code to recompress by almost a factor of 2! This will make later matrix-vector products almost twice as fast.
+
+```python
 y_aca_2 = U_ACA2.dot(V_ACA2.dot(x))
-
-rel_err = np.abs((y_aca_2 - y_true) / y_true)
-l2_err = np.sqrt(np.mean(rel_err ** 2))
-l1_err = np.mean(rel_err)
-linf_err = np.max(rel_err)
-frob = np.sum(U_ACA2.dot(V_ACA2) ** 2)
-err_df[f'Recompress'] = [r, l2_err, l1_err, linf_err, frob]
-print(r, l2_err, l1_err, linf_err)
 ```
 
 ```python
-eps
+abs_diff = np.abs(y_aca_2 - y_true)
+l2_err = np.sqrt(np.mean(abs_diff ** 2)) / l2_true
+l1_err = np.mean(abs_diff) / l1_true
+linf_err = np.max(abs_diff) / linf_true
+frob_err = np.sqrt(np.sum((U_ACA2.dot(V_ACA2) - block) ** 2))
+print(f"L1(UVx-y)        = {l1_err}")
+print(f"L2(UVx-y)        = {l2_err}")
+print(f"Linf(UVx-y)      = {linf_err}")
+print(f"frob error(M-UV) = {frob_err}")
+
+err_df["Recompress"] = [U_ACA2.shape[1], l2_err, l1_err, linf_err, frob_err]
 ```
 
+As you can see in the table below, the amazing thing here is that ACA and then SVD recompression can recover a matrix approximation that is almost exactly as good as the compression that is computed using a direct SVD. The error in the table between the "SVD" and "Recompress" is shockingly close. 
+
 ```python
-err_dfT = err_df.T
-err_dfT['True Frobenius(A)'] = np.sum(block ** 2)
-err_dfT['Frobenius(A) Error'] = np.abs(err_dfT['True Frobenius(A)'] - err_dfT['Frobenius(A)'])
-err_dfT
+err_df.T
 ```
+
+And to finish this section, I'll repeat this process many times to demonstrate that the randomness of the ACA+ does not affect the ability of the SVD recompression to produce almost exactly the same approximation  every time!
 
 ```python
 def SVD_recompress(U_ACA, V_ACA, eps):
+    """
+    Recompress an ACA matrix approximation via SVD.
+
+    :param U_ACA: The left-hand approximation matrix.
+    :param V_ACA: The right-hand approximation matrix.
+    :param eps: The tolerance of the approximation. The convergence condition is
+        in terms of the difference in Frobenius norm between the target matrix
+        and the approximation.
+
+    :return U_SVD: The SVD recompressed left-hand approximation matrix.
+    :return V_SVD: The SVD recompressed right-hand approximation matrix.
+    """
     UQ, UR = np.linalg.qr(U_ACA)
     VQ, VR = np.linalg.qr(V_ACA.T)
-    W,SIG,Z = np.linalg.svd(UR.dot(VR.T))
-    r = np.where(SIG < 1e-6 * SIG[0])[0][0]
-    U = UQ.dot(W[:,:r] * SIG[:r])
-    V = Z[:r,:].dot(VQ.T)
+    W, SIG, Z = np.linalg.svd(UR.dot(VR.T))
+
+    frob_K = np.sqrt(np.cumsum(SIG[::-1] ** 2))[::-1]
+    r = np.argmax(frob_K < eps)
+
+    U = UQ.dot(W[:, :r] * SIG[:r])
+    V = Z[:r, :].dot(VQ.T)
     return U, V
 ```
 
 ```python
 terms = []
-err = []
+l1_mvp_errs = []
+frob_errs = []
 for i in range(50):
-    U, V = SVD_recompress(*ACA_plus(block, 1e-6), 1e-6)
+    U, V = ACA_plus(
+        block.shape[0],
+        block.shape[1],
+        lambda Istart, Iend: block[Istart:Iend, :],
+        lambda Jstart, Jend: block[:, Jstart:Jend],
+        eps / 50.0,
+        verbose=False,
+    )
+    U, V = SVD_recompress(U, V, eps)
     terms.append(U.shape[1])
     y_aca = U.dot(V.dot(x))
-    rel_err = np.abs((y_aca - y_true) / y_true)
-    err.append(np.mean(rel_err))
+    l1_mvp_errs.append(np.mean(np.abs(y_aca - y_true)) / l1_true)
+    frob_errs.append(np.sqrt(np.sum((U.dot(V) - block) ** 2)))
 ```
 
 ```python
-plt.figure(figsize=(10,4))
-plt.subplot(1,2,1)
-plt.hist(terms,bins=15)
-plt.xlabel('rank of approximation')
-plt.subplot(1,2,2)
-plt.hist(np.log10(err), bins=15)
-plt.xlabel('$\log_{10}(\|E\|^1)$')
+plt.figure(figsize=(10, 4))
+plt.subplot(1, 2, 1)
+plt.title("Approximation rank")
+plt.hist(terms, bins=np.arange(35, 45), color="k")
+plt.xlabel("rank of approximation")
+plt.subplot(1, 2, 2)
+plt.title("Frobenius Error")
+plt.hist(
+    np.log10(frob_errs),
+    bins=np.linspace(np.log10(eps * 0.5), np.log10(eps * 1.5), 11),
+    color="k",
+)
+plt.gca().axvline(np.log10(eps), color="r")
+plt.xlabel("$\|E\|_{F})$")
 plt.show()
+```
+
+I think it's worth stopping for a moment to appreciate how cool math can be. We started from an algorithm that involves both some randomness and a severe lack of information on the matrix being approximation. And from that algorithm, built an almost perfectly consistent algorithm for producing a very precise approximate matrix. In the SVD recompressed results, there's exactly zero variation in the rank and almost zero variation in the error. And the error is just on the correct side of the tolerance!
+
+```python
+
 ```
