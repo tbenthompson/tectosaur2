@@ -18,20 +18,28 @@ kernelspec:
 
 +++
 
-In the previous section, I explained how to directly discretize a free surface using TDEs. A downside of this approach is that the surface matrix can get very large very quickly. If I make the width of an element half as large, then there will be 2x many elements per dimension or 4x as many overall. And because the interaction matrix is dense, 4x as many elements leads to 16x as many matrix entries. In other words, $n$, the number of elements, scales like $O(h^2)$ in terms of the element width $h$. And the number of matrix rows or columns is exactly $3n$ (the 3 comes from the vector nature of the problem). That requires storing $9n^2$ entries. And, even worse, using a direct solver (LU decomposition, Gaussian elimination, etc) with such a matrix requires time like $O(n^3)$. Even for quite small problems with 10,000 elements, the cost of storage and solution get very large. And without an absolutely enormous machine or a distributed parallel implementation, solving a problem with 100,000 elements will just not be possible. On the other hand, in an ideal world, it would be nice to be able to solve problems with millions of elements. 
+## TODO: Make "In the previous section" into a link. How to do within-book links in jupyter book?
+
+## TODO: Move back to using the large mesh in cell #1 and using larger problems in the runtime/memory graphs at the end
+
+## TODO: Citations or links to introductions to GMRES/Krylov methods. Also links/citations on matrix-free methods?
+
++++
+
+In the previous section, I explained how to directly discretize a free surface using TDEs. A downside of this approach is that the surface matrix can get very large very quickly. If I make the width of an element half as large, then there will be 2x many elements per dimension and 4x as many elements overall. And because the interaction matrix is dense, 4x as many elements leads to 16x as many matrix entries. In other words, $n$, the number of elements, scales like $O(h^2)$ in terms of the element width $h$. And the number of matrix rows or columns is exactly $3n$ (the 3 comes from the vector nature of the problem). That requires storing $9n^2$ entries. And, even worse, using a direct solver (LU decomposition, Gaussian elimination, etc) with such a matrix requires time like $O(n^3)$. Even for quite small problems with 10,000 elements, the cost of storage and solution get very large. And without an absolutely enormous machine or a distributed parallel implementation, solving a problem with 200,000 elements will just not be possible. On the other hand, in an ideal world, it would be nice to be able to solve problems with millions or even tens or hundreds of millions of elements. 
 
 Fundamentally, the problem is that the interaction matrix is dense. There are two approaches for resolving this problem:
 1. Don't store the matrix!
 2. Compress the matrix by taking advantage of low rank sub-blocks.
 
-Here, I'll demonstrate how to do #1 by using a matrix-free iterative solver. In the next section, I'll dive into using $\mathcal{H}$-matrices for approach #2. That will build on what we develop here to create a more sustainable and scalable system. 
+Eventually approach #2 will be critical since it is scalable up to very large problems. And that's exactly what I'll do in the next sections where I'll investigate low-rank methods and hierarchical matrices (H-matrices). However, here, I'll demonstrate approach #1 by using a matrix-free iterative solver. Ultimately, this is just a small patch on a big problem and it won't be a sustainable solution. But, it's immediately useful when you don't have a working implementation, are running into RAM constraints and are okay with a fairly slow solution. It's also useful to introduce iterative linear solvers since they are central to solving BEM linear systems.
 
-So, if I refrain from ever storing the matrix, the storage requires drop to $O(n)$ instead of $O(n^2)$. And, as I'll demonstrate, for some problems, the runtime will drop to $O(n^2)$ instead of $O(n^3)$ because solving linear systems will be possible with a fixed and fairly small number of matrix-vector products.
+When we solve a linear system without storing the matrix, the method is called "matrix-free". Generally, we'll just recompute any matrix entry whenever we need. How does this do algorithmically? The storage requirements drop to just the $O(n)$ source and observation info instead of the $O(n^2)$ dense matrix. And, as I'll demonstrate, for some problems, the runtime will drop to $O(n^2)$ instead of $O(n^3)$ because solving linear systems will be possible with a fixed and fairly small number of matrix-vector products.
 
 
 ## A demonstration on a large mesh.
 
-To get started, I'll just copy the code to set up the linear system for the South America problem from the previous section. But, as a twist, I'll going to use a mesh with several times more elements. This surface mesh has 28,388 elements. As a result, the matrix would have 3x that many rows and columns and would require 58 GB of memory to store. That's still small enough that it could be stored on a medium sized workstation. But, it's definitely too big for my home computer!
+To get started, I'll just copy the code to set up the linear system for the South America problem from the previous section. But, as a twist, I'll going to use a mesh with several times more elements. This surface mesh has 28,388 elements. As a result, the matrix would have 3x that many rows and columns and would require 58 GB of memory to store. That's still small enough that it could be stored on a medium sized workstation. But, it's too big for my personal computer!
 
 ```{code-cell} ipython3
 :tags: []
@@ -52,7 +60,7 @@ plt.rcParams['text.usetex'] = True
 ```
 
 ```{code-cell} ipython3
-(surf_tris.shape[0] * 3) ** 2 * 8 / 1e9
+print('Memory required to store this matrix: ', (surf_tris.shape[0] * 3) ** 2 * 8 / 1e9)
 ```
 
 ```{code-cell} ipython3
@@ -104,7 +112,7 @@ surf_tri_pts_xyz_conv = surf_tri_pts_xyz.astype(ft)
 surf_tdcs_to_xyz_R = np.transpose(surf_xyz_to_tdcs_R, (0, 2, 1)).astype(ft)
 ```
 
-If I proceeding like in the previous section, the next step would be to construct our surface to surface left hand side matrix. But, instead, I'm just going to compute the action of that matrix without ever storing the entire matrix. Essentially, each matrix entry will be recomputed whenever it is needed. The `cutde.disp_free` and `cutde.strain_free` were written for this purpose. 
+Proceeding like the previous section, the next step would be to construct our surface to surface left hand side matrix. But, instead, I'm just going to compute the action of that matrix without ever storing the entire matrix. Essentially, each matrix entry will be recomputed whenever it is needed. The `cutde.disp_free` and `cutde.strain_free` were written for this purpose. 
 
 First, let's check that the `cutde.disp_free` matrix free TDE computation is doing what I said it does. That is, it should be computing a matrix vector product. Since our problem is too big to generate the full matrix in memory, I'll just use the first 100 elements for this test.
 
@@ -120,7 +128,7 @@ slip = np.random.rand(mat.shape[1]).astype(ft)
 correct_disp = mat.dot(slip)
 ```
 
-And now the matrix free version. Note that the slip is passed to the `disp_free` function. This makes sense since it is required for a matrix-vector product.
+And now the matrix free version. Note that the slip is passed to the `disp_free` function. This makes sense since it is required for a matrix-vector product even though it is not required to construct the matrix with `cutde.disp_matrix`.
 
 ```{code-cell} ipython3
 test_disp = cutde.disp_free(
@@ -151,14 +159,17 @@ offset_centers = [
     for off in offsets
 ]
 surf_xyz_to_tdcs_R = surf_xyz_to_tdcs_R.astype(ft)
+
 # The extrapolate to the boundary step looked like:
 # lhs = 2 * eps_mats[1] - eps_mats[0]
 # This array stores the coefficients so that we can apply that formula 
 # on the fly.
 extrapolation_mult = [-1, 2]
 def matvec(x):
+    # Step 1) Rotate slip into the TDE-centric coordinate system.
     slip_xyz = x.reshape((-1,3)).astype(ft)
     slip_tdcs = np.ascontiguousarray(np.sum(surf_xyz_to_tdcs_R * slip_xyz[:, None, :], axis=2))
+    # Step 2) Compute the two point extrapolation to the boundary.
     out = np.zeros_like(offset_centers[0])
     for i, off in enumerate(offsets):
         out += extrapolation_mult[i] * cutde.disp_free(
@@ -167,16 +178,11 @@ def matvec(x):
             slip_tdcs, 
             0.25
         )
-    # Don't forget the diagonal term!
-    return out.flatten() + x
-```
-
-```{code-cell} ipython3
-surf_tris.shape[0]
-```
-
-```{code-cell} ipython3
-surf_xyz_to_tdcs_R.shape
+    out = out.flatten()
+    
+    # Step 3) Don't forget the diagonal Identity matrix term! 
+    out += x
+    return out
 ```
 
 ```{code-cell} ipython3
@@ -184,11 +190,23 @@ surf_xyz_to_tdcs_R.shape
 matvec(np.random.rand(surf_tris.shape[0] * 3))
 ```
 
+Great! We computed a matrix-free matrix-vector product! This little snippet below will demonstrate that the memory usage is still well under 1 GB proving that we're not storing a matrix anywhere.
+
 ```{code-cell} ipython3
 import os, psutil
 process = psutil.Process(os.getpid())
 print(process.memory_info().rss / 1e9)
 ```
+
+## Iterative linear solution
+
+Okay, so how do we use this matrix-vector product to solve the linear system? Because the entire matrix is never in memory, direct solvers like LU decomposition are no longer an option. But, iterative linear solvers are still an option. The conjugate gradient (CG) method is a well-known example of an iterative solver. However, CG requires a symmetric positive definite matrix. Because our columns come from integrals over elements but our rows come from observation points, there is an inherent asymmetry to the boundary element matrices we are producing here. GMRES is an iterative linear solver that tolerates asymmetry. It's specifically a type of "Krylov subspace" iterative linear solver and as such requires only the set of vectors:
+\begin{equation}
+\{b, Ab, A^2b, ..., A^nb\}
+\end{equation}
+As such, only having an implementation of the matrix vector product $Ab$ is required since the later iterates can be computed with multiple matrix vector product. For example, $A^2b = A(Ab)$.
+
+To start, we compute the right-hand side which is nothing new or fancy.
 
 ```{code-cell} ipython3
 slip = np.sum(fault_xyz_to_tdcs_R * dip_xyz[:, None, :], axis=2)
@@ -197,34 +215,34 @@ rhs = cutde.disp_free(
 ).flatten()
 ```
 
-## Iterative
-
-Okay, so how do we use this matrix-vector product to solve the linear system? Because the entire matrix is never in memory, direct solvers like LU decomposition are no longer an option. But, iterative linear solvers are still an option. The conjugate gradient (CG) method is a well-known example of an iterative solver. However, CG requires a symmetric positive definite matrix. Because our columns come from integrals over elements but our rows come from observation points, there is an inherent asymmetry to the boundary element matrices we are producing here. GMRES is an iterative linear solver that tolerates asymmetry. It's specifically a type of "Krylov subspace" iterative linear solver and as such requires only the set of vectors:
-\begin{equation}
-\{b, Ab, A^2b, ..., A^nb\}
-\end{equation}
-As such, only having an implementation of the matrix vector product $Ab$ is required since the later iterates can be computed with multiple matrix vector product. For example, $A^2b = A(Ab)$.
-
-Here, I'll use the `scipy` implementation of GMRES. First, we need to do use the `scipy.sparse.linalg.LinearOperator` interface to wrap our `matvec` function in a form that the `gmres` function will recognize as a something that represents a linear system that can be solved.
+Now, the fun stuff: Here, I'll use the `scipy` implementation of GMRES. First, we need to do use the `scipy.sparse.linalg.LinearOperator` interface to wrap our `matvec` function in a form that the `gmres` function will recognize as a something that represents a linear system that can be solved.
 
 ```{code-cell} ipython3
 import scipy.sparse.linalg as spla
+
+# The number of rows and columns
 n = surf_tris.shape[0] * 3
+
+# The matrix vector product function that serves as the "backend" for the LinearOperator.
+# This is just a handy wrapper around matvec to track the number of matrix-vector products 
+# used during the linear solve process. 
 def M(x):
     M.n_iter += 1
-    print('n_iter', M.n_iter)
+    print('n_matvec', M.n_iter)
     return matvec(x)
 M.n_iter = 0
 lhs = spla.LinearOperator((n, n), M, dtype=rhs.dtype)
 lhs.shape
 ```
 
-And then we can pass that `LinearOperator` as the left hand side of a system of equations to `gmres`. I'm also going to pass a simple callback that will print the current residual norm at each step of the iterative solver and require a solution tolerance of `1e-4`. 
+And then we can pass that `LinearOperator` as the left hand side of a system of equations to `gmres`. I'm also going to pass a simple callback that will print the current residual norm at each step of the iterative solver and require a solution tolerance of `1e-4`.
 
 ```{code-cell} ipython3
 soln = spla.gmres(lhs, rhs, tol=1e-4, callback_type='pr_norm', callback=lambda x: print(x))
 soln = soln[0].reshape((-1,3))
 ```
+
+As the figures below demonstrate, only eight matrix-vector products got us a great solution!
 
 ```{code-cell} ipython3
 inverse_transformer = Transformer.from_crs(
@@ -251,11 +269,11 @@ plt.show()
 
 ## Performance and convergence
 
-An important thing to note about the solution above is that only a few matrix-vector products are required to get to a high-level of accuracy. GMRES (and many other iterative linear and nonlinear optimization algorithms) converges at a rate proportional to the condition number of a matrix (the ratio of the largest eigenvalue to the smallest). So in order to productively use an iterative linear solver, we need to have a matrix with a small condition number. It turns out that these free surface self-interaction matrices have condition numbers that are very close to 1.0, meaning that all the eigenvalues are very similar in magnitude. As a result, a highly accurate solution with GMRES requires less than ten matrix-vector products even for very large matrices. 
+An important thing to note about the solution above is that only a few matrix-vector products are required to get to a high-level of accuracy. GMRES (and many other iterative linear and nonlinear optimization algorithms) converges at a rate proportional to the condition number of the matrix (the ratio of the largest eigenvalue to the smallest). So in order to productively use an iterative linear solver, we need to have a matrix with a small condition number. It turns out that these free surface self-interaction matrices have condition numbers that are very close to 1.0, meaning that all the eigenvalues are very similar in magnitude. As a result, a highly accurate solution with GMRES requires less than ten matrix-vector products even for very large matrices. 
 
-Because of this dependence on the condition number, iterative solvers are not faster than a direct solver like LU decomposition in the worst case. However, in this setting where we know ahead of time that the condition number is small and indepedent of $n$, GMRES is converging in $O(n^2)$ time because each matrix-vector product costs $O(n^2)$. This is a substantial improvement over the $O(n^3)$ asymptotic runtime of LU decomposition. So, in addition to requiring less memory, the matrix free method here forced my hand into actually using a faster linear solver. Of course, LU decomposition comes out ahead again if we need to solve many linear systems with the same left hand side and different right hand sides. That is not the case here but might be for some time-dependent problems. 
+Because of this dependence on the condition number, in the worst case, iterative solvers are not faster than a direct solver. However, suppose that we need only 10 matrix-vector products. Then, the runtime is approximately $10(2n^2)$ because each matrix-vector product requires $2n^2$ operations (one multiplication and one addition per matrix entry). As a result, GMRES is solving the problem in $O(n^2)$ instead of the $O(n^3)$ asymptotic runtime of direct methods like LU decomposition. So, in addition to requiring less memory, the matrix free method here forced us into actually using a faster linear solver. Of course, LU decomposition comes out ahead again if we need to solve many linear systems with the same left hand side and different right hand sides. That is not the case here but would be relevant for many other problems (e.g. problems involving time stepping).
 
-The figures below demonstrate these points regarding performance and accuracy as a function of the number of elements.
+The mess of code below builds a few figures that demonstrate these points regarding performance and accuracy as a function of the number of elements.
 
 ```{code-cell} ipython3
 import time
@@ -273,7 +291,7 @@ fault_pts = np.array(
 fault_tris = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64)
 
 results = []
-for n_els_per_dim in [2, 4, 8, 16, 32, 48]:#, 20, 40, 80]:
+for n_els_per_dim in [2, 4, 8, 16]:#, 32, 48]:#, 20, 40, 80]:
     surf_L = 4000
     mesh_xs = np.linspace(-surf_L, surf_L, n_els_per_dim + 1)
     mesh_ys = np.linspace(-surf_L, surf_L, n_els_per_dim + 1)
@@ -313,7 +331,6 @@ for n_els_per_dim in [2, 4, 8, 16, 32, 48]:#, 20, 40, 80]:
     soln = np.linalg.solve(lhs_reordered, rhs).reshape((-1, 3))
     direct_solve_time = time.time() - start
     
-    start = time.time()
     def matvec(x):
         extrapolation_mult = [-1, 2]
         slip = np.empty((surf_centroids.shape[0], 3))
@@ -336,15 +353,46 @@ for n_els_per_dim in [2, 4, 8, 16, 32, 48]:#, 20, 40, 80]:
         M.n_iter += 1
         return matvec(x)
     M.n_iter = 0
-    lhs = spla.LinearOperator((n, n), matvec, dtype=rhs.dtype)
+    lhs = spla.LinearOperator((n, n), M, dtype=rhs.dtype)
     start = time.time()
     soln_iter = spla.gmres(lhs, rhs, tol=1e-4)[0].reshape((-1,3))
     iterative_runtime = time.time() - start
     
     l1_err = np.mean(np.abs((soln_iter - soln) / soln))
-    print(l1_err, surf_tris.shape[0], M.n_iter, direct_build_time, direct_solve_time, iterative_runtime)
+    results.append(dict(
+        l1_err=l1_err, 
+        n_elements=surf_tris.shape[0],
+        iterations=M.n_iter, 
+        direct_build_time=direct_build_time, 
+        direct_solve_time=direct_solve_time, 
+        iterative_runtime=iterative_runtime,
+        direct_memory=rhs.nbytes + lhs_reordered.nbytes,
+        iterative_memory=rhs.nbytes
+    ))
 ```
 
 ```{code-cell} ipython3
+import pandas as pd
+results_df = pd.DataFrame({k:[r[k] for r in results] for k in results[0].keys()})
+results_df['direct_runtime'] = results_df['direct_build_time'] + results_df['direct_solve_time']
+results_df
+```
 
+```{code-cell} ipython3
+plt.rcParams['text.usetex'] = False
+```
+
+```{code-cell} ipython3
+plt.figure(figsize=(8,4))
+plt.subplot(1,2,1)
+plt.plot(results_df['n_elements'], results_df['direct_runtime'], label='direct')
+plt.plot(results_df['n_elements'], results_df['iterative_runtime'], label='iterative')
+plt.legend()
+plt.title('Run time (secs)')
+plt.subplot(1,2,2)
+plt.plot(results_df['n_elements'], results_df['direct_memory'] / 1e6, label='direct')
+plt.plot(results_df['n_elements'], results_df['iterative_memory'] / 1e6, label='iterative')
+plt.legend()
+plt.title('Memory usage (MB)')
+plt.show()
 ```

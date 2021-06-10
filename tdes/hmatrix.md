@@ -12,13 +12,13 @@ jupyter:
     name: python3
 ---
 
-# TODO: change n_els_per_dim back to 50
-# TODO: Write optimized functions for direct and approximate block matrix-vector products. 
-# TODO: Make the ordered_idxs figure. 
-# TODO: Add in citations. 
-
-
 # Hierarchical matrices for triangular dislocation elements.
+
+
+## TODO: change n_els_per_dim back to 50 (or higher?) and check timing numbers through the notebook
+## TODO: Make the ordered_idxs figure. 
+## TODO: Add in citations. 
+
 
 Last time, we investigate the low-rank property of the far-field blocks of a BEM matrix and built an adaptive cross approximation (ACA) implementation. Remember, the goal is to find a way to handle dense BEM matrices without running into the brick wall of $O(n^2)$ algorithmic scaling. With scaling like that, even a very powerful machine can't handle medium sized problems with 100,000 elements. The low-rank property will be the key to solving this problem. 
 
@@ -581,7 +581,7 @@ n_entries_per_block = np.array([
      for obs_node, src_node in approx
 ])
 safe_frob_est = np.sqrt(safe_frob2_est)
-eps = 1e-6
+eps = 1e-4
 block_tolerances = eps * np.sqrt(n_entries_per_block / n_full_entries) * safe_frob_est
 
 plt.hist(np.log10(block_tolerances))
@@ -705,7 +705,7 @@ full_mat2d = full_mat.reshape((n_rows, n_cols))
 y_true = full_mat2d.dot(x)
 ```
 
-For a fair performance comparison with the numpy matrix-vector product, we need our own parallelized and optimized block-wise matrix-vector product. So, I'll use Cython to implement some optimized block-wise matrix-vector operations. I think it's sort of out-of-scope to launch into a Cython tutorial here, but this could be a fun chunk of code to learn from since it's short and sweet. Here a few good introductions to Cython:
+For a fair performance comparison with the numpy matrix-vector product, we need our own parallelized and compiled block-wise matrix-vector product. So, I'll use Cython to implement some optimized block-wise matrix-vector operations. I think it's sort of out-of-scope to launch into a Cython tutorial here, but this could be a fun chunk of code to learn from since it's short and sweet. Here a few good introductions to Cython:
 * [Basic Cython Tutorial](https://cython.readthedocs.io/en/latest/src/tutorial/cython_tutorial.html)
 * [Typed memoryviews are super helpful for interacting with numpy](https://cython.readthedocs.io/en/latest/src/userguide/memoryviews.html#memoryviews)
 * [More info for numpy <--> Cython interoperation](https://cython.readthedocs.io/en/latest/src/userguide/numpy_tutorial.html)
@@ -801,13 +801,11 @@ def approx_dot(long[::1] obs_start, long[::1] obs_end,
     cdef double* U_ptr
     cdef double* V_ptr
     
-    #for k in prange(obs_start.shape[0], nogil=True):
-    for k in range(obs_start.shape[0]):
-        
-        #with gil:
-        rank = approx_UV[k][0].shape[1]
-        U_ptr = get_ptr_from_array(approx_UV[k][0])
-        V_ptr = get_ptr_from_array(approx_UV[k][1])
+    for k in prange(obs_start.shape[0], nogil=True):
+        with gil:
+            rank = approx_UV[k][0].shape[1]
+            U_ptr = get_ptr_from_array(approx_UV[k][0])
+            V_ptr = get_ptr_from_array(approx_UV[k][1])
         thread_id = openmp.omp_get_thread_num()
         thread_buffer_ptr = &temp_buffer_view[thread_id * max_rank]
         for i in range(rank):
@@ -827,6 +825,8 @@ def approx_dot(long[::1] obs_start, long[::1] obs_end,
         )
     return y_tree_arr
 ```
+
+And I'll quickly check that both these functions work the way I expect. They should produce the same output as a manual Python loop over the blocks. And they do!
 
 ```python
 y_direct = np.zeros(n_rows)
@@ -860,19 +860,50 @@ y_approx2 = approx_dot(approx_obs_starts, approx_obs_ends,
 print(np.max(np.abs(y_approx - y_approx2)))
 ```
 
+Putting all the pieces together for an H-matrix matrix-vector product results in:
+1. Convert inputs into "tree ordering".
+2. Calculate exact/direct blocks.
+3. Calculate the far-field approximate blocks.
+4. Sum the two and convert back into the "input ordering".
+
+```python
+def hmatrix_dot(x):
+    # Use tree.ordered_idxs to convert from the input 
+    # ordering to the tree ordering.
+    x_tree = x.reshape((tree.ordered_idxs.shape[0], 3))[tree.ordered_idxs].reshape((-1))
+    y_direct2 = direct_dot(direct_obs_starts, direct_obs_ends, 
+                    direct_src_starts, direct_src_ends, 
+                    packed_blocks, block_starts, 
+                    x_tree)
+    y_approx2 = approx_dot(approx_obs_starts, approx_obs_ends, 
+                           approx_src_starts, approx_src_ends, 
+                           approx_blocks_gpu, x_tree)
+    
+    # Convert back from the tree ordering into the input ordering.
+    y_hmatrix = np.empty(n_rows)
+    y_hmatrix.reshape((-1, 3))[tree.ordered_idxs, :] = (y_approx + y_direct).reshape((-1,3))
+    return y_hmatrix
+```
+
+And, the relative $L^2$ and $L^{\infty}$ errors look great! 
+
+```python
+y_hmatrix = hmatrix_dot(x)
+
+l2_rel_error = np.sqrt(np.mean((y_hmatrix - y_true) ** 2)) / np.sqrt(np.mean(y_true ** 2))
+linf_rel_error = np.max(np.abs(y_hmatrix - y_true)) / np.max(np.abs(y_true))
+print('L2 error: ', l2_rel_error)
+print('Linf error: ', linf_rel_error)
+```
+
 ```python
 %%timeit
 y_true = full_mat2d.dot(x)
 ```
 
 ```python
-%%time
-y_hmatrix = np.empty(n_rows)
-y_hmatrix.reshape((-1, 3))[tree.ordered_idxs, :] = (y_approx + y_direct).reshape((-1,3))
-```
-
-```python
-np.sqrt(np.mean((y_hmatrix - y_true) ** 2)) / np.sqrt(np.mean(y_true ** 2))
+%%timeit
+y_matrix = hmatrix_dot(x)
 ```
 
 And that's it! The H-matrix implementation works, is using 9x less memory and ##############################X faster. I'll leaving a full application of these tools for the next section.

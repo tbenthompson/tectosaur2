@@ -4,10 +4,13 @@
 - file: intro
 - file: tde_intro
   sections:
-    # - file: tdes/sa_tdes
-    # - file: tdes/sa_geometry
+    - file: tdes/sa_tdes
+    - file: tdes/sa_geometry
     - file: tdes/free_matvec
     - file: tdes/low_rank
+    - file: tdes/hmatrix
 - file: qbx_intro
+  sections:
+    - file: c1qbx/part1_nearfield
+    - file: c1qbx/part2_screw_dislocation
 - file: references
-# - file: tdes/fmm_tde
