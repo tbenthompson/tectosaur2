@@ -33,36 +33,43 @@ First off, I'm not going to explain how to build the fault geometry. That's alre
 Anyway... I'll load the mesh up from the `.mat` file (a Matlab file format) and plot it.
 
 ```{code-cell} ipython3
-file = scipy.io.loadmat('south_america_50km_mod_ext.mat')
-fault_pts = file['c']
-fault_pts[:,0] -= 360
-fault_pts[:,2] *= 1000
-fault_tris = file['v'] - 1
+file = scipy.io.loadmat("south_america_50km_mod_ext.mat")
+fault_pts = file["c"]
+fault_pts[:, 0] -= 360
+fault_pts[:, 2] *= 1000
+fault_tris = file["v"] - 1
 ```
 
 I'm also going to plot the sign of vertical component of the normal vector just to check that all the triangles in the mesh are aligned in the same direction.
 
 ```{code-cell} ipython3
 from cutde.geometry import compute_normal_vectors
+
 normals = compute_normal_vectors(fault_pts[fault_tris])
 ```
 
 ```{code-cell} ipython3
-plt.figure(figsize = (7, 8))
-plt.subplot(1,2,1)
-tripc = plt.tripcolor(fault_pts[:,0], fault_pts[:,1], fault_tris, fault_pts[:, 2] / 1000.0, linewidth=0.5)
-plt.triplot(fault_pts[:,0], fault_pts[:,1], fault_tris, linewidth=0.5)
+plt.figure(figsize=(7, 8))
+plt.subplot(1, 2, 1)
+tripc = plt.tripcolor(
+    fault_pts[:, 0],
+    fault_pts[:, 1],
+    fault_tris,
+    fault_pts[:, 2] / 1000.0,
+    linewidth=0.5,
+)
+plt.triplot(fault_pts[:, 0], fault_pts[:, 1], fault_tris, linewidth=0.5)
 cbar = plt.colorbar()
-cbar.set_label('depth (km)')
-plt.xlim([np.min(fault_pts[:,0]), np.max(fault_pts[:,0])])
-plt.axis('equal')
-plt.xlabel('longitude')
-plt.ylabel('latitude')
-plt.subplot(1,2,2)
-plt.tripcolor(fault_pts[:,0], fault_pts[:,1], fault_tris, np.sign(normals[:,2]))
+cbar.set_label("depth (km)")
+plt.xlim([np.min(fault_pts[:, 0]), np.max(fault_pts[:, 0])])
+plt.axis("equal")
+plt.xlabel("longitude")
+plt.ylabel("latitude")
+plt.subplot(1, 2, 2)
+plt.tripcolor(fault_pts[:, 0], fault_pts[:, 1], fault_tris, np.sign(normals[:, 2]))
 plt.colorbar()
-plt.xlim([np.min(fault_pts[:,0]), np.max(fault_pts[:,0])])
-plt.axis('equal')
+plt.xlim([np.min(fault_pts[:, 0]), np.max(fault_pts[:, 0])])
+plt.axis("equal")
 plt.tight_layout()
 plt.show()
 ```
@@ -70,13 +77,13 @@ plt.show()
 The mesh itself looks great at first glance! But, there is a mild problem with the element orientations at the southern end of the fault mesh. They don't match the rest of the mesh. To fix the issue I can flip the triangle vertex ordering. Instead of ordering the vertices of a given triangle 0-1-2, I can flip the normal vector by ordering them 0-2-1. I'm actually going to flip the orientation of all the dark blue parts of the mesh since it's a bit nicer to follow the convention that dipping fault normal vector point upwards. This convention results in an upwards-pointing dip vector which is consistent with the upwards dip-vector found in Okada.
 
 ```{code-cell} ipython3
-flip_indices = np.where(normals[:,2] < 0)
-flag = np.zeros_like(normals[:,0])
+flip_indices = np.where(normals[:, 2] < 0)
+flag = np.zeros_like(normals[:, 0])
 flag[flip_indices] = 1
 
 flipped_tris = fault_tris.copy()
-flipped_tris[flip_indices, 1] = fault_tris[flip_indices,2]
-flipped_tris[flip_indices, 2] = fault_tris[flip_indices,1]
+flipped_tris[flip_indices, 1] = fault_tris[flip_indices, 2]
+flipped_tris[flip_indices, 2] = fault_tris[flip_indices, 1]
 fault_tris = flipped_tris
 ```
 
@@ -85,9 +92,9 @@ fault_tris = flipped_tris
 Depending on the situation, it might be nice to refine the fault mesh for more accuracy. A simple approach is to split each triangle into four new triangles based on the midpoints of each edge.
 
 ```{code-cell} ipython3
-v0 = fault_pts[fault_tris[:,0]]
-v1 = fault_pts[fault_tris[:,1]]
-v2 = fault_pts[fault_tris[:,2]]
+v0 = fault_pts[fault_tris[:, 0]]
+v1 = fault_pts[fault_tris[:, 1]]
+v2 = fault_pts[fault_tris[:, 2]]
 ```
 
 ```{code-cell} ipython3
@@ -99,7 +106,8 @@ v12 = 0.5 * (v1 + v2)
 ```{code-cell} ipython3
 def plot_edge(a, b):
     P = np.array([a[0], b[0]])
-    plt.plot(P[:,0], P[:,1], 'k-')
+    plt.plot(P[:, 0], P[:, 1], "k-")
+
 
 plot_edge(v0, v1)
 plot_edge(v2, v1)
@@ -119,14 +127,16 @@ v12_idxs = v01_idxs + 2 * v01.shape[0]
 ```{code-cell} ipython3
 import mesh_fncs
 
-new_tris = np.array([
-    [fault_tris[:,0], v01_idxs, v02_idxs],
-    [fault_tris[:,1], v12_idxs, v01_idxs],
-    [fault_tris[:,2], v02_idxs, v12_idxs],
-    [v01_idxs, v12_idxs, v02_idxs],
-])
-new_tris = np.transpose(new_tris, (2, 0, 1)).reshape((-1,3))
-#fault_pts, fault_tris = mesh_fncs.remove_duplicate_pts((new_pts, new_tris))
+new_tris = np.array(
+    [
+        [fault_tris[:, 0], v01_idxs, v02_idxs],
+        [fault_tris[:, 1], v12_idxs, v01_idxs],
+        [fault_tris[:, 2], v02_idxs, v12_idxs],
+        [v01_idxs, v12_idxs, v02_idxs],
+    ]
+)
+new_tris = np.transpose(new_tris, (2, 0, 1)).reshape((-1, 3))
+# fault_pts, fault_tris = mesh_fncs.remove_duplicate_pts((new_pts, new_tris))
 ```
 
 ## Downloading DEM data
@@ -165,7 +175,7 @@ zoom = 2
 bounds = collect_dem.get_dem_bounds(fault_pts)
 dem_lon, dem_lat, dem = collect_dem.get_dem(zoom, bounds, n_dem_interp_pts)
 
-plt.figure(figsize = (3, 10))
+plt.figure(figsize=(3, 10))
 plt.tricontourf(dem_lon, dem_lat, dem)
 plt.colorbar()
 plt.show()
@@ -179,25 +189,28 @@ To do this, I'll first identify the outer edges of the fault. This `mesh_fncs` m
 
 ```{code-cell} ipython3
 import mesh_fncs
+
 boundary_loop = mesh_fncs.get_boundary_loop((fault_pts, fault_tris))[0]
-plt.figure(figsize = (3,10))
-plt.plot(fault_pts[boundary_loop, 0], fault_pts[boundary_loop, 1], '-.')
-plt.axis('equal')
+plt.figure(figsize=(3, 10))
+plt.plot(fault_pts[boundary_loop, 0], fault_pts[boundary_loop, 1], "-.")
+plt.axis("equal")
 plt.show()
 ```
 
 And then, just via trial and error, I found that boundary loop indices 130-258 correspond to the surface edges. This is demonstrated just by plotting those edges in the figure below where we looking from the side at the fault.
 
 ```{code-cell} ipython3
-plt.figure(figsize = (16, 2.0))
+plt.figure(figsize=(16, 2.0))
 upper_edge_idxs = boundary_loop[130:258]
-# If we had refined the mesh above, this line will provide the 
+# If we had refined the mesh above, this line will provide the
 # correct upper_edge_idxs
 # upper_edge_idxs = boundary_loop[259:514]
-upper_edge_pts = fault_pts[upper_edge_idxs,:]
+upper_edge_pts = fault_pts[upper_edge_idxs, :]
 upper_edge_pts.shape
-plt.plot(fault_pts[upper_edge_idxs, 1], fault_pts[upper_edge_idxs, 2], 'b-*', markersize = 4)
-plt.triplot(fault_pts[:,1], fault_pts[:,2], fault_tris, linewidth=0.5)
+plt.plot(
+    fault_pts[upper_edge_idxs, 1], fault_pts[upper_edge_idxs, 2], "b-*", markersize=4
+)
+plt.triplot(fault_pts[:, 1], fault_pts[:, 2], fault_tris, linewidth=0.5)
 plt.show()
 ```
 
@@ -212,26 +225,28 @@ geom = pygmsh.built_in.Geometry()
 
 # First, I'll figure out the area that I want to produce a surface mesh for.
 # The center of the area will be the center of the fault.
-surf_center = np.mean(upper_edge_pts, axis = 0)
+surf_center = np.mean(upper_edge_pts, axis=0)
 # And I also want to know the furthest that any fault mesh point is from that center point.
 # This is essentially the fault "half-length"
-fault_L = np.max(np.sqrt(np.sum((upper_edge_pts - surf_center) ** 2, axis = 1)))
+fault_L = np.max(np.sqrt(np.sum((upper_edge_pts - surf_center) ** 2, axis=1)))
 # The "half-width" of the surface mesh will be 1.5 times the fault half-length
 w = fault_L * 1.5
 
 # And the typical element length-scale will about one tenth the fault length.
-# This length scale will only be relevant far from the fault. Near the fault, 
+# This length scale will only be relevant far from the fault. Near the fault,
 # the length of the fault edges will force surface elements to be much smaller.
 mesh_size_divisor = 4
 mesh_size = fault_L / mesh_size_divisor
 
 # The main polygon of the mesh is a big square.
-surf_corners = np.array([
-    [surf_center[0] - w, surf_center[1] - w, 0],
-    [surf_center[0] + w, surf_center[1] - w, 0],
-    [surf_center[0] + w, surf_center[1] + w, 0],
-    [surf_center[0] - w, surf_center[1] + w, 0],
-])
+surf_corners = np.array(
+    [
+        [surf_center[0] - w, surf_center[1] - w, 0],
+        [surf_center[0] + w, surf_center[1] - w, 0],
+        [surf_center[0] + w, surf_center[1] + w, 0],
+        [surf_center[0] - w, surf_center[1] + w, 0],
+    ]
+)
 surf = geom.add_polygon(surf_corners, mesh_size)
 
 # Now, I'll add the fault trace edge points.
@@ -239,35 +254,33 @@ gmsh_pts = dict()
 for i in range(upper_edge_pts.shape[0]):
     gmsh_pts[i] = geom.add_point(upper_edge_pts[i], mesh_size)
 
-# And this chunk of code specifies that those edges should be 
-# included in the surface mesh. 
+# And this chunk of code specifies that those edges should be
+# included in the surface mesh.
 for i in range(1, upper_edge_pts.shape[0]):
-    line = geom.add_line(gmsh_pts[i-1], gmsh_pts[i])
-    
+    line = geom.add_line(gmsh_pts[i - 1], gmsh_pts[i])
+
     # pygmsh didn't support this elegantly, so I just insert manual gmsh code.
-    intersection_code = 'Line{{{}}} In Surface{{{}}};'.format(
-        line.id, surf.surface.id
-    )
+    intersection_code = "Line{{{}}} In Surface{{{}}};".format(line.id, surf.surface.id)
     geom.add_raw_code(intersection_code)
 ```
 
 Finally, build the geometry and can generate the surface mesh.
 
 ```{code-cell} ipython3
-mesh = pygmsh.generate_mesh(
-    geom, dim = 2
-)
+mesh = pygmsh.generate_mesh(geom, dim=2)
 ```
 
 Let's plot the resulting mesh. The output format is from the `meshio` package.
 
 ```{code-cell} ipython3
 surf_pts = mesh.points
-surf_tris = mesh.cells_dict['triangle']
+surf_tris = mesh.cells_dict["triangle"]
 
-plt.figure(figsize = (10,10))
-plt.triplot(surf_pts[:,0], surf_pts[:,1], surf_tris, linewidth = 0.5)
-plt.plot(upper_edge_pts[:,0], upper_edge_pts[:,1], 'k-', linewidth = 1.0)#, markersize = 2)
+plt.figure(figsize=(10, 10))
+plt.triplot(surf_pts[:, 0], surf_pts[:, 1], surf_tris, linewidth=0.5)
+plt.plot(
+    upper_edge_pts[:, 0], upper_edge_pts[:, 1], "k-", linewidth=1.0
+)  # , markersize = 2)
 vW = 1.1 * w
 plt.xlim([surf_center[0] - vW, surf_center[0] + vW])
 plt.ylim([surf_center[1] - vW, surf_center[1] + vW])
@@ -287,38 +300,40 @@ Note that because we use the same DEM data for computing surface and fault eleva
 bounds = collect_dem.get_dem_bounds(surf_pts)
 LON, LAT, DEM = collect_dem.get_dem(zoom, bounds, n_dem_interp_pts)
 
-surf_pts[:,2] = scipy.interpolate.griddata(
-    (LON, LAT), DEM, (surf_pts[:,0], surf_pts[:,1])
+surf_pts[:, 2] = scipy.interpolate.griddata(
+    (LON, LAT), DEM, (surf_pts[:, 0], surf_pts[:, 1])
 )
-fault_pts[:,2] += scipy.interpolate.griddata(
-    (LON, LAT), DEM, (fault_pts[:,0], fault_pts[:,1])
+fault_pts[:, 2] += scipy.interpolate.griddata(
+    (LON, LAT), DEM, (fault_pts[:, 0], fault_pts[:, 1])
 )
 ```
 
 And I'll make a simple plot of the final mesh. Looks good!
 
 ```{code-cell} ipython3
-plt.figure(figsize = (12,12))
-cntf = plt.tricontourf(surf_pts[:,0], surf_pts[:,1], surf_tris, surf_pts[:,2] / 1000.0)
-plt.triplot(surf_pts[:,0], surf_pts[:,1], surf_tris, 'k-', linewidth = 0.25)
-plt.triplot(fault_pts[:,0], fault_pts[:,1], fault_tris, 'w-', linewidth = 0.4)
+plt.figure(figsize=(12, 12))
+cntf = plt.tricontourf(
+    surf_pts[:, 0], surf_pts[:, 1], surf_tris, surf_pts[:, 2] / 1000.0
+)
+plt.triplot(surf_pts[:, 0], surf_pts[:, 1], surf_tris, "k-", linewidth=0.25)
+plt.triplot(fault_pts[:, 0], fault_pts[:, 1], fault_tris, "w-", linewidth=0.4)
 vW = 1.2 * fault_L
 plt.xlim([surf_center[0] - vW, surf_center[0] + vW])
 plt.ylim([surf_center[1] - vW, surf_center[1] + vW])
 cbar = plt.colorbar()
-cbar.set_label('elevation (km)')
-plt.xlabel('longitude')
-plt.ylabel('latitude')
+cbar.set_label("elevation (km)")
+plt.xlabel("longitude")
+plt.ylabel("latitude")
 plt.show()
 ```
 
 Let's zoom in on an longitude-z plane approximate cross section of the fault and surface to check that the fault trace and surface match up. The big red dot is a fault mesh point while the blue stars show the points in the cross section from the surface mesh.
 
 ```{code-cell} ipython3
-idxs = (fault_pts[:,1] < -20) & (fault_pts[:,1] > -20.5)
-plt.plot(fault_pts[idxs,0], fault_pts[idxs,2]/1000.0, 'ro', markersize=20)
-idxs = (surf_pts[:,1] < -20) & (surf_pts[:,1] > -20.5)
-plt.plot(surf_pts[idxs,0], surf_pts[idxs,2]/1000.0, 'b*')
+idxs = (fault_pts[:, 1] < -20) & (fault_pts[:, 1] > -20.5)
+plt.plot(fault_pts[idxs, 0], fault_pts[idxs, 2] / 1000.0, "ro", markersize=20)
+idxs = (surf_pts[:, 1] < -20) & (surf_pts[:, 1] > -20.5)
+plt.plot(surf_pts[idxs, 0], surf_pts[idxs, 2] / 1000.0, "b*")
 plt.xlim([-73, -70])
 plt.ylim([-10, 0])
 plt.show()
@@ -327,7 +342,10 @@ plt.show()
 Awesome! The mesh is ready to use and I'll save it to disk for safe-keeping.
 
 ```{code-cell} ipython3
-np.save(f'sa_mesh{mesh_size_divisor}_{fault_tris.shape[0]}.npy', np.array([(surf_pts, surf_tris), (fault_pts, fault_tris)], dtype=object))
+np.save(
+    f"sa_mesh{mesh_size_divisor}_{fault_tris.shape[0]}.npy",
+    np.array([(surf_pts, surf_tris), (fault_pts, fault_tris)], dtype=object),
+)
 ```
 
 ```{code-cell} ipython3

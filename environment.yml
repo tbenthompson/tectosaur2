@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - jupyterlab
+  - cython
   - numpy
   - scipy
   - matplotlib
@@ -20,9 +21,13 @@ dependencies:
   - psutil
   - pandas
   - line_profiler
+  - boto3
+  - ipdb
   - pip:
+    - jupyter-book >= 0.11
     - cutde #might want a development version!
-    - pygmsh
+    - pygmsh<7
     - sphinxcontrib-bibtex >= 2.2.0
     - loopy
     - boxtree
+    - okada_wrapper

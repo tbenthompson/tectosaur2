@@ -1,16 +1,23 @@
 # Table of content
 # Learn more at https://jupyterbook.org/customize/toc.html
-#
-- file: intro
-- file: tde_intro
-  sections:
+format: jb-book
+root: intro
+parts:
+  - caption: "The TDE sequence: triangular dislocation elements"
+    numbered: true
+    chapters:
     - file: tdes/sa_tdes
     - file: tdes/sa_geometry
     - file: tdes/free_matvec
     - file: tdes/low_rank
     - file: tdes/hmatrix
-- file: qbx_intro
-  sections:
+  - caption: "The QBX sequence: quadrature by expansion"
+    numbered: true
+    chapters:
     - file: c1qbx/part1_nearfield
     - file: c1qbx/part2_screw_dislocation
-- file: references
+  - caption: Back matter
+    numbered: false
+    chapters:
+    - file: references
+    - file: thanks

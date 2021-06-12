@@ -20,6 +20,8 @@ dependencies:
   - black=21.5b2=pyhd8ed1ab_0
   - bleach=3.3.0=pyh44b312d_0
   - boost-cpp=1.74.0=h312852a_4
+  - boto3=1.17.93=pyhd8ed1ab_0
+  - botocore=1.20.93=pyhd8ed1ab_0
   - brotlipy=0.7.0=py39h3811e60_1001
   - bzip2=1.0.8=h7f98852_4
   - c-ares=1.17.1=h7f98852_1
@@ -29,7 +31,6 @@ dependencies:
   - cffi=1.14.5=py39he32792d_0
   - cfitsio=3.470=hb418390_7
   - chardet=4.0.0=py39hf3d152e_1
-  - click=8.0.1=py39hf3d152e_0
   - click-completion=0.5.2=py39hf3d152e_2
   - click-log=0.3.2=pyh9f0ad1d_0
   - colorama=0.4.4=pyh9f0ad1d_0
@@ -39,6 +40,7 @@ dependencies:
   - cudatoolkit=10.2.89=h8f6ccaa_8
   - curl=7.77.0=hea6ffbf_0
   - cycler=0.10.0=py_2
+  - cython=0.29.23=py39he80948d_0
   - dataclasses=0.8=pyhc8e2a94_1
   - dbus=1.13.18=hb2f20db_0
   - decorator=5.0.9=pyhd8ed1ab_0
@@ -69,6 +71,7 @@ dependencies:
   - idna=2.10=pyh9f0ad1d_0
   - imagesize=1.2.0=py_0
   - importlib-metadata=4.5.0=py39hf3d152e_0
+  - ipdb=0.13.7=pyhd8ed1ab_0
   - ipydatawidgets=4.2.0=pyhd3deb0d_0
   - ipykernel=5.5.5=py39hef51801_0
   - ipython=7.24.1=py39hef51801_0
@@ -77,18 +80,17 @@ dependencies:
   - jbig=2.1=h7f98852_2003
   - jedi=0.18.0=py39hf3d152e_2
   - jinja2=3.0.1=pyhd8ed1ab_0
+  - jmespath=0.10.0=pyh9f0ad1d_0
   - jpeg=9d=h516909a_0
   - json-c=0.15=h98cffda_0
   - json5=0.9.5=pyh9f0ad1d_0
   - jsonschema=3.2.0=pyhd8ed1ab_3
-  - jupyter-book=0.10.2=pyhd8ed1ab_0
   - jupyter-cache=0.4.2=pyhd8ed1ab_1
   - jupyter-server-mathjax=0.2.3=pyhd8ed1ab_0
   - jupyter-sphinx=0.3.2=py_0
   - jupyter_client=6.1.12=pyhd8ed1ab_0
   - jupyter_core=4.7.1=py39hf3d152e_0
   - jupyter_server=1.8.0=pyhd8ed1ab_0
-  - jupyterbook-latex=0.2.0=pyhd8ed1ab_0
   - jupyterlab=3.0.16=pyhd8ed1ab_0
   - jupyterlab_server=2.6.0=pyhd8ed1ab_0
   - jupyterlab_widgets=1.0.0=pyhd8ed1ab_1
@@ -210,7 +212,6 @@ dependencies:
   - pycosat=0.6.3=py39h3811e60_1006
   - pycparser=2.20=pyh9f0ad1d_2
   - pycuda=2021.1=py39hf17b41c_0
-  - pydata-sphinx-theme=0.4.3=pyhd8ed1ab_0
   - pygments=2.9.0=pyhd8ed1ab_0
   - pyopencl=2021.2.2=py39h5472131_0
   - pyopenssl=20.0.1=pyhd8ed1ab_0
@@ -237,6 +238,7 @@ dependencies:
   - reproc-cpp=14.2.1=h58526e2_0
   - requests=2.25.1=pyhd3deb0d_0
   - ruamel_yaml=0.15.100=py39h27cfd23_0
+  - s3transfer=0.4.2=pyhd8ed1ab_0
   - scipy=1.6.3=py39hee8e79c_0
   - send2trash=1.5.0=py_0
   - setuptools=52.0.0=py39h06a4308_0
@@ -247,7 +249,6 @@ dependencies:
   - snowballstemmer=2.1.0=pyhd8ed1ab_0
   - soupsieve=2.2.1=pyhd3eb1b0_0
   - sphinx=3.5.4=pyh44b312d_0
-  - sphinx-book-theme=0.0.41=pyhd8ed1ab_0
   - sphinx-comments=0.0.3=pyh9f0ad1d_0
   - sphinx-copybutton=0.3.2=pyhd8ed1ab_0
   - sphinx-panels=0.5.2=pyhd3deb0d_0
@@ -306,17 +307,23 @@ dependencies:
   - pip:
     - boxtree==2021.1
     - cgen==2020.1
+    - click==7.1.2
     - codepy==2019.1
-    - cutde==21.4.13
     - genpy==2021.1
     - iniconfig==1.1.1
     - islpy==2021.1
+    - jupyter-book==0.11.1
+    - jupyterbook-latex==0.3.1
     - loopy==2020.2.1
     - meshio==4.4.6
+    - okada-wrapper==18.12.7.3
     - pluggy==0.13.1
     - py==1.10.0
-    - pygmsh==7.1.9
+    - pydata-sphinx-theme==0.6.3
+    - pygmsh==6.1.1
     - pymbolic==2021.1
     - pytest==6.2.4
-    - sphinxcontrib-bibtex==2.3.0
+    - sphinx-book-theme==0.1.0
+    - sphinx-external-toc==0.2.0
+    - sphinxcontrib-bibtex==2.2.1
 prefix: /home/tbent/.miniconda3/envs/bie_book
