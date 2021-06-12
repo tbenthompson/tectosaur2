@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/bin/bash -i
+
+conda activate bie_book
 # Gather a locked environment.
 conda env export > ./environment.lock.yml
 
