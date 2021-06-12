@@ -8,8 +8,8 @@ only_build_toc_files: true
 
 # See https://jupyterbook.org/content/execute.html
 execute:
-  execute_notebooks: false
-  timeout: 600
+  execute_notebooks: 'off'
+  timeout: 60000
 
 
 # Define the name of the latex output file for PDF builds

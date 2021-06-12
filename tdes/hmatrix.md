@@ -16,11 +16,6 @@ kernelspec:
 
 +++
 
-## TODO: Use median in the tree construction?
-## TODO: Make the ordered_idxs figure.
-
-+++
-
 Last time, we investigate the low-rank property of the far-field blocks of a BEM matrix and built an adaptive cross approximation (ACA) implementation. Remember, the goal is to find a way to handle dense BEM matrices without running into the brick wall of $O(n^2)$ algorithmic scaling. With scaling like that, even a very powerful machine can't handle medium sized problems with 100,000 elements. The low-rank property will be the key to solving this problem. 
 
 This time, we'll put the pieces together and actually build a $O(n\log{n})$ algorithm for matrix-vector products that's not just theoretically faster, but also much faster in practice! To do this, we'll build a hierarchical matrix (H-matrix) implementation for TDE matrices. While I'll just focus on performing matrix-vector products with the approximation, it's possible to do much more with H-matrices -- for example, a compressed and accelerated LU decomposition. 
@@ -91,7 +86,7 @@ element_radius = np.max(
 
 Next, we'll use Python dataclasses to implement the tree and its nodes. 
 
-The data structure here might take a bit of explanation. Let's start with the `Tree.ordered_idxs`, `TreeNode.idx_start` and `TreeNode.idx_end`. Once we've constructed a binary tree, it's possible to order the elements from left to right by simply enforcing the rule that the indices of all elements in the left hand child have indices that are less than all the indices of the right hand child. This can be achieved by re-ordering elements during the construction process: if there are $n_l$ elements in the left child, we assign them indices $0...n_l-1$. Then the $n_r$ elements in the right child will be assigned indices $n_l...n_l+n_r$. The result is that the left child can be assigned `idx_start = 0` and `idx_end = n_l` and the right child can be assigned `idx_start = n_l` and `idx_end = n_r`. 
+The data structure here might take a bit of explanation. Let's start with the `Tree.ordered_idxs`, `TreeNode.idx_start` and `TreeNode.idx_end`. Once we've constructed a binary tree, it's possible to order the elements from left to right by simply enforcing the rule that the indices of all elements in the left hand child have indices that are less than all the indices of the right hand child. This can be achieved by re-ordering elements during the construction process: if there are $n_l$ elements in the left child, we assign them indices $0...n_l-1$. Then the $n_r$ elements in the right child will be assigned indices $n_l...n_l+n_r$. The result is that the left child can be assigned `idx_start = 0` and `idx_end = n_l` and the right child can be assigned `idx_start = n_l` and `idx_end = n_r`. If this is confusing, see below for a few figures that might help explain. 
 
 The node `center` and `radius` are simple, but represent a simplification. While above we talked about splitting boxes into sub-boxes, it's simpler to perform distance calculations if we just store the bounding sphere of each of these boxes. Since we split on the longest dimension, the boxes will never deviate too far from being a cube and thus a sphere will be a decent approximation.
 
@@ -116,6 +111,20 @@ class Tree:
     ordered_idxs: np.ndarray
     root: TreeNode
 ```
+
+The following three figures should help to explain what these trees will look like and what's going on with the `Tree.ordered_idxs` array.
+
+This first figure is showing the extent of the tree nodes for the lowest two levels of the tree along with the indices of each input point.
+
+<img src="./tree_diagram1.svg" width="400px">
+
+The second figure shows the structure of the binary tree itself. You can see how the associated nodes are also spatially associated above. Also, the tree is not a uniform depth, since the splitting depends on whether a node still has more than one point.
+
+<img src="./tree_diagram2.svg" width="400px">
+
+Finally, this third figure shows the entries in the `Tree.ordered_idxs` array. The indices are ordered according to the left-to-right structure of the binary tree, exactly matching the leaf nodes above. 
+
+<img src="./tree_diagram3.svg" width="400px">
 
 ## Building the tree
 
@@ -178,7 +187,8 @@ def build_tree_node(
     split_d = np.argmax(box_axis_length)
 
     # Then identify which elements are on the left hand side of the box along that axis.
-    is_left = pts[:, split_d] < box_center[split_d]
+    split_val = np.median(pts[:, split_d])
+    is_left = pts[:, split_d] < split_val
 
     # 6) Re-arrange indices.
     # Since we're going to re-arrange indices, we need to save the relevant indices first.
@@ -266,6 +276,8 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
+:tags: [remove-cell, remove-output]
+
 import matplotlib.patches as patches
 
 np.random.seed(4)
@@ -275,14 +287,15 @@ fig_tree = build_tree(original_pts, np.zeros(original_pts.shape[0]), 1)
 plt.figure(figsize=(5,5))
 plt.plot(original_pts[:,0], original_pts[:,1], 'ko')
 for i in range(10):
-    x = original_pts[i,0]
-    y = original_pts[i,1]+0.04
-    if fig_tree.ordered_idxs[i] == 1:
+    tree_idx = fig_tree.ordered_idxs[i]
+    x = original_pts[tree_idx,0]
+    y = original_pts[tree_idx,1]+0.04
+    if tree_idx == 1:
         x += 0.02
         y -= 0.01
-    if fig_tree.ordered_idxs[i] == 5:
+    if tree_idx == 5:
         x -= 0.04
-    plt.text(x, y, str(fig_tree.ordered_idxs[i]), fontsize=15, color='r')
+    plt.text(x, y, str(tree_idx), fontsize=15, color='r')
 
 
 def plot_tree(node):      
@@ -297,7 +310,8 @@ def plot_tree(node):
 
 plot_tree(fig_tree.root)
 plt.axis('off')
-plt.show()
+plt.tight_layout()
+plt.savefig('tree_diagram1.svg')
 
 node_by_depth = [[] for i in range(5)]
 def assign_depth(node, depth=0, depth_idx=0):
@@ -329,8 +343,9 @@ plot_binary_tree(fig_tree.root)
 plt.axis('off')
 plt.axis('equal')
 plt.tight_layout()
+plt.savefig('tree_diagram2.svg')
 
-plt.figure(figsize=(10,1.5))
+plt.figure(figsize=(8,1.5))
 for i in range(10):
     plt.gca().add_patch(patches.Rectangle((i,0), 1, 1, edgecolor='k', facecolor='none'))
     plt.text(i + 0.4, 0.35, str(fig_tree.ordered_idxs[i]), fontsize=20)
@@ -339,6 +354,8 @@ plt.xlim([-1, 11])
 plt.ylim([-0.5, 10.5])
 plt.axis('equal')
 plt.axis('off')
+plt.tight_layout()
+plt.savefig('tree_diagram3.svg')
 plt.show()
 plt.rcParams['text.usetex'] = True
 ```
@@ -411,7 +428,7 @@ I'm going to gloss over the code below, but the end result is that we plot:
 ```{code-cell} ipython3
 paths = [
     [0, 0, 0, 0, 0, 0, 1, 0],
-    [1, 0, 1, 0, 0, 1, 1, 0],
+    [1, 1, 0, 0, 0, 0, 0, 0],
 ]
 plt.figure(figsize=(10, 5))
 for i, path in enumerate(paths):
@@ -470,51 +487,53 @@ To get more precise, we pass the full set of observation points and source trian
 I'll time this section of code and then also compare with the runtime of computing each block separately.
 
 ```{code-cell} ipython3
-%%time
-tree_tri_pts = surf_tri_pts[tree.ordered_idxs].astype(np.float32)
-tree_obs_pts = (np.mean(tree_tri_pts, axis=1) + np.array([0, 0, 0.01])).astype(
-    np.float32
-)
-direct_obs_starts = np.array([d[0].idx_start for d in direct])
-direct_obs_ends = np.array([d[0].idx_end for d in direct])
-direct_src_starts = np.array([d[1].idx_start for d in direct])
-direct_src_ends = np.array([d[1].idx_end for d in direct])
+import time
 
-direct_packed_blocks, direct_block_starts = cutde.disp_block(
-    tree_obs_pts,
-    tree_tri_pts,
-    direct_obs_starts,
-    direct_obs_ends,
-    direct_src_starts,
-    direct_src_ends,
-    0.25,
-)
-for i in range(direct_block_starts.shape[0] - 1):
-    # We can't forget to rotate the source dimension into x-y-z instead of
-    # the strike-dip-tensile coordinate system.
-    # First, unpack the block into a (N, 3, M, 3) array.
-    DD = direct_packed_blocks[
-        direct_block_starts[i] : direct_block_starts[i + 1]
-    ].reshape(
-        (
-            direct_obs_ends[i] - direct_obs_starts[i],
-            3,
-            direct_src_ends[i] - direct_src_starts[i],
-            3,
-        )
+for timing_iter in range(2):
+    start = time.time()
+    tree_tri_pts = surf_tri_pts[tree.ordered_idxs].astype(np.float32)
+    tree_obs_pts = (np.mean(tree_tri_pts, axis=1) + np.array([0, 0, 0.01])).astype(
+        np.float32
     )
-    tmp = DD[:, :, :, 0].copy()
-    DD[:, :, :, 0] = DD[:, :, :, 1]
-    DD[:, :, :, 1] = tmp
-    direct_packed_blocks[
-        direct_block_starts[i] : direct_block_starts[i + 1]
-    ] = DD.flatten()
+    direct_obs_starts = np.array([d[0].idx_start for d in direct])
+    direct_obs_ends = np.array([d[0].idx_end for d in direct])
+    direct_src_starts = np.array([d[1].idx_start for d in direct])
+    direct_src_ends = np.array([d[1].idx_end for d in direct])
+
+    direct_packed_blocks, direct_block_starts = cutde.disp_block(
+        tree_obs_pts,
+        tree_tri_pts,
+        direct_obs_starts,
+        direct_obs_ends,
+        direct_src_starts,
+        direct_src_ends,
+        0.25,
+    )
+    for i in range(direct_block_starts.shape[0] - 1):
+        # We can't forget to rotate the source dimension into x-y-z instead of
+        # the strike-dip-tensile coordinate system.
+        # First, unpack the block into a (N, 3, M, 3) array.
+        DD = direct_packed_blocks[
+            direct_block_starts[i] : direct_block_starts[i + 1]
+        ].reshape(
+            (
+                direct_obs_ends[i] - direct_obs_starts[i],
+                3,
+                direct_src_ends[i] - direct_src_starts[i],
+                3,
+            )
+        )
+        tmp = DD[:, :, :, 0].copy()
+        DD[:, :, :, 0] = DD[:, :, :, 1]
+        DD[:, :, :, 1] = tmp
+        direct_packed_blocks[
+            direct_block_starts[i] : direct_block_starts[i + 1]
+        ] = DD.flatten()
+    if timing_iter > 0:
+        print(f'runtime {time.time() - start:.3} secs')
 ```
 
 ```{code-cell} ipython3
-%%time
-
-
 def direct_block(obs_node, src_node, offset):
     src_tri_pts = tree_tri_pts[src_node.idx_start : src_node.idx_end].astype(np.float32)
     obs_tri_pts = tree_tri_pts[obs_node.idx_start : obs_node.idx_end].astype(np.float32)
@@ -527,8 +546,11 @@ def direct_block(obs_node, src_node, offset):
     M[:, :, :, 1] = tmp
     return M.reshape((obs_pts.shape[0] * 3, src_tri_pts.shape[0] * 3))
 
-
-direct_blocks = [direct_block(d[0], d[1], 0.01) for d in direct]
+for timing_iter in range(2):
+    start = time.time()
+    direct_blocks = [direct_block(d[0], d[1], 0.01) for d in direct]
+    if timing_iter > 0:
+        print(f'runtime {time.time() - start:.3} secs')
 ```
 
 The `cutde.disp_blocks` version is about 15x faster. Below, we quickly check that both these implementations give exactly the same output, increasing my confidence that either one is correct.
@@ -1099,7 +1121,7 @@ y_true = full_mat2d.dot(x)
 y_matrix = hmatrix_dot(x)
 ```
 
-And that's it! The H-matrix implementation works, is using 9x less memory and 4x faster. I'll leaving a full application of these tools for the next section.
+And that's it! The H-matrix implementation works, is using 9x less memory and is running 4x faster. I'll leaving a full application of these tools for the next section.
 
 A quick performance note: Even thought the H-matrix vector product is faster and uses less memory, this comparison is a bit unfair to the H-matrix algorithm for two reasons:
 1. This is a pretty small problem for using H-matrices. If we had ten times as many elements, the H-matrix implementations would be a slam dunk!
@@ -1116,7 +1138,3 @@ There are a lot of improvements that we could make here:
 * There's plenty of room for improvement in the tree construction to do a better job deciding which blocks can be approximated.
 * It's possible to perform efficient LU decomposition of an H-matrix {cite:p}`Bebendorf2004`. That would be super useful for problems where we're solving many problems using the same left hand side matrix (e.g. time dependent problem). 
 * And many more!
-
-```{code-cell} ipython3
-
-```

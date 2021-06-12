@@ -21,7 +21,7 @@ dependencies:
   - pandas
   - line_profiler
   - pip:
-    - cutde
+    - cutde #might want a development version!
     - pygmsh
     - sphinxcontrib-bibtex >= 2.2.0
     - loopy
