@@ -3,20 +3,34 @@ target_repo=../../tbenthompson_site
 target_dir=static/book
 
 conda activate bie_book
+
 # Gather a locked environment.
 conda env export > ./environment.lock.yml
 
 # Remove quantco_main channel from the environment.lock.yml
 sed -i '/quantco_main/d' ./environment.lock.yml
 
-# Delete existing files.
 pushd $target_repo
-git rm -r $target_dir
-popd
-# Copy new files
-cp -R _build/html/* $target_repo/$target_dir
-pushd $target_repo
-git add $target_dir
-popd
+if [ -z "$(git status --porcelain)" ]; then
+    # Delete existing files.
+    git rm -r $target_dir
+    popd
 
-echo "Please git commit!"
+    # Copy new files
+    cp -R _build/html/* $target_repo/$target_dir
+
+    # Add new files and then commit and push.
+    pushd $target_repo
+    git add $target_dir
+    git commit -m "Publish BIE book."
+    git push origin master
+    popd
+else
+    echo "$target_repo has unclean git status. Please git stash or commit before re-running publish."
+    exit;
+fi
+
+git status
+
+echo "Please run git commit here."
+
