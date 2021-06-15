@@ -28,9 +28,13 @@ import matplotlib.pyplot as plt
 
 ## Looking at the fault model.
 
-First off, I'm not going to explain how to build the fault geometry. That's already been built! I'm using the same triangular subduction zone mesh used by [Shannon Graham in her Global Block model papers](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2017GC007391). That mesh was built using the [Slab 1.0 subduction zone contours](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2011JB008524). Also, the link in the Slab 1.0 paper is dead and the [first Google search for Slab 1.0 is a portable cutting board](https://store.overlandbound.com/products/slab).
+First off, I'm not going to explain how to build the fault geometry. That's already been built! I'm using the same triangular subduction zone mesh used by [Shannon Graham in her Global Block model papers](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2017GC007391). That mesh was built using the [Slab 1.0 subduction zone contours](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2011JB008524). 
 
-Anyway... I'll load the mesh up from the `.mat` file (a Matlab file format) and plot it.
+```{margin} 
+The link in the Slab 1.0 paper is dead and the [first Google search for Slab 1.0 is a portable cutting board](https://store.overlandbound.com/products/slab): "Who knew the cutting surface industry needed disrupting?  And disrupt it, the SLAB 1.0 does."
+```
+
+I'll load the mesh up from the `.mat` file (a Matlab file format) and plot it.
 
 ```{code-cell} ipython3
 file = scipy.io.loadmat("south_america_50km_mod_ext.mat")
@@ -74,7 +78,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The mesh itself looks great at first glance! But, there is a mild problem with the element orientations at the southern end of the fault mesh. They don't match the rest of the mesh. To fix the issue I can flip the triangle vertex ordering. Instead of ordering the vertices of a given triangle 0-1-2, I can flip the normal vector by ordering them 0-2-1. I'm actually going to flip the orientation of all the dark blue parts of the mesh since it's a bit nicer to follow the convention that dipping fault normal vector point upwards. This convention results in an upwards-pointing dip vector which is consistent with the upwards dip-vector found in Okada.
+The mesh itself looks great at first glance! But, there is a mild problem with the element orientations at the southern end of the fault mesh. They don't match the rest of the mesh. To fix the issue I can flip the triangle vertex ordering. Instead of ordering the vertices of a given triangle 0-1-2, I can flip the normal vector by ordering them 0-2-1. I'm actually going to flip the orientation of all the dark blue parts of the mesh since it's a bit nicer to follow the convention that dipping fault normal vectors point upwards. This convention results in an upwards-pointing dip vector which is consistent with the upwards dip-vector found in Okada though it is inconsistent with the normal geological convention where the dip vector points downwards.
 
 ```{code-cell} ipython3
 flip_indices = np.where(normals[:, 2] < 0)

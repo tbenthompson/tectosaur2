@@ -28,6 +28,7 @@ dependencies:
     - cutde #might want a development version!
     - pygmsh<7
     - sphinxcontrib-bibtex >= 2.2.0
+    - sphinx-sitemap
     - loopy
     - boxtree
     - okada_wrapper

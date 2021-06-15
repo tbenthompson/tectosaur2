@@ -1,4 +1,6 @@
 #!/bin/bash -i
+target_repo=../../tbenthompson_site
+target_dir=static/book
 
 conda activate bie_book
 # Gather a locked environment.
@@ -6,6 +8,15 @@ conda env export > ./environment.lock.yml
 
 # Remove quantco_main channel from the environment.lock.yml
 sed -i '/quantco_main/d' ./environment.lock.yml
-cp -R _build/html/* ../../tbenthompson_site/static/book/
+
+# Delete existing files.
+pushd $target_repo
+git rm -r $target_dir
+popd
+# Copy new files
+cp -R _build/html/* $target_repo/$target_dir
+pushd $target_repo
+git add $target_dir
+popd
 
 echo "Please git commit!"
