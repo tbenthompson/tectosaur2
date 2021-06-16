@@ -11,4 +11,4 @@ Using JupyterBook!
 1. Write code using Jupyter Notebook or Lab. Do fancier MyST Markdown editing using the raw markdown text file.
 1. Add to `references.bib`.
 1. Run notebooks through black via the traditional Jupyter Notebook interface. 
-1. Run `./publish` to copy built files and freeze the conda environment.
+1. Run `./publish` to copy built files into my website and freeze the conda environment.

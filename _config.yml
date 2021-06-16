@@ -26,6 +26,8 @@ repository:
   url: https://github.com/tbenthompson/BIE_book  # Online location of your book
   branch: master  # Which branch of the repository should be used when creating links (optional)
 
+launch_buttons:
+  binderhub_url: false
 
 # Add GitHub buttons to your book
 # See https://jupyterbook.org/customize/config.html#add-a-link-to-your-repository
@@ -40,6 +42,7 @@ html:
 
 sphinx:
   config:
+    language: en
     bibtex_reference_style: author_year
     mathjax_path: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
     html_baseurl: 'https://tbenthompson.com/book/'
