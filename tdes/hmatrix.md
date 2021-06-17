@@ -12,15 +12,15 @@ kernelspec:
   name: python3
 ---
 
-# Hierarchical matrices for triangular dislocation elements.
+# GPU-accelerated hierarchical matrices for triangular dislocation elements.
 
 +++
 
 Last time, we investigate the low-rank property of the far-field blocks of a BEM matrix and built an adaptive cross approximation (ACA) implementation. Remember, the goal is to find a way to handle dense BEM matrices without running into the brick wall of $O(n^2)$ algorithmic scaling. With scaling like that, even a very powerful machine can't handle medium sized problems with 100,000 elements. The low-rank property will be the key to solving this problem. 
 
-This time, we'll put the pieces together and actually build a $O(n\log{n})$ algorithm for matrix-vector products that's not just theoretically faster, but also much faster in practice! To do this, we'll build a hierarchical matrix (H-matrix) implementation for TDE matrices. While I'll just focus on performing matrix-vector products with the approximation, it's possible to do much more with H-matrices -- for example, a compressed and accelerated LU decomposition. 
+This time, we'll put the pieces together and actually build a $O(n\log{n})$ algorithm for matrix-vector products that's not just theoretically faster, but also much faster in practice! To do this, we'll build a hierarchical matrix (H-matrix) implementation for TDE matrices. While I'll just focus on performing matrix-vector products with the approximation, it's possible to do much more with H-matrices -- for example, a compressed and accelerated LU decomposition.
 
-To build our H-matrix implementation, we need to:
+To build an H-matrix implementation, we need to:
 1. build a tree structure in order to determine which groups of elements are far away from each other.
 2. traverse that tree to split the matrix blocks into near-field and far-field blocks.
 3. compute the exact matrix for each near-field block.
@@ -112,17 +112,15 @@ class Tree:
     root: TreeNode
 ```
 
-The following three figures should help to explain what these trees will look like and what's going on with the `Tree.ordered_idxs` array.
-
-This first figure is showing the extent of the tree nodes for the lowest two levels of the tree along with the indices of each input point.
+The following three figures should help to explain what these trees will look like and what's going on with the `Tree.ordered_idxs` array. I've created a tree out of ten points. This first figure is showing the extent of the tree nodes for the lowest two levels of the tree along with the indices of each input point.
 
 <img src="./tree_diagram1.svg" width="400px">
 
-The second figure shows the structure of the binary tree itself. You can see how the associated nodes are also spatially associated above. Also, the tree is not a uniform depth, since the splitting depends on whether a node still has more than one point.
+The second figure shows the structure of the binary tree itself. The leaves each contain only one input point with the point index specified. You can see how the associated nodes are also spatially associated above. Also, the tree is not a uniform depth, since the splitting depends on whether a node still has more than one point.
 
 <img src="./tree_diagram2.svg" width="400px">
 
-Finally, this third figure shows the entries in the `Tree.ordered_idxs` array. The indices are ordered according to the left-to-right structure of the binary tree, exactly matching the leaf nodes above. 
+Finally, this third figure shows the entries in the `Tree.ordered_idxs` array. The indices are ordered according to the left-to-right structure of the binary tree, exactly matching the leaf nodes above. This is helpful so that spatially nearby points are also nearby in memory. In implementing the H-matrix approximation, these re-ordered indices simplify a lot of the indexing so that we can always work with contiguous blocks of indices.
 
 <img src="./tree_diagram3.svg" width="400px">
 
