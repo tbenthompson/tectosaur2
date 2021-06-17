@@ -548,6 +548,33 @@ plt.colorbar()
 plt.show()
 ```
 
+```{code-cell} ipython3
+:tags: ["remove-cell"]
+plt.figure(figsize=(6, 6))
+cntf = plt.tricontourf(
+    surf_pts_lonlat[:, 0], surf_pts_lonlat[:, 1], surf_tris, surf_pts_lonlat[:, 2]
+)
+plt.triplot(
+    surf_pts_lonlat[:, 0], surf_pts_lonlat[:, 1], surf_tris, "k-", linewidth=0.25
+)
+plt.triplot(
+    fault_pts_lonlat[:, 0], fault_pts_lonlat[:, 1], fault_tris, "w-", linewidth=0.4
+)
+#plt.colorbar()
+plt.axis('equal')
+plt.axis('off')
+plt.tight_layout()
+
+ax = plt.gca()
+ax.set_axis_off()
+plt.subplots_adjust(top = 1,bottom = 0, right = 1,left = 0, hspace = 0, wspace = 0)
+plt.margins(0,0)
+ax.xaxis.set_major_locator(plt.NullLocator())
+ax.yaxis.set_major_locator(plt.NullLocator())
+plt.savefig('sa_mesh.svg', box_inches = 'tight', pad_inches = 0)
+plt.show()
+```
+
 And then project it into $(x, y, z)$ coordinates centered at the center of the Earth. `collect_dem` is a small module I've written for collecting digital elevation data from a publicly AWS.
 
 ```{code-cell} ipython3

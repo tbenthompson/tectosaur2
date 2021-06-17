@@ -1,6 +1,8 @@
 Boundary integral method tutorials
 ============================
 
+<img src="tdes/sa_mesh.svg" width="350px"><img src="c1qbx/qbx_single.svg" width="350px">
+
 ## Summary
 
 Boundary integral methods are powerful tools for solving PDEs. They are particular useful in settings where the object of interest is itself a boundary, for example an earthquake fault surface. 
@@ -13,6 +15,7 @@ Over the last few decades, the key parts of a general-purpose boundary integral 
 * Embedded boundary methods {cite:p}`Ethridge2001, Biros2004` allow for handling body forces and nonlinearities. Smooth function extension methods {cite:p}`Fryklund2018` make this approach accurate.
 
 However, these methods have not become mainstream yet. The only paper I am aware of that combines most of these methods is {cite:t}`Askham2017` but the source is not available.
+
 
 This "book" will walk through implementing each of these methods in practical applications. Most of the applications will be to earthquake science problems, however there will be other examples where it makes more sense.
 
@@ -29,5 +32,5 @@ At the moment, there are two sequences:
 ## Prerequisites
 
 The tutorials here are directed at a fairly experienced audience. Some prior knowledge and skills that would be helpful:
-* Python skills: particularly standard scientific Python tools like `numpy` and `matplotlib`. A lot of the code here is vectorized because it allows me to communicate the ideas more concisely while also having reasonably fast code. If you feel that your Python skills are weak, the tutorials here could be a decent way to learn. You might consider downloading the notebooks and running them yourself to explore.
-* Applied math skills: multi-variable calculus, basic partial differential equations, numerical linear algebra. Do you know what it means to "Use an LU decomposition to solve the linear system resulting from a finite difference discretization of the Poisson equation?" I'll try to provide references when I'm discussing more technical topics.
+* **Python skills**: particularly standard scientific Python tools like `numpy` and `matplotlib`. A lot of the code here is vectorized because it allows me to communicate the ideas more concisely while also having reasonably fast code. If you feel that your Python skills are weak, the tutorials here could be a decent way to learn. You might consider downloading the notebooks and running them yourself to explore.
+* **Applied math skills**: multi-variable calculus, basic partial differential equations, numerical linear algebra. Do you know what it means to "Use an LU decomposition to solve the linear system resulting from a finite difference discretization of the Poisson equation?" I'll try to provide references when I'm discussing more technical topics.

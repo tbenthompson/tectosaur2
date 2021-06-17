@@ -30,9 +30,10 @@ $$ \nabla^2 u_3 = 0 $$
 
 As a result, we can describe solutions to the Laplace equation in terms of the elastic behavior of infinitely long strike-slip faults (aka a "screw dislocation"). 
 
-Below, we're going to use QBX to compute the displacements and stresses resulting from slip on infinitely long strike-slip faults with fun shapes. In particular, the "double layer" integral we computed in part 1 will translate slip on the fault into a displacement value in the volume. We'll introduce the "hypersingular" integral to calculate stresses from slip.
+Below, we're going to use QBX to compute the displacements and stresses resulting from slip on infinitely long strike-slip faults with fun shapes. In particular, the "double layer" integral we computed in part 1 will compute displacement in the volume from the input slip on the fault. We'll also introduce the "hypersingular" integral to calculate stresses from slip.
 
 ```{code-cell} ipython3
+import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -52,31 +53,26 @@ from common import gauss_rule, double_layer_matrix, qbx_choose_centers, qbx_expa
 
 When we compute a boundary integral, there are two sources of error: the surface approximation error and the quadrature error. We've been focusing here on the quadrature error because it can be reduced dramatically with better algorithms (QBX!). The surface approximation error is handled simply through using a higher resolution approximation to the surface -- for example, represent a circle with 100 points instead of 50. However, below, it will be nice to be able to hold the surface approximation error constant while reducing the quadrature error to zero. But, in the integration techniques we have been using, the quadrature error and the surface error are inextricably linked. When we increase from using 50 to 100 points to integrate a function over a circle, we have been improving both the surface approximation and also using a more accurate quadrature rule. 
 
-To separate the two components, we'll interpolate points from a low order surface approximation in order to calculate the locations of quadrature points for a higher order integral approximation. To make the difference more concrete... Before, we would calculate new point locations for a circle by calculating $(cos \theta, sin \theta)$. Now, we will calculate the new point from a polynomial interpolation of the $n$ existing points $\sum_{i}^n c_i p_i(x)$. In some sense, this is also more realistic. In a real-world application, we normally have a data-derived surface representation that we can't improve. On the other hand, we *can* add more quadrature points by interpolating on that surface, but that won't make the surface itself any more accurate.
+To separate the two components, we'll interpolate points from a low order surface approximation in order to calculate the locations of quadrature points for a higher order integral approximation. To make the difference more concrete... Before, we would calculate new point locations for a circle by calculating $(cos \theta, sin \theta)$. Now, we will calculate the new point from a polynomial interpolation of the $n$ existing points $\sum_{i}^n c_i p_i(x)$. In some sense, this is also more realistic. In a real-world application, we normally have a data-derived surface representation that we can't improve. On the other hand, we *can* add more quadrature points by interpolating on that surface. But adding more quadrature points won't make the surface itself any more accurate.
 
-To do this, it's going to be helpful to have some functions for interpolation! This snippet of code below is an implementation of [barycentric Lagrange interpolation](https://people.maths.ox.ac.uk/trefethen/barycentric.pdf){cite:p}`Berrut2004`. I strongly recommend that paper if you've never run into barycentric Lagrange interpolation before!
+To do this, it's going to be helpful to have some functions for polynomial interpolation! We'll use the `scipy.interpolate.BarycentricInterpolator` implementation of [barycentric Lagrange interpolation](https://people.maths.ox.ac.uk/trefethen/barycentric.pdf){cite:p}`Berrut2004`. I strongly recommend that paper if you've never run into barycentric Lagrange interpolation before!
 
-```{code-cell} ipython3
-def interp_weights(x):
-    dist = x[:, None] - x[None, :]
-    np.fill_diagonal(dist, 1.0)
-    weights = 1.0 / np.prod(dist, axis=1)
-    return weights
-
-def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
-    dist = eval_pts[:, None] - interp_pts[None, :]
-    kernel = interp_wts[None, :] / dist
-    return (kernel.dot(fnc_vals)) / np.sum(kernel, axis=1)
-```
++++
 
 Below is a little check to make sure our interpolation snippet is working correctly. We interpolate $sin(5x)$ (plotted with a solid black line) on a grid of 7 points (blue dots) and plot the resulting approximate function (red dashes line). This isn't a rigorous check, but it seems like it's working! Convergence is very fast if we increase the interpolation order, but I've left out a demonstration of that.
 
 ```{code-cell} ipython3
+from scipy.interpolate import BarycentricInterpolator
+
+# First, form the interpolating polynomial
 qx, qw = gauss_rule(7)
-gauss_interp_wts = interp_weights(qx)
-xs = np.linspace(-1, 1, 200)
 fqx = np.sin(5 * qx)
-v = barycentric_eval(xs, qx, gauss_interp_wts, fqx)
+I = BarycentricInterpolator(qx, fqx)
+
+# Then, evaluate the polynomial at a bunch of points for plotting.
+xs = np.linspace(-1, 1, 200)
+v = I(xs)
+
 plt.plot(qx, fqx, 'bo', markersize=10)
 plt.plot(xs, v, 'r--')
 plt.plot(xs, np.sin(5 * xs), 'k-')
@@ -87,11 +83,13 @@ Let's also have a couple helper functions for interpolating functions and surfac
 
 ```{code-cell} ipython3
 def interp_fnc(f, in_xhat, out_xhat):
-    iw = interp_weights(in_xhat)
-    return barycentric_eval(out_xhat, in_xhat, iw, f)
+    I = BarycentricInterpolator(in_xhat, f)
+    return I(out_xhat)
 
 def interp_surface(in_surf, in_xhat, out_xhat):
     out = []
+    # So far, we've defined surfaces as five element tuples consisting of:
+    # (x, y, normal_x, normal_y, jacobian)
     for f in in_surf[:5]:
         out.append(interp_fnc(f, in_xhat, out_xhat))
     return out
@@ -101,11 +99,21 @@ def interp_surface(in_surf, in_xhat, out_xhat):
 
 +++
 
-The second missing piece is a naive integrator for the hypersingular integral! In earthquake speak, still operating in the antiplane setting, since we set the observation point normal to $(1, 0)$, we're computing the stress component $\sigma_{xz}$. If we set the observation normal to $(0, 1)$, we would compute $\sigma_{yz}$. (Note: I'm also implicitly assuming the shear modulus $\mu = 1$.) 
+The second missing piece is a set of tools for computing stresses in the volume given an input fault slip. Continuing in the antiplane strain setting, what we want is to compute the gradient of displacement times the shear modulus. 
 
-Since, we already built all the components of an algorithm for the double layer case, we can now just write this naive integrator for a new kernel and everything works perfectly. 
+\begin{equation}
+(\sigma_{xz}, \sigma_{yz}) = (\mu \frac{\partial \phi}{\partial x}, \mu \frac{\partial \phi}{\partial y})
+\end{equation}
 
-Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
+To simplify things a bit here, I'm going to just compute the first compute $\sigma_{xz}$. This is equivalent to computing a traction with the normal vector equal to $(1, 0)$.
+
+The hypersingular integral will computes $\sigma_{xz}$ for us given the source slip distribution. Since, we already built all the components of a QBX algorithm for the double layer case, we can now just write the naive integrator for a new kernel and everything works perfectly. In the cell below, I've implemented a naive integrator for the hypersingular integral. 
+
+```{margin}
+As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section. 
+```
+
+Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
 
 ```{code-cell} ipython3
 def hypersingular_matrix(surface, quad_rule, obsx, obsy):
@@ -115,8 +123,8 @@ def hypersingular_matrix(surface, quad_rule, obsx, obsy):
     dy = obsy[:, None] - srcy[None, :]
     r2 = dx ** 2 + dy ** 2
     
-    obsny = 0.0 * obsx
     obsnx = np.full_like(obsx, 1.0)
+    obsny = 0.0 * obsx
     
     srcn_dot_obsn = srcnx[None, :] * obsnx[:, None] + srcny[None, :] * obsny[:, None]
     d_dot_srcn = dx * srcnx[None, :] + dy * srcny[None, :]
@@ -128,10 +136,14 @@ def hypersingular_matrix(surface, quad_rule, obsx, obsy):
     return integrand * curve_jacobian * quad_rule[1][None, :]
 ```
 
-Finally, I'll write a pretty big function that is going to produce nice figures for comparing QBX against a naive computation. The function is written to be independent of the surface and kernel function. It also accepts QBX parameters. As a reminder, `offset_mult` is a multiplier for how far off the surface the QBX expansion centers are placed. `kappa` is the upsampling rate in case we want to use a higher order quadrature for computing QBX coefficients than for representing the surface. And `qbx_p` is the order of the power series expansion. Please look through the function! Very little is new compared to Part 1.
+```{margin}
+By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You can just imagine that we're solving a nondimensionalized version of the problem. This is quite common because scaling the displacement and stress to lie in a similar range of values can improve the numerical condition of some problems. 
+```
+
+Finally, I'll write a pretty big function that is going to produce nice figures for comparing QBX against a naive computation. The function is written to be independent of the surface and kernel function. It also accepts QBX parameters. As a reminder, `offset_mult` is a multiplier for how far off the surface the QBX expansion centers are placed. `kappa` is the upsampling rate in case we want to use a higher order quadrature for computing QBX coefficients than for representing the surface. And `qbx_p` is the order of the power series expansion. Please look through the function! Very little is new compared to section 1.
 
 ```{code-cell} ipython3
-def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p):
+def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p, vmin=None, vmax=None):
     
     def slip_fnc(xhat):
         # This must be zero at the endpoints!
@@ -203,11 +215,16 @@ def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p):
         qbx_r, 
         qbx_coeffs
     )
+    
+    if vmin is None:
+        vmin = -1.0
+    if vmax is None:
+        vmax = 1.0
+    levels = np.linspace(vmin,vmax,16)
 
     plt.figure(figsize=(16,12))
     plt.subplot(2, 3, 1)
     plt.title('Naive solution')
-    levels = np.linspace(-1.0,1.0,11)
     cntf = plt.contourf(obsx, obsy, disp_low, levels = levels, extend="both")
     plt.contour(obsx, obsy, disp_low, colors='k', linestyles='-', linewidths=0.5, levels = levels, extend="both")
     plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
@@ -225,7 +242,9 @@ def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p):
 
     plt.subplot(2, 3, 3)
     plt.title('Naive error')
-    logerror = np.log10(np.abs(disp_low - disp_high))
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        logerror = np.log10(np.abs(disp_low - disp_high))
     logerror[np.isinf(logerror)]=-12.0
     cntf = plt.contourf(obsx, obsy, logerror, levels = np.linspace(-12, 0, 13), extend="both")
     plt.contour(obsx, obsy, logerror, colors='k', linestyles='-', linewidths=0.5, levels = np.linspace(-12, 0, 13), extend="both")
@@ -255,7 +274,9 @@ def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p):
 
     plt.subplot(2, 3, 6)
     plt.title('QBX error')
-    logerror = np.log10(np.abs(disp_qbx - disp_high))
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        logerror = np.log10(np.abs(disp_qbx - disp_high))
     logerror[np.isinf(logerror)]=-12.0
     cntf = plt.contourf(obsx, obsy, logerror, levels = np.linspace(-12, 0, 13), extend="both")
     plt.contour(obsx, obsy, logerror, colors='k', linestyles='-', linewidths=0.5, levels = np.linspace(-12, 0, 13), extend="both")
