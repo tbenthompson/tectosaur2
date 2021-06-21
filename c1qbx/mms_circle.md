@@ -25,6 +25,30 @@ kernelspec:
 
 +++
 
+For the Poisson equation with Dirichlet boundary conditions:
+\begin{split}
+\nabla u &= f  ~~ \textrm{in} ~~ \Omega\\
+u &= g ~~ \textrm{on} ~~ \partial \Omega
+\end{split}
+`u_particular` is the integral:
+
+\begin{equation}
+v(x) = \int_{\Omega} G(x,y) f(y) dy
+\end{equation}
+
+which satisfies equation 1 but not 2.
+
+Then, compute homogeneous solution, `u_homog` with appropriate boundary conditions:
+
+\begin{split}
+\nabla u^H &= 0 ~~ \textrm{in} ~~ \Omega \\
+u^H &= g - v|_{\partial \Omega}  ~~ \textrm{on} ~~ \partial \Omega
+\end{split}
+
+So, first, I need to compute $g - v|_{\partial \Omega}$
+
++++
+
 ## Setup
 
 ```{code-cell} ipython3
@@ -133,72 +157,6 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-hx = xs[1] - xs[0]
-hy = ys[1] - ys[0]
-hx, hy
-```
-
-```{code-cell} ipython3
-dx2 = (correct[2:] - 2*correct[1:-1] + correct[:-2]) / (hx ** 2)
-dy2 = (correct[:, 2:] - 2*correct[:, 1:-1] + correct[:, :-2]) / (hy ** 2)
-```
-
-```{code-cell} ipython3
-laplacian = np.zeros_like(fxy_obs)
-laplacian[1:-1] += dx2
-laplacian[:,1:-1] += dy2
-```
-
-```{code-cell} ipython3
-plt.figure(figsize = (12,5))
-plt.subplot(1,3,1)
-levels = np.linspace(np.min(fxy_obs), np.max(fxy_obs), 21)
-cntf = plt.contourf(obsx, obsy, fxy_obs, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    fxy_obs,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.subplot(1,3,2)
-levels = np.linspace(np.min(fxy_obs), np.max(fxy_obs), 21)
-cntf = plt.contourf(obsx, obsy, laplacian, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    laplacian,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.subplot(1,3,3)
-err = np.log10(np.abs(laplacian - fxy_obs))
-levels = np.linspace(-5, 0, 11)
-cntf = plt.contourf(obsx, obsy, err, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    err,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.tight_layout()
-plt.show()
-```
-
-```{code-cell} ipython3
 def fundamental_soln_matrix(obsx, obsy, src_pts, src_wts):
     dx = obsx[:, None] - src_pts[None, :, 0]
     dy = obsy[:, None] - src_pts[None, :, 1]
@@ -265,30 +223,6 @@ plt.show()
 ```
 
 ## Direct to surface eval
-
-+++
-
-For the Poisson equation with Dirichlet boundary conditions:
-\begin{split}
-\nabla u &= f  ~~ \textrm{in} ~~ \Omega\\
-u &= g ~~ \textrm{on} ~~ \partial \Omega
-\end{split}
-`u_particular` is the integral:
-
-\begin{equation}
-v(x) = \int_{\Omega} G(x,y) f(y) dy
-\end{equation}
-
-which satisfies equation 1 but not 2.
-
-Then, compute homogeneous solution with appropriate boundary conditions:
-
-\begin{split}
-\nabla u^H &= 0 ~~ \textrm{in} ~~ \Omega \\
-u^H &= g - v|_{\partial \Omega}  ~~ \textrm{on} ~~ \partial \Omega
-\end{split}
-
-So, first, I need to compute $g - v|_{\partial \Omega}$
 
 ```{code-cell} ipython3
 ## This is g
