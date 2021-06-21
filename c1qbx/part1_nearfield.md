@@ -173,7 +173,7 @@ def trapezoidal_rule(n):
 def circle(quad_pts):
     theta = np.pi * (quad_pts + 1)
     x = np.cos(theta)
-    y = np.sin(theta)
+    y = np.sin(theta)«
     return x, y, x, y, np.pi
 ```
 

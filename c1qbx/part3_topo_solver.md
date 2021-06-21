@@ -24,6 +24,8 @@ Link to the section in the sa_tdes post.
 import numpy as np
 import matplotlib.pyplot as plt
 from common import gauss_rule, double_layer_matrix, qbx_choose_centers, qbx_expand_matrix, qbx_eval_matrix
+
+%config InlineBackend.figure_format='retina'
 ```
 
 ```{code-cell} ipython3
@@ -37,7 +39,7 @@ def fault_fnc(q):
 ```
 
 ```{code-cell} ipython3
-surf_L = 10
+surf_L = 100
 def flat_fnc(q):
     return surf_L*q, 0*q, 0*q, np.ones_like(q), surf_L
 ```
@@ -46,9 +48,9 @@ def flat_fnc(q):
 def slip_fnc(xhat):
     # This must be zero at the endpoints!
     return np.where(
-        xhat < -0.9, 
+        xhat < -0.99, 
         (1.0 + xhat) * 10,
-        np.where(xhat < 0.9, 
+        np.where(xhat < 0.99, 
                  1.0,
                  (1.0 - xhat) * 10
                 )
@@ -60,27 +62,51 @@ plt.plot(slip_fnc(np.linspace(-1, 1, 100)))
 ```
 
 ```{code-cell} ipython3
-qr_fault = gauss_rule(50)
+qr_fault = gauss_rule(500)
 fault = fault_fnc(qr_fault[0])
 ```
 
 ```{code-cell} ipython3
-qr_flat = gauss_rule(500)
+qr_flat = gauss_rule(2000)
 flat = flat_fnc(qr_flat[0])
 ```
 
 ```{code-cell} ipython3
 qbx_p = 5
-qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(flat, qr_flat)
+qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(flat, qr_flat, direction=1)
 qbx_expand_flat = qbx_expand_matrix(double_layer_matrix, flat, qr_flat, qbx_center_x, qbx_center_y, qbx_r, qbx_p=qbx_p)
-qbx_eval_flat = qbx_eval_matrix(flat[0][None,:], flat[1][None,:], qbx_center_x, qbx_center_y, qbx_p=qbx_p)[0]
-A = np.real(np.sum(qbx_eval_flat[:,:,None] * qbx_expand_flat, axis=1))
 ```
 
 ```{code-cell} ipython3
-B = double_layer_matrix(fault, qr_fault, flat[0], flat[1])
+qbx_expand_flat.shape
+```
+
+```{code-cell} ipython3
+qbx_eval_flat = qbx_eval_matrix(flat[0][None,:], flat[1][None,:], qbx_center_x, qbx_center_y, qbx_p=qbx_p)[0]
+```
+
+```{code-cell} ipython3
+qbx_eval_flat.shape
+```
+
+```{code-cell} ipython3
+A = np.real(np.sum(qbx_eval_flat[:,None,:,None] * qbx_expand_flat, axis=2))[:,0,:]
+```
+
+```{code-cell} ipython3
+B = double_layer_matrix(fault, qr_fault, flat[0], flat[1])[:,0,:]
 slip = slip_fnc(qr_fault[0])
 v = B.dot(slip)
+```
+
+```{code-cell} ipython3
+s = -0.5
+analytical = -s / (2 * np.pi) * (
+    np.arctan(flat[0] / (flat[1] + 2.5)) - 
+    np.arctan(flat[0] / (flat[1] - 2.5)) - 
+    np.arctan(flat[0] / (flat[1] + 0.5)) +
+    np.arctan(flat[0] / (flat[1] - 0.5))
+)
 ```
 
 ```{code-cell} ipython3
@@ -88,7 +114,13 @@ surf_disp = np.linalg.solve(A - 0.5 * np.eye(A.shape[0]), v)
 ```
 
 ```{code-cell} ipython3
+plt.figure(figsize=(9,9))
 plt.plot(surf_disp)
+plt.plot(analytical)
+plt.show()
+plt.figure(figsize=(9,9))
+plt.plot(surf_disp - analytical)
+#plt.plot(analytical)
 plt.show()
 ```
 
@@ -168,13 +200,9 @@ plt.xlim([-2.5,2.5])
 plt.ylim([-2.5,2.5])
 ```
 
-```{code-cell} ipython3
-def self_interaction_matrix(kernel, surface, quad_rule, qbx_p = 5):
-    qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(surface, quad_rule)
-    qbx_expand = qbx_expand_matrix(kernel, surface, quad_rule, qbx_center_x, qbx_center_y, qbx_r, qbx_p=qbx_p)
-    qbx_eval = qbx_eval_matrix(surface[0][None,:], surface[1][None,:], qbx_center_x, qbx_center_y, qbx_p=qbx_p)[0]
-    return np.real(np.sum(qbx_eval[:,:,None] * qbx_expand, axis=1))
-```
+## TODO: Introduce interaction_matrix function.
+## TODO: Add interior_eval function to part 2.
+## Compare with analytical solution
 
 ```{code-cell} ipython3
 A = self_interaction_matrix(double_layer_matrix, topo, qr_topo)

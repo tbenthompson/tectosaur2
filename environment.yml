@@ -23,6 +23,7 @@ dependencies:
   - line_profiler
   - boto3
   - ipdb
+  - jupyterlab_code_formatter
   - pip:
     - jupyter-book >= 0.11
     - cutde #might want a development version!

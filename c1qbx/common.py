@@ -1,7 +1,9 @@
 import numpy as np
 import scipy.linalg
 from scipy.spatial import cKDTree
-
+from scipy.interpolate import BarycentricInterpolator
+import sympy as sp
+import matplotlib.pyplot as plt
 
 # the n-point gauss quadrature rule on [-1, 1], returns tuple of (points,
 # weights)
@@ -40,7 +42,28 @@ def double_layer_matrix(surface, quad_rule, obsx, obsy):
     # The double layer potential
     integrand = -1.0 / (2 * np.pi) * (dx * srcnx[None, :] + dy * srcny[None, :]) / r2
 
-    return integrand * curve_jacobian * quad_rule[1][None, :]
+    return (integrand * curve_jacobian * quad_rule[1][None, :])[:, None, :]
+
+
+def hypersingular_matrix(surface, quad_rule, obsx, obsy):
+    srcx, srcy, srcnx, srcny, curve_jacobian = surface
+
+    dx = obsx[:, None] - srcx[None, :]
+    dy = obsy[:, None] - srcy[None, :]
+    r2 = dx ** 2 + dy ** 2
+
+    A = 2 * (dx * srcnx[None, :] + dy * srcny[None, :]) / r2
+    C = 1.0 / (2 * np.pi * r2)
+    out = np.empty((obsx.shape[0], 2, surface[0].shape[0]))
+
+    # The definition of the hypersingular kernel.
+    # unscaled sigma_xz component
+    out[:, 0, :] = srcnx[None, :] - A * dx
+    # unscaled sigma_xz component
+    out[:, 1, :] = srcny[None, :] - A * dy
+
+    # multiply by the scaling factor, jacobian and quadrature weights
+    return out * (C * (curve_jacobian * quad_rule[1][None, :]))[:, None, :]
 
 
 def qbx_choose_centers(surface, quad_rule, mult=5.0, direction=1.0):
@@ -73,22 +96,30 @@ def qbx_expand_matrix(kernel, surface, quad_rule, center_x, center_y, qbx_r, qbx
     qbx_x = center_x[:, None] + qbx_eval_r[:, None] * np.cos(qbx_theta)[None, :]
     qbx_y = center_y[:, None] + qbx_eval_r[:, None] * np.sin(qbx_theta)[None, :]
 
-    qbx_u_matrix = kernel(
-        surface, quad_rule, qbx_x.flatten(), qbx_y.flatten()
-    ).reshape((*qbx_x.shape, srcx.shape[0]))
+    Keval = kernel(surface, quad_rule, qbx_x.flatten(), qbx_y.flatten())
+    kernel_ndim = Keval.shape[1]
+    qbx_u_matrix = Keval.reshape((*qbx_x.shape, kernel_ndim, srcx.shape[0]))
 
     # Compute the expansion coefficients in matrix form.
-    alpha = np.empty((center_x.shape[0], qbx_p, srcx.shape[0]), dtype=np.complex)
+    alpha = np.empty(
+        (center_x.shape[0], kernel_ndim, qbx_p, srcx.shape[0]), dtype=np.complex128
+    )
     for L in range(qbx_p):
         C = 1.0 / (np.pi * (qbx_eval_r ** L))
         if L == 0:
             C /= 2.0
         oscillatory = qbx_qw[None, :, None] * np.exp(-1j * L * qbx_theta)[None, :, None]
-        alpha[:, L, :] = C[:, None] * np.sum(qbx_u_matrix * oscillatory, axis=1)
+        alpha[:, :, L, :] = C[:, None, None] * np.sum(
+            qbx_u_matrix * oscillatory[:, :, None], axis=1
+        )
     return alpha
 
 
 def qbx_eval_matrix(obsx, obsy, center_x, center_y, qbx_p=5):
+    """
+    If center_x and center_y, the QBX centers, have shape (n_centers,),
+    then obsx and obsy should have shape (n_pts_per_center, n_centers)
+    """
     # Construct a matrix that evaluates the QBX expansions. This should look
     # very similar to the single-expansion case above.
     obs_complex = obsx + obsy * 1j
@@ -178,17 +209,151 @@ def qbx_interior_eval(
         qbx_eval_pts[:, :, 1],
         qbx_center_x[qbx_centers_used],
         qbx_center_y[qbx_centers_used],
-        qbx_p=qbx_coeffs.shape[1],
+        qbx_p=qbx_coeffs.shape[2],
     )
 
     # And perform a summation over the terms in each QBX. axis=2 is the
     # summation over the l index in the alpha expansion coefficients.
     out_for_qbx_points = np.sum(
-        np.real(Q * qbx_coeffs[qbx_centers_used][None, :, :]), axis=2
+        np.real(Q[:, :, None, :] * qbx_coeffs[qbx_centers_used][None, :]), axis=3
     )
 
     # Finally, use the QBX evaluation where appropriate. If orig_pt_idxs == -1,
     # the entries are vectorization junk.
     out[orig_pt_idxs[orig_pt_idxs >= 0]] = out_for_qbx_points[orig_pt_idxs >= 0]
 
-    return out.reshape(obsx.shape)
+    return out.reshape(*obsx.shape, out.shape[1])
+
+
+def interaction_matrix(
+    kernel, obs_surface, obs_quad_rule, src_surface, src_quad_rule, qbx_p=5
+):
+    qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(obs_surface, obs_quad_rule)
+    qbx_expand = qbx_expand_matrix(
+        kernel,
+        src_surface,
+        src_quad_rule,
+        qbx_center_x,
+        qbx_center_y,
+        qbx_r,
+        qbx_p=qbx_p,
+    )
+    qbx_eval = qbx_eval_matrix(
+        obs_surface[0][None, :],
+        obs_surface[1][None, :],
+        qbx_center_x,
+        qbx_center_y,
+        qbx_p=qbx_p,
+    )[0]
+    return (
+        np.real(np.sum(qbx_eval[:, None, :, None] * qbx_expand, axis=2)),
+        (qbx_center_x, qbx_center_y, qbx_r, qbx_expand, qbx_eval),
+    )
+
+
+def interior_eval(
+    kernel,
+    src_surface,
+    src_quad_rule,
+    src_slip,
+    obsx,
+    obsy,
+    offset_mult,
+    kappa,
+    qbx_p,
+    quad_rule_qbx=None,
+    surface_qbx=None,
+    slip_qbx=None,
+    qbx_center_x=None,
+    qbx_center_y=None,
+    qbx_r=None,
+    visualize_centers=False,
+):
+    if quad_rule_qbx is None:
+        n_qbx = src_surface[0].shape[0] * kappa
+        quad_rule_qbx = gauss_rule(n_qbx)
+        surface_qbx = interp_surface(src_surface, src_quad_rule[0], quad_rule_qbx[0])
+        slip_qbx = interp_fnc(src_slip, src_quad_rule[0], quad_rule_qbx[0])
+
+    # This is new! We'll have two sets of QBX expansion centers on each side
+    # of the surface. The direction parameter simply multiplies the surface
+    # offset. So, -1 put the expansion the same distance on the other side
+    # of the surface.
+    if qbx_center_x is None:
+        qbx_center_x1, qbx_center_y1, qbx_r1 = qbx_choose_centers(
+            src_surface, src_quad_rule, mult=offset_mult, direction=1.0
+        )
+        qbx_center_x2, qbx_center_y2, qbx_r2 = qbx_choose_centers(
+            src_surface, src_quad_rule, mult=offset_mult, direction=-1.0
+        )
+        qbx_center_x = np.concatenate([qbx_center_x1, qbx_center_x2])
+        qbx_center_y = np.concatenate([qbx_center_y1, qbx_center_y2])
+        qbx_r = np.concatenate([qbx_r1, qbx_r2])
+
+    if visualize_centers:
+        plt.plot(surface_qbx[0], surface_qbx[1], "k-")
+        plt.plot(qbx_center_x, qbx_center_y, "r.")
+        plt.show()
+
+    Qexpand = qbx_expand_matrix(
+        kernel,
+        surface_qbx,
+        quad_rule_qbx,
+        qbx_center_x,
+        qbx_center_y,
+        qbx_r,
+        qbx_p=qbx_p,
+    )
+    qbx_coeffs = Qexpand.dot(slip_qbx)
+    out = qbx_interior_eval(
+        kernel,
+        src_surface,
+        src_quad_rule,
+        src_slip,
+        obsx,
+        obsy,
+        qbx_center_x,
+        qbx_center_y,
+        qbx_r,
+        qbx_coeffs,
+    )
+    return out
+
+
+def interp_fnc(f, in_xhat, out_xhat):
+    permutation = np.random.permutation(in_xhat.shape[0])
+    permuted_in_xhat = in_xhat[permutation]
+    C = (np.max(permuted_in_xhat) - np.min(permuted_in_xhat)) / 4.0
+    Cinv = 1.0 / C
+    I = BarycentricInterpolator(Cinv * permuted_in_xhat, f[permutation])
+    return I(Cinv * out_xhat)
+
+
+def interp_surface(in_surf, in_xhat, out_xhat):
+    out = []
+    # So far, we've defined surfaces as five element tuples consisting of:
+    # (x, y, normal_x, normal_y, jacobian)
+    for f in in_surf[:5]:
+        out.append(interp_fnc(f, in_xhat, out_xhat))
+    return out
+
+
+def symbolic_surface(t, x, y):
+    dxdt = sp.diff(x, t)
+    dydt = sp.diff(y, t)
+
+    ddt_norm = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
+    dxdt /= ddt_norm
+    dydt /= ddt_norm
+
+    return x, y, dydt, -dxdt, ddt_norm
+
+
+def symbolic_eval(t, tvals, exprs):
+    out = []
+    for e in exprs:
+        result = sp.lambdify(t, e, "numpy")(tvals)
+        if isinstance(result, float) or isinstance(result, int):
+            result = np.full_like(tvals, result)
+        out.append(result)
+    return out

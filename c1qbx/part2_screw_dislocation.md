@@ -12,6 +12,11 @@ kernelspec:
   name: python3
 ---
 
+```{code-cell} ipython3
+%load_ext autoreload
+%autoreload 2
+```
+
 # More quadrature by expansion (QBX) examples for the Laplace equation: fun with screw dislocations
 
 ## Antiplane shear
@@ -44,7 +49,7 @@ import matplotlib.pyplot as plt
 I've moved the functions we wrote in the previous part into `common.py`. We'll import them!
 
 ```{code-cell} ipython3
-from common import gauss_rule, double_layer_matrix, qbx_choose_centers, qbx_expand_matrix, qbx_interior_eval
+import common
 ```
 
 ## Barycentric Lagrange interpolation
@@ -65,7 +70,7 @@ Below is a little check to make sure our interpolation snippet is working correc
 from scipy.interpolate import BarycentricInterpolator
 
 # First, form the interpolating polynomial
-qx, qw = gauss_rule(7)
+qx, _ = common.gauss_rule(7)
 fqx = np.sin(5 * qx)
 I = BarycentricInterpolator(qx, fqx)
 
@@ -73,18 +78,19 @@ I = BarycentricInterpolator(qx, fqx)
 xs = np.linspace(-1, 1, 200)
 v = I(xs)
 
-plt.plot(qx, fqx, 'bo', markersize=10)
-plt.plot(xs, v, 'r--')
-plt.plot(xs, np.sin(5 * xs), 'k-')
+plt.plot(qx, fqx, "bo", markersize=10)
+plt.plot(xs, v, "r--")
+plt.plot(xs, np.sin(5 * xs), "k-")
 plt.show()
 ```
 
-Let's also have a couple helper functions for interpolating functions and surface.
+Let's move this into a couple helper functions for interpolating functions and surface.
 
 ```{code-cell} ipython3
 def interp_fnc(f, in_xhat, out_xhat):
     I = BarycentricInterpolator(in_xhat, f)
     return I(out_xhat)
+
 
 def interp_surface(in_surf, in_xhat, out_xhat):
     out = []
@@ -122,18 +128,19 @@ def hypersingular_matrix(surface, quad_rule, obsx, obsy):
     dx = obsx[:, None] - srcx[None, :]
     dy = obsy[:, None] - srcy[None, :]
     r2 = dx ** 2 + dy ** 2
-    
-    obsnx = np.full_like(obsx, 1.0)
-    obsny = 0.0 * obsx
-    
-    srcn_dot_obsn = srcnx[None, :] * obsnx[:, None] + srcny[None, :] * obsny[:, None]
-    d_dot_srcn = dx * srcnx[None, :] + dy * srcny[None, :]
-    d_dot_obsn = dx * obsnx[:, None] + dy * obsny[:, None]
-    
-    # The definition of the hypersingular kernel.
-    integrand = (srcn_dot_obsn - (2 * d_dot_srcn * d_dot_obsn / r2)) / (2 * np.pi * r2)
 
-    return integrand * curve_jacobian * quad_rule[1][None, :]
+    A = 2 * (dx * srcnx[None, :] + dy * srcny[None, :]) / r2
+    C = 1.0 / (2 * np.pi * r2)
+    out = np.empty((obsx.shape[0], 2, surface[0].shape[0]))
+
+    # The definition of the hypersingular kernel.
+    # unscaled sigma_xz component
+    out[:, 0, :] = srcnx[None, :] - A * dx
+    # unscaled sigma_xz component
+    out[:, 1, :] = srcny[None, :] - A * dy
+
+    # multiply by the scaling factor, jacobian and quadrature weights
+    return out * (C * (curve_jacobian * quad_rule[1][None, :]))[:, None, :]
 ```
 
 ```{margin}
@@ -143,16 +150,78 @@ By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You ca
 Finally, I'll write a pretty big function that is going to produce nice figures for comparing QBX against a naive computation. The function is written to be independent of the surface and kernel function. It also accepts QBX parameters. As a reminder, `offset_mult` is a multiplier for how far off the surface the QBX expansion centers are placed. `kappa` is the upsampling rate in case we want to use a higher order quadrature for computing QBX coefficients than for representing the surface. And `qbx_p` is the order of the power series expansion. Please look through the function! Very little is new compared to section 1.
 
 ```{code-cell} ipython3
-def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p, vmin=None, vmax=None):
-    
+def interior_eval(
+    kernel,
+    src_surface,
+    src_quad_rule,
+    src_slip,
+    obsx,
+    obsy,
+    offset_mult,
+    kappa,
+    qbx_p,
+    visualize_centers=False,
+):
+    n_qbx = src_surface[0].shape[0] * kappa
+    quad_rule_qbx = common.gauss_rule(n_qbx)
+    surface_qbx = common.interp_surface(src_surface, src_quad_rule[0], quad_rule_qbx[0])
+    slip_qbx = common.interp_fnc(src_slip, src_quad_rule[0], quad_rule_qbx[0])
+
+    # This is new! We'll have two sets of QBX expansion centers on each side
+    # of the surface. The direction parameter simply multiplies the surface
+    # offset. So, -1 put the expansion the same distance on the other side
+    # of the surface.
+    qbx_center_x1, qbx_center_y1, qbx_r1 = common.qbx_choose_centers(
+        src_surface, src_quad_rule, mult=offset_mult, direction=1.0
+    )
+    qbx_center_x2, qbx_center_y2, qbx_r2 = common.qbx_choose_centers(
+        src_surface, src_quad_rule, mult=offset_mult, direction=-1.0
+    )
+    qbx_center_x = np.concatenate([qbx_center_x1, qbx_center_x2])
+    qbx_center_y = np.concatenate([qbx_center_y1, qbx_center_y2])
+    qbx_r = np.concatenate([qbx_r1, qbx_r2])
+
+    if visualize_centers:
+        plt.plot(surface_qbx[0], surface_qbx[1], "k-")
+        plt.plot(qbx_center_x, qbx_center_y, "r.")
+        plt.show()
+
+    Qexpand = common.qbx_expand_matrix(
+        kernel,
+        surface_qbx,
+        quad_rule_qbx,
+        qbx_center_x,
+        qbx_center_y,
+        qbx_r,
+        qbx_p=qbx_p,
+    )
+    qbx_coeffs = Qexpand.dot(slip_qbx)
+    out = common.qbx_interior_eval(
+        kernel,
+        src_surface,
+        src_quad_rule,
+        src_slip,
+        obsx,
+        obsy,
+        qbx_center_x,
+        qbx_center_y,
+        qbx_r,
+        qbx_coeffs,
+    )
+    return out
+
+
+def qbx_example(
+    kernel, surface_fnc, n, offset_mult, kappa, qbx_p, vmin=None, vmax=None
+):
     def slip_fnc(xhat):
         # This must be zero at the endpoints!
         return np.cos(xhat * np.pi) + 1.0
-    
-    quad_rule_low = gauss_rule(n)
+
+    quad_rule_low = common.gauss_rule(n)
     surface_low = surface_fnc(quad_rule_low[0])
     slip_low = slip_fnc(surface_low[0])
-    
+
     nobs = 400
     zoomx = [-1.5, 1.5]
     zoomy = [-1.5, 1.5]
@@ -160,129 +229,170 @@ def qbx_example(kernel, surface_fnc, n, offset_mult, kappa, qbx_p, vmin=None, vm
     ys = np.linspace(*zoomy, nobs)
     obsx, obsy = np.meshgrid(xs, ys)
 
-    disp_low = kernel(
-        surface   = surface_low,
-        obsx      = obsx.flatten(), 
-        obsy      = obsy.flatten(),
-        quad_rule = quad_rule_low
-    ).dot(slip_low).reshape(obsx.shape)
+    low_vals = (
+        kernel(
+            surface=surface_low,
+            obsx=obsx.flatten(),
+            obsy=obsy.flatten(),
+            quad_rule=quad_rule_low,
+        )
+        .dot(slip_low)[:, 0]
+        .reshape(obsx.shape)
+    )
 
     n = 2000
-    quad_rule_high = gauss_rule(n)
+    quad_rule_high = common.gauss_rule(n)
     surface_high = interp_surface(surface_low, quad_rule_low[0], quad_rule_high[0])
     slip_high = interp_fnc(slip_low, quad_rule_low[0], quad_rule_high[0])
-    disp_high = kernel(
-        surface   = surface_high,
-        obsx      = obsx.flatten(), 
-        obsy      = obsy.flatten(),
-        quad_rule = quad_rule_high
-    ).dot(slip_high).reshape(obsx.shape)
-
-    n = surface_low[0].shape[0] * kappa
-    quad_rule_qbx = gauss_rule(n)
-    surface_qbx = interp_surface(surface_low, quad_rule_low[0], quad_rule_qbx[0])
-    slip_qbx = interp_fnc(slip_low, quad_rule_low[0], quad_rule_qbx[0])
-
-    # This is new! We'll have two sets of QBX expansion centers on each side 
-    # of the surface. The direction parameter simply multiplies the surface 
-    # offset. So, -1 put the expansion the same distance on the other side
-    # of the surface.
-    qbx_center_x1, qbx_center_y1, qbx_r1 = qbx_choose_centers(
-        surface_low, quad_rule_low, mult = offset_mult, direction = 1.0
+    high_vals = (
+        kernel(
+            surface=surface_high,
+            obsx=obsx.flatten(),
+            obsy=obsy.flatten(),
+            quad_rule=quad_rule_high,
+        )
+        .dot(slip_high)[:, 0]
+        .reshape(obsx.shape)
     )
-    qbx_center_x2, qbx_center_y2, qbx_r2 = qbx_choose_centers(
-        surface_low, quad_rule_low, mult = offset_mult, direction = -1.0
-    )
-    qbx_center_x = np.concatenate([qbx_center_x1, qbx_center_x2])
-    qbx_center_y = np.concatenate([qbx_center_y1, qbx_center_y2])
-    qbx_r = np.concatenate([qbx_r1, qbx_r2])
 
-    plt.plot(surface_qbx[0], surface_qbx[1], 'k-')
-    plt.plot(qbx_center_x, qbx_center_y, 'r.')
-    plt.show()
+    qbx_vals = interior_eval(
+        kernel,
+        surface_low,
+        quad_rule_low,
+        slip_low,
+        obsx,
+        obsy,
+        offset_mult,
+        kappa,
+        qbx_p,
+        visualize_centers=True,
+    )[:, :, 0]
 
-    Qexpand = qbx_expand_matrix(kernel, surface_qbx, quad_rule_qbx, qbx_center_x, qbx_center_y, qbx_r, qbx_p = qbx_p)
-    qbx_coeffs = Qexpand.dot(slip_qbx)
-    disp_qbx = qbx_interior_eval(
-        kernel, 
-        surface_low, 
-        quad_rule_low, 
-        slip_low, 
-        obsx, 
-        obsy, 
-        qbx_center_x, 
-        qbx_center_y, 
-        qbx_r, 
-        qbx_coeffs
-    )
-    
     if vmin is None:
         vmin = -1.0
     if vmax is None:
         vmax = 1.0
-    levels = np.linspace(vmin,vmax,16)
+    levels = np.linspace(vmin, vmax, 16)
 
-    plt.figure(figsize=(16,12))
+    plt.figure(figsize=(16, 12))
     plt.subplot(2, 3, 1)
-    plt.title('Naive solution')
-    cntf = plt.contourf(obsx, obsy, disp_low, levels = levels, extend="both")
-    plt.contour(obsx, obsy, disp_low, colors='k', linestyles='-', linewidths=0.5, levels = levels, extend="both")
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    plt.title("Naive solution")
+    cntf = plt.contourf(obsx, obsy, low_vals, levels=levels, extend="both")
+    plt.contour(
+        obsx,
+        obsy,
+        low_vals,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=levels,
+        extend="both",
+    )
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
     plt.subplot(2, 3, 2)
     plt.title('"Accurate" solution')
-    cntf = plt.contourf(obsx, obsy, disp_high, levels = levels, extend="both")
-    plt.contour(obsx, obsy, disp_high, colors='k', linestyles='-', linewidths=0.5, levels = levels, extend="both")
+    cntf = plt.contourf(obsx, obsy, high_vals, levels=levels, extend="both")
+    plt.contour(
+        obsx,
+        obsy,
+        high_vals,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=levels,
+        extend="both",
+    )
     plt.colorbar(cntf)
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
     plt.subplot(2, 3, 3)
-    plt.title('Naive error')
+    plt.title("Naive error")
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
-        logerror = np.log10(np.abs(disp_low - disp_high))
-    logerror[np.isinf(logerror)]=-12.0
-    cntf = plt.contourf(obsx, obsy, logerror, levels = np.linspace(-12, 0, 13), extend="both")
-    plt.contour(obsx, obsy, logerror, colors='k', linestyles='-', linewidths=0.5, levels = np.linspace(-12, 0, 13), extend="both")
+        logerror = np.log10(np.abs(low_vals - high_vals))
+    logerror[np.isinf(logerror)] = -12.0
+    cntf = plt.contourf(
+        obsx, obsy, logerror, levels=np.linspace(-12, 0, 13), extend="both"
+    )
+    plt.contour(
+        obsx,
+        obsy,
+        logerror,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=np.linspace(-12, 0, 13),
+        extend="both",
+    )
     cb = plt.colorbar(cntf)
-    cb.set_label('$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{naive}}|)$', fontsize=14)
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    cb.set_label("$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{naive}}|)$", fontsize=14)
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
     plt.tight_layout()
 
     plt.subplot(2, 3, 4)
-    plt.title('QBX solution')
-    cntf = plt.contourf(obsx, obsy, disp_qbx, levels = levels, extend="both")
-    plt.contour(obsx, obsy, disp_qbx, colors='k', linestyles='-', linewidths=0.5, levels = levels, extend="both")
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    plt.title("QBX solution")
+    cntf = plt.contourf(obsx, obsy, qbx_vals, levels=levels, extend="both")
+    plt.contour(
+        obsx,
+        obsy,
+        qbx_vals,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=levels,
+        extend="both",
+    )
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
     plt.subplot(2, 3, 5)
     plt.title('"Accurate" solution')
-    cntf = plt.contourf(obsx, obsy, disp_high, levels = levels, extend="both")
-    plt.contour(obsx, obsy, disp_high, colors='k', linestyles='-', linewidths=0.5, levels = levels, extend="both")
+    cntf = plt.contourf(obsx, obsy, high_vals, levels=levels, extend="both")
+    plt.contour(
+        obsx,
+        obsy,
+        high_vals,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=levels,
+        extend="both",
+    )
     plt.colorbar(cntf)
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
     plt.subplot(2, 3, 6)
-    plt.title('QBX error')
+    plt.title("QBX error")
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
-        logerror = np.log10(np.abs(disp_qbx - disp_high))
-    logerror[np.isinf(logerror)]=-12.0
-    cntf = plt.contourf(obsx, obsy, logerror, levels = np.linspace(-12, 0, 13), extend="both")
-    plt.contour(obsx, obsy, logerror, colors='k', linestyles='-', linewidths=0.5, levels = np.linspace(-12, 0, 13), extend="both")
+        logerror = np.log10(np.abs(qbx_vals - high_vals))
+    logerror[np.isinf(logerror)] = -12.0
+    cntf = plt.contourf(
+        obsx, obsy, logerror, levels=np.linspace(-12, 0, 13), extend="both"
+    )
+    plt.contour(
+        obsx,
+        obsy,
+        logerror,
+        colors="k",
+        linestyles="-",
+        linewidths=0.5,
+        levels=np.linspace(-12, 0, 13),
+        extend="both",
+    )
     cb = plt.colorbar(cntf)
-    cb.set_label('$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{QBX}}|)$', fontsize=14)
-    plt.plot(surface_high[0], surface_high[1], 'k-', linewidth=1.5)
+    cb.set_label("$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{QBX}}|)$", fontsize=14)
+    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
     plt.tight_layout()
@@ -302,13 +412,19 @@ def line(q):
     # Remember the surface tuple format is:
     # (coord_x, coord_y, normal_x, normal_y, jacobian)
     return q, 0 * q, 0 * q, np.ones_like(q), np.ones_like(q)
-qbx_example(double_layer_matrix, surface_fnc=line, n=16, offset_mult=5, kappa=3, qbx_p=15)
+
+
+qbx_example(
+    common.double_layer_matrix, surface_fnc=line, n=16, offset_mult=5, kappa=3, qbx_p=15
+)
 ```
 
 ## Stress from a line source
 
 ```{code-cell} ipython3
-qbx_example(hypersingular_matrix, surface_fnc=line, n=32, offset_mult=5, kappa=5, qbx_p=15)
+qbx_example(
+    hypersingular_matrix, surface_fnc=line, n=32, offset_mult=5, kappa=5, qbx_p=15
+)
 ```
 
 ## Displacement from an arc source
@@ -322,13 +438,19 @@ def arc(q):
     ny = y.copy()
     y -= np.mean(y)
     return x, y, nx, ny, np.full_like(x, 0.5 * np.pi)
-qbx_example(double_layer_matrix, surface_fnc=arc, n=16, offset_mult=4, kappa=3, qbx_p=20)
+
+
+qbx_example(
+    common.double_layer_matrix, surface_fnc=arc, n=16, offset_mult=4, kappa=3, qbx_p=20
+)
 ```
 
 ## Stress from an arc source
 
 ```{code-cell} ipython3
-qbx_example(hypersingular_matrix, surface_fnc=arc, n=32, offset_mult=4, kappa=5, qbx_p=20)
+qbx_example(
+    hypersingular_matrix, surface_fnc=arc, n=32, offset_mult=4, kappa=5, qbx_p=20
+)
 ```
 
 ## Displacement from a challenging wavy source
@@ -337,7 +459,7 @@ qbx_example(hypersingular_matrix, surface_fnc=arc, n=32, offset_mult=4, kappa=5,
 def wavy(q):
     t = (q + 1) * 2 * np.pi
     x, y = q, np.sin(t)
-    
+
     dxdt = 1.0
     dydt = np.cos(t)
     ddt_norm = np.sqrt(dxdt ** 2 + dydt ** 2)
@@ -345,11 +467,20 @@ def wavy(q):
     dydt /= ddt_norm
     return x, y, dydt, -dxdt, 2 * np.pi * ddt_norm
 
-qbx_example(double_layer_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15)
+
+qbx_example(
+    common.double_layer_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15
+)
 ```
 
 ## Stress from a challenging wavy source
 
 ```{code-cell} ipython3
-qbx_example(hypersingular_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15)
+qbx_example(
+    hypersingular_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15
+)
+```
+
+```{code-cell} ipython3
+
 ```

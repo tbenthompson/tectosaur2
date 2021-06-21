@@ -201,7 +201,7 @@ def build_tree_node(
     # 7) Create children!
     idx_split = idx_start + n_left
     node.is_leaf = False
-    
+
     # We recursively call build_tree_node here. The key difference between the left and right
     # sides is that the left receives the index block [idx_start, idx_split) and the right
     # receives the index block [idx_split, idx_end). Thus, we've created a smaller, equivalent
@@ -279,39 +279,47 @@ plt.show()
 import matplotlib.patches as patches
 
 np.random.seed(4)
-plt.rcParams['text.usetex'] = False
-original_pts = np.random.rand(10,2)
+plt.rcParams["text.usetex"] = False
+original_pts = np.random.rand(10, 2)
 fig_tree = build_tree(original_pts, np.zeros(original_pts.shape[0]), 1)
-plt.figure(figsize=(5,5))
-plt.plot(original_pts[:,0], original_pts[:,1], 'ko')
+plt.figure(figsize=(5, 5))
+plt.plot(original_pts[:, 0], original_pts[:, 1], "ko")
 for i in range(10):
     tree_idx = fig_tree.ordered_idxs[i]
-    x = original_pts[tree_idx,0]
-    y = original_pts[tree_idx,1]+0.04
+    x = original_pts[tree_idx, 0]
+    y = original_pts[tree_idx, 1] + 0.04
     if tree_idx == 1:
         x += 0.02
         y -= 0.01
     if tree_idx == 5:
         x -= 0.04
-    plt.text(x, y, str(tree_idx), fontsize=15, color='r')
+    plt.text(x, y, str(tree_idx), fontsize=15, color="r")
 
 
-def plot_tree(node):      
+def plot_tree(node):
     if not node.is_leaf:
         height = max(plot_tree(node.left), plot_tree(node.right))
     else:
         height = 0
     if height <= 2:
-        circle = plt.Circle(tuple(node.center[:2]), node.radius, fill=False, color='b' if node.is_leaf else 'k')
+        circle = plt.Circle(
+            tuple(node.center[:2]),
+            node.radius,
+            fill=False,
+            color="b" if node.is_leaf else "k",
+        )
         plt.gca().add_patch(circle)
     return height + 1
 
+
 plot_tree(fig_tree.root)
-plt.axis('off')
+plt.axis("off")
 plt.tight_layout()
-plt.savefig('tree_diagram1.svg')
+plt.savefig("tree_diagram1.svg")
 
 node_by_depth = [[] for i in range(5)]
+
+
 def assign_depth(node, depth=0, depth_idx=0):
     node_by_depth[depth].append(node)
     node.depth = depth
@@ -319,7 +327,10 @@ def assign_depth(node, depth=0, depth_idx=0):
     if not node.is_leaf:
         assign_depth(node.left, depth + 1, depth_idx * 2 + 0)
         assign_depth(node.right, depth + 1, depth_idx * 2 + 1)
+
+
 assign_depth(fig_tree.root)
+
 
 def plot_binary_tree(node):
     if not node.is_leaf:
@@ -329,33 +340,48 @@ def plot_binary_tree(node):
     locy = 10 - node.depth * 1.0
     if not node.is_leaf:
         for cloc in children_locs:
-            plt.plot([locx, cloc[0]], [locy, cloc[1]], 'k-', linewidth=.75, zorder=1)
-    circle = plt.Circle((locx, locy), 1.0 / max(node.depth, 2), fill=True, edgecolor='k', facecolor='w', zorder=2)
+            plt.plot([locx, cloc[0]], [locy, cloc[1]], "k-", linewidth=0.75, zorder=1)
+    circle = plt.Circle(
+        (locx, locy),
+        1.0 / max(node.depth, 2),
+        fill=True,
+        edgecolor="k",
+        facecolor="w",
+        zorder=2,
+    )
     plt.gca().add_patch(circle)
     if node.is_leaf:
-        plt.text(locx-0.11, locy-0.13, str(fig_tree.ordered_idxs[node.idx_start]), fontsize=20)
+        plt.text(
+            locx - 0.11,
+            locy - 0.13,
+            str(fig_tree.ordered_idxs[node.idx_start]),
+            fontsize=20,
+        )
     return (locx, locy)
 
-plt.figure(figsize=(8,4))
-plot_binary_tree(fig_tree.root)
-plt.axis('off')
-plt.axis('equal')
-plt.tight_layout()
-plt.savefig('tree_diagram2.svg')
 
-plt.figure(figsize=(8,1.5))
+plt.figure(figsize=(8, 4))
+plot_binary_tree(fig_tree.root)
+plt.axis("off")
+plt.axis("equal")
+plt.tight_layout()
+plt.savefig("tree_diagram2.svg")
+
+plt.figure(figsize=(8, 1.5))
 for i in range(10):
-    plt.gca().add_patch(patches.Rectangle((i,0), 1, 1, edgecolor='k', facecolor='none'))
+    plt.gca().add_patch(
+        patches.Rectangle((i, 0), 1, 1, edgecolor="k", facecolor="none")
+    )
     plt.text(i + 0.4, 0.35, str(fig_tree.ordered_idxs[i]), fontsize=20)
 
 plt.xlim([-1, 11])
 plt.ylim([-0.5, 10.5])
-plt.axis('equal')
-plt.axis('off')
+plt.axis("equal")
+plt.axis("off")
 plt.tight_layout()
-plt.savefig('tree_diagram3.svg')
+plt.savefig("tree_diagram3.svg")
 plt.show()
-plt.rcParams['text.usetex'] = True
+plt.rcParams["text.usetex"] = True
 ```
 
 ## Finding node pairs that we can approximate.
@@ -528,7 +554,7 @@ for timing_iter in range(2):
             direct_block_starts[i] : direct_block_starts[i + 1]
         ] = DD.flatten()
     if timing_iter > 0:
-        print(f'runtime {time.time() - start:.3} secs')
+        print(f"runtime {time.time() - start:.3} secs")
 ```
 
 ```{code-cell} ipython3
@@ -544,11 +570,12 @@ def direct_block(obs_node, src_node, offset):
     M[:, :, :, 1] = tmp
     return M.reshape((obs_pts.shape[0] * 3, src_tri_pts.shape[0] * 3))
 
+
 for timing_iter in range(2):
     start = time.time()
     direct_blocks = [direct_block(d[0], d[1], 0.01) for d in direct]
     if timing_iter > 0:
-        print(f'runtime {time.time() - start:.3} secs')
+        print(f"runtime {time.time() - start:.3} secs")
 ```
 
 The `cutde.disp_blocks` version is about 15x faster. Below, we quickly check that both these implementations give exactly the same output, increasing my confidence that either one is correct.
@@ -1092,7 +1119,9 @@ def hmatrix_dot(x):
 
     # Convert back from the tree ordering into the input ordering.
     y_hmatrix = np.empty(n_rows)
-    y_hmatrix.reshape((-1, 3))[tree.ordered_idxs, :] = (y_approx + y_direct).reshape((-1,3))
+    y_hmatrix.reshape((-1, 3))[tree.ordered_idxs, :] = (y_approx + y_direct).reshape(
+        (-1, 3)
+    )
     return y_hmatrix
 ```
 
@@ -1123,7 +1152,7 @@ And that's it! The H-matrix implementation works, is using 9x less memory and is
 
 A quick performance note: Even thought the H-matrix vector product is faster and uses less memory, this comparison is a bit unfair to the H-matrix algorithm for two reasons:
 1. This is a pretty small problem for using H-matrices. If we had ten times as many elements, the H-matrix implementations would be a slam dunk!
-2. The BLAS implementation behind the numpy matrix-vector product has been optimized to the hilt. On my machine, it's using OpenBLAS which should be achieving something near the peak possible performance for a dense matrix-vector. On the other hand, the  Cython code above is not optimized to that level. Many improvements are possible -- explicit vectorization (AVX, AVX-512), loop unrolling, removing the atomic operations, arranging the memory better etc, etc, etc. There's probably another factor of 2-3x on the table. So, the fact that, despite this disadvantage, the H-matrix implementation is several times faster than the dense matrix-vector product is super exciting! Furthermore, 
+2. The BLAS implementation behind the numpy matrix-vector product has been optimized to the hilt. On my machine, it's using OpenBLAS which should be achieving something near the peak possible performance for a dense matrix-vector. On the other hand, the  Cython code above is not optimized to that level. Many improvements are possible -- explicit vectorization (AVX, AVX-512), loop unrolling, removing the atomic operations, arranging the memory better etc, etc, etc. There's probably another factor of 2-3x on the table. So, the fact that, despite this disadvantage, the H-matrix implementation is several times faster than the dense matrix-vector product is super exciting! 
 
 ## Potential extensions
 

@@ -596,7 +596,7 @@ plt.xlabel("$\|E\|_{F})$")
 plt.show()
 ```
 
-### SVD Recompression
+## SVD Recompression
 
 In some sense, the approximation we built with ACA is too good. Most of the time, we're getting Frobenius errors much lower than we asked for. But there's some inconsistency in the output error. This inconsistency is why we asked for `eps/50.0` as the convergence criterion. However, we would ideally want an algorithm that *juuust barely* meets the tolerance condition. Unfortunately that's quite difficult when the algorithm is stuck with limited information about the matrix under consideration. So, in this final section I'll demonstrate a simple post-processing method that will reduce the size/cost of the approximation to more precisely fit the requested tolerance.
 
