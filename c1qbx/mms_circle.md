@@ -19,9 +19,9 @@ kernelspec:
 
 ## TODO: 
 
-* Deal with the homogeneous solution.
-* Add back in the body force.
 * The remaining fundamental issue is the singularity in the volume integral. Set up a way of testing the accuracy of this integral.
+* There's something preventing convergence in the L2 and Linf norms that isn't preventing convergence in the L1 norm. That suggests that the problem is some kind of outlier. The problem might be the scalloping in the QBX zone!!!
+* Getting an exterior solution would be nice! 
 
 +++
 
@@ -53,8 +53,8 @@ np.sum(circle_rule[1])
 ## Body force quadrature
 
 ```{code-cell} ipython3
-nq_r = 20
-nq_theta = 40
+nq_r = 40
+nq_theta = 80
 qgauss, qgauss_w = common.gauss_rule(nq_r)
 qtrap, qtrap_w = common.trapezoidal_rule(nq_theta)
 r = 0.5 * (qgauss + 1)
@@ -84,7 +84,7 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-nobs = 100
+nobs = 200
 offset = -0.1
 zoomx = [-1.0 + offset, 1.0 - offset]
 zoomy = [-1.0 + offset, 1.0 - offset]
@@ -97,16 +97,21 @@ obs2d_mask_sq = obs2d_mask.reshape(obsx.shape)
 ```
 
 ```{code-cell} ipython3
-freq_factor = 1.0
-def soln_fnc(x, y):
-    r = np.sqrt(x ** 2 + y ** 2)
-    return 2 + x + y + r * np.sin(freq_factor * np.pi * r)
+x, y = sp.symbols('x, y')
+sym_soln = 2 + x + y + x**2 + y*sp.cos(6*x) + x*sp.sin(6*y)
 
-def laplacian_fnc(x, y):
-    r = np.sqrt(x ** 2 + y ** 2)
-    T1 = 3 * np.pi * freq_factor * np.cos(np.pi * freq_factor * r)
-    T2 = ((np.pi * freq_factor * r) ** 2 - 1) * np.sin(np.pi * freq_factor * r) / r
-    return (T1 - T2)
+sym_laplacian = (
+    sp.diff(sp.diff(sym_soln, x), x) + 
+    sp.diff(sp.diff(sym_soln, y), y)
+)
+soln_fnc = sp.lambdify((x, y), sym_soln, "numpy")
+laplacian_fnc = sp.lambdify((x, y), sym_laplacian, "numpy")
+
+sym_soln
+```
+
+```{code-cell} ipython3
+sym_laplacian
 ```
 
 ```{code-cell} ipython3
@@ -161,7 +166,7 @@ plt.contour(
 )
 plt.colorbar(cntf)
 plt.subplot(1,3,2)
-levels = np.linspace(np.min(laplacian), np.max(laplacian), 21)
+levels = np.linspace(np.min(fxy_obs), np.max(fxy_obs), 21)
 cntf = plt.contourf(obsx, obsy, laplacian, levels=levels, extend="both")
 plt.contour(
     obsx,
@@ -204,7 +209,7 @@ def fundamental_soln_matrix(obsx, obsy, src_pts, src_wts):
 ```
 
 ```{code-cell} ipython3
-u_body_force = (
+u_particular = (
     fundamental_soln_matrix(obs2d[:, 0], obs2d[:, 1], q2d_vol, q2d_vol_wts)
     .dot(fxy)
     .reshape(obsx.shape)
@@ -214,12 +219,12 @@ u_body_force = (
 ```{code-cell} ipython3
 plt.figure(figsize=(12,4))
 plt.subplot(1,3,1)
-levels = np.linspace(np.min(u_body_force), np.max(u_body_force), 21)
-cntf = plt.contourf(obsx, obsy, u_body_force, levels=levels, extend="both")
+levels = np.linspace(np.min(u_particular), np.max(u_particular), 21)
+cntf = plt.contourf(obsx, obsy, u_particular, levels=levels, extend="both")
 plt.contour(
     obsx,
     obsy,
-    u_body_force,
+    u_particular,
     colors="k",
     linestyles="-",
     linewidths=0.5,
@@ -242,7 +247,7 @@ plt.contour(
 )
 plt.colorbar(cntf)
 plt.subplot(1,3,3)
-err = correct - u_body_force
+err = correct - u_particular
 levels = np.linspace(0, 4, 20)
 cntf = plt.contourf(obsx, obsy, err, levels=levels, extend="both")
 plt.contour(
@@ -268,7 +273,7 @@ For the Poisson equation with Dirichlet boundary conditions:
 \nabla u &= f  ~~ \textrm{in} ~~ \Omega\\
 u &= g ~~ \textrm{on} ~~ \partial \Omega
 \end{split}
-`u_body_force` is the integral:
+`u_particular` is the integral:
 
 \begin{equation}
 v(x) = \int_{\Omega} G(x,y) f(y) dy
@@ -302,12 +307,29 @@ plt.plot(surf_vals, 'k-')
 
 ```{code-cell} ipython3
 kappa = 3
-refined_circle_rule = list(common.trapezoidal_rule(kappa * circle_rule[0].shape[0]))
-refined_circle_rule[1] *= np.pi
-refined_circle = common.symbolic_eval(t, refined_circle_rule[0], sym_circle)
+qbx_p = 8
+mult = 1.0
 
-qbx_p = 10
-qbx_center_x, qbx_center_y, qbx_r = common.qbx_choose_centers(circle, circle_rule, direction=-1.0)
+if kappa != 1:
+    refined_circle_rule = list(common.trapezoidal_rule(kappa * circle_rule[0].shape[0]))
+    refined_circle_rule[1] *= np.pi
+    refined_circle = common.symbolic_eval(t, refined_circle_rule[0], sym_circle)
+else:
+    refined_circle_rule = circle_rule
+    refined_circle = circle
+
+qbx_center_x, qbx_center_y, qbx_r = common.qbx_choose_centers(
+    circle, circle_rule, mult=mult, direction=-1.0
+)
+```
+
+```{code-cell} ipython3
+plt.plot(circle[0], circle[1])
+plt.quiver(circle[0], circle[1], circle[2], circle[3])
+plt.plot(qbx_center_x, qbx_center_y, "ro")
+```
+
+```{code-cell} ipython3
 qbx_expand = common.qbx_expand_matrix(
     common.double_layer_matrix,
     refined_circle,
@@ -350,55 +372,53 @@ plt.plot(refined_circle_rule[0], interp_matrix.dot(bcs))
 
 ```{code-cell} ipython3
 A = A_raw.dot(interp_matrix)
-
-A2, _ = common.interaction_matrix(
-    common.double_layer_matrix, circle, circle_rule, circle, circle_rule
-)
-A2 = A2[:,0,:]
-
-print(A[:5,0], A2[:5,0])
-print(np.max(np.abs(A - A2)), np.max(np.abs(A)))
-```
-
-```{code-cell} ipython3
-lhs = A - 0.5 * np.eye(A.shape[0])
-surf_field = np.linalg.solve(lhs, bcs - surf_vals)
+surf_density = np.linalg.solve(A, bcs - surf_vals)
 ```
 
 ```{code-cell} ipython3
 plt.plot(bcs)
-plt.plot(surf_field)
+plt.plot(surf_density)
 plt.show()
 ```
 
 ```{code-cell} ipython3
-u_box_rough = (
+u_homog_rough = (
     common.double_layer_matrix(circle, circle_rule, obsx.flatten(), obsy.flatten())
-    .dot(surf_field)
+    .dot(surf_density)
     .reshape(obsx.shape)
 )
 ```
 
 ```{code-cell} ipython3
-np.max(u_box_rough[obs2d_mask_sq]), np.min(u_box_rough[obs2d_mask_sq])
+refined_density = interp_matrix.dot(surf_density)
 ```
 
 ```{code-cell} ipython3
-np.max(bcs), np.min(bcs)
-```
-
-```{code-cell} ipython3
-np.max(correct[obs2d_mask_sq]), np.min(correct[obs2d_mask_sq])
+u_homog = common.interior_eval(
+    common.double_layer_matrix,
+    circle,
+    circle_rule,
+    surf_density,
+    obsx.flatten(),
+    obsy.flatten(),
+    kappa=kappa,
+    offset_mult=mult,
+    qbx_p=qbx_p,
+    quad_rule_qbx=refined_circle_rule,
+    surface_qbx=refined_circle,
+    slip_qbx=refined_density,
+    visualize_centers=True,
+).reshape(obsx.shape)
 ```
 
 ```{code-cell} ipython3
 plt.figure(figsize=(12,4))
-for i, to_plot in enumerate([u_box_rough, u_box_rough, correct - u_body_force]):
+for i, to_plot in enumerate([u_homog, u_homog, correct - u_particular]):
     plt.subplot(1,3,1+i)
     if i == 0:
         levels = np.linspace(np.min(to_plot), np.max(to_plot), 21)
     else:
-        levels = np.linspace(np.min(correct - u_body_force), np.max(correct - u_body_force), 21)
+        levels = np.linspace(np.min(correct - u_particular), np.max(correct - u_particular), 21)
     
     cntf = plt.contourf(obsx, obsy, to_plot, levels=levels, extend="both")
     plt.contour(
@@ -415,9 +435,9 @@ for i, to_plot in enumerate([u_box_rough, u_box_rough, correct - u_body_force]):
     plt.colorbar(cntf)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
-    plt.title(['u\_box\_rough', 'u\_box\_rough', 'correct - u\_body\_force'][i])
+    plt.title(['$u^H$', '$u^H$', 'correct - $u^p$'][i])
 plt.figure()
-to_plot = np.abs(correct - u_body_force - u_box_rough)
+to_plot = np.abs(correct - u_particular - u_homog)
 levels = np.linspace(0, 0.25, 21)
 cntf = plt.contourf(obsx, obsy, to_plot, levels=levels, extend="both")
 plt.contour(
@@ -434,93 +454,18 @@ plt.plot(circle[0], circle[1], "k-", linewidth=1.5)
 plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
-plt.title('err(u\_box\_rough)')
+plt.title('err($u^H$)')
 plt.show()
-```
-
-```{code-cell} ipython3
-# def trig_interp(f, N_out):
-#     Npad_right = (N_out - f.shape[0]) // 2
-#     Npad_left = N_out - f.shape[0] - Npad_right
-#     F = np.fft.fft(f)
-#     F = np.fft.fftshift(F)
-#     F = np.concatenate((np.zeros(Npad_left), F, np.zeros(Npad_right)))
-#     F = np.fft.ifftshift(F)
-#     fi = np.fft.ifft(F) * F.shape[0] / f.shape[0]
-#     return np.real(fi)
-
-# np.random.seed(0)
-# f = np.random.rand(21)
-# fi = trig_interp(f, 180)
-# x = np.linspace(1, fi.shape[0] + 1, f.shape[0] + 1)
-# x = x[:-1]
-# plt.plot(x, f)
-# xi = np.arange(1, fi.shape[0] + 1)
-# plt.plot(xi, fi)
-# plt.show()
-
-# circle_rule_qbx = common.trapezoidal_rule(3 * qx.shape[0])
-# circle_qbx = []
-# # So far, we've defined surfaces as five element tuples consisting of:
-# # (x, y, normal_x, normal_y, jacobian)
-# for f in circle[:5]:
-#     circle_qbx.append(trig_interp(f, circle_rule_qbx[0].shape[0]))
-# surf_field_qbx = trig_interp(surf_field, circle_rule_qbx[0].shape[0])
-
-# circle_qbx[0]
-
-# u_box = common.interior_eval(
-#     common.double_layer_matrix,
-#     circle,
-#     (qx, qw),
-#     surf_field,
-#     obsx.flatten(),
-#     obsy.flatten(),
-#     offset_mult=5,
-#     kappa=3,
-#     qbx_p=10,
-#     quad_rule_qbx=circle_rule_qbx,
-#     surface_qbx=circle_qbx,
-#     slip_qbx=surf_field_qbx,
-#     visualize_centers=True,
-# ).reshape(obsx.shape)
 ```
 
 ## Full solution!
 
 ```{code-cell} ipython3
-#u_full = u_box + u_body_force
-u_full = u_box_rough + u_body_force
+#u_full = u_box + u_particular
+u_full = u_homog + u_particular
 ```
 
 ```{code-cell} ipython3
-# levels = np.linspace(np.min(u_full), np.max(u_full), 21)
-plt.figure(figsize=(12,4))
-for i, to_plot in enumerate([u_box_rough, 0 * u_box_rough, correct - u_body_force]):
-    plt.subplot(1,3,1+i)
-    levels = np.linspace(np.min(correct - u_body_force), np.max(correct - u_body_force), 21)
-#     if i <= 1:
-#         levels = np.linspace(np.min(to_plot), np.max(to_plot), 21)
-#     else:
-#         levels = np.linspace(-1, 1, 21)
-    
-    cntf = plt.contourf(obsx, obsy, to_plot, levels=levels, extend="both")
-    plt.contour(
-        obsx,
-        obsy,
-        to_plot,
-        colors="k",
-        linestyles="-",
-        linewidths=0.5,
-        levels=levels,
-        extend="both",
-    )
-    plt.plot(circle[0], circle[1], "k-", linewidth=1.5)
-    plt.colorbar(cntf)
-    plt.xlim(zoomx)
-    plt.ylim(zoomy)
-    plt.title(['u\_box\_rough', 'u\_box', 'correct - u\_body\_force'][i])
-    
 plt.figure(figsize=(12,4))
 for i, to_plot in enumerate([correct, u_full]):
     plt.subplot(1,3,1+i)
@@ -540,7 +485,7 @@ for i, to_plot in enumerate([correct, u_full]):
     plt.colorbar(cntf)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
-    plt.title(['correct', 'u\_full'][i])
+    plt.title(['correct', 'u'][i])
     
 plt.subplot(1,3,3)
 to_plot = np.abs(correct - u_full)
@@ -561,15 +506,19 @@ plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.title('error')
+plt.tight_layout()
 plt.show()
 ```
 
 ```{code-cell} ipython3
-A = np.linalg.norm(correct[obs2d_mask_sq] - u_full[obs2d_mask_sq])
-B = np.linalg.norm(correct[obs2d_mask_sq])
-A, B, A/B
+for norm in [np.linalg.norm, lambda x: np.linalg.norm(x, ord=1), lambda x: np.linalg.norm(x, ord=np.inf)]:
+    A = norm(correct[obs2d_mask_sq] - u_full[obs2d_mask_sq])
+    B = norm(correct[obs2d_mask_sq])
+    print(A, B, A/B)
 ```
 
 ```{code-cell} ipython3
-
+E = correct[obs2d_mask_sq] - u_full[obs2d_mask_sq]
+plt.plot(np.log10(sorted(np.abs(E).tolist()))[-50:])
+plt.show()
 ```

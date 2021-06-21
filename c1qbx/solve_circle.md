@@ -71,7 +71,7 @@ t = sp.symbols("t")
 theta = sp.pi * (t + 1)
 circle_rule[1] *= np.pi
 
-sym_circle = common.symbolic_surface(t, sp.cos(-theta), sp.sin(-theta))
+sym_circle = common.symbolic_surface(t, sp.cos(theta), sp.sin(theta))
 circle = common.symbolic_eval(t, circle_rule[0], sym_circle)
 ```
 
@@ -101,7 +101,7 @@ else:
     refined_circle = circle
 
 qbx_center_x, qbx_center_y, qbx_r = common.qbx_choose_centers(
-    circle, circle_rule, mult=mult, direction=1.0
+    circle, circle_rule, mult=mult, direction=-1.0
 )
 ```
 
@@ -154,10 +154,6 @@ plt.plot(refined_circle_rule[0], interp_matrix.dot(bcs))
 
 ```{code-cell} ipython3
 A = A_raw.dot(interp_matrix)
-print(np.sum(A[0]))
-```
-
-```{code-cell} ipython3
 surf_density = np.linalg.solve(A, bcs)
 ```
 
@@ -196,15 +192,6 @@ refined_density = interp_matrix.dot(surf_density)
 ```
 
 ```{code-cell} ipython3
-# circle_rule_qbx = common.trapezoidal_rule(3 * qx.shape[0])
-# circle_qbx = []
-# # So far, we've defined surfaces as five element tuples consisting of:
-# # (x, y, normal_x, normal_y, jacobian)
-# for f in circle[:5]:
-#     circle_qbx.append(trig_interp(f, circle_rule_qbx[0].shape[0]))
-# surf_field_qbx = trig_interp(surf_field, circle_rule_qbx[0].shape[0])
-
-# circle_qbx[0]
 u_smooth = common.interior_eval(
     common.double_layer_matrix,
     circle,
@@ -220,22 +207,6 @@ u_smooth = common.interior_eval(
     slip_qbx=refined_density,
     visualize_centers=True,
 ).reshape(obsx.shape)
-```
-
-```{code-cell} ipython3
-np.max(u_rough[obs2d_mask_away_sq]), np.min(u_rough[obs2d_mask_away_sq]), np.median(
-    u_rough[obs2d_mask_sq]
-)
-```
-
-```{code-cell} ipython3
-np.max(u_smooth[obs2d_mask_sq]), np.min(u_smooth[obs2d_mask_sq]), np.median(
-    u_smooth[obs2d_mask_sq]
-)
-```
-
-```{code-cell} ipython3
-np.max(correct[obs2d_mask_sq]), np.min(correct[obs2d_mask_sq])
 ```
 
 ```{code-cell} ipython3
