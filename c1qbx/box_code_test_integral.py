@@ -11,7 +11,7 @@ r2 = (dx ** 2) + (dy ** 2)
 
 r = sqrt(r2)
 G = (1 / (2 * pi)) * log(r)
-f = (1-sx**2)*(1-sy**2)
+f = (1-sx)*(1-sy)
 integrand = G * f
 print('integrand', integrand)
 

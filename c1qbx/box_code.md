@@ -71,22 +71,6 @@ def fundamental_soln_matrix(obs_pts, src_pts):
     return G[:, None, :]
 ```
 
-```{code-cell} ipython3
-import pickle
-
-with open("test_integral.pkl", "rb") as f:
-    xy_integral = pickle.load(f)
-```
-
-```{code-cell} ipython3
-ox, oy = sp.symbols("ox, oy")
-xy_soln_fnc = sp.lambdify((ox, oy), xy_integral, "numpy")
-
-
-def xy_laplacian_fnc(x, y):
-    return (1 - x ** 2) * (1 - y ** 2)
-```
-
 ## Singular quadrature, poor convergence.
 
 ```{code-cell} ipython3
@@ -96,7 +80,7 @@ def run(obs_pt, nq):
     qx_vol, qy_vol = np.meshgrid(q_vol, q_vol)
     q2d_vol = np.array([qx_vol.flatten(), qy_vol.flatten()]).T.copy()
     q2d_vol_wts = (qw_vol[:, None] * qw_vol[None, :]).flatten()
-    fxy = xy_laplacian_fnc(q2d_vol[:, 0], q2d_vol[:, 1])
+    fxy = ethridge_laplacian_fnc(q2d_vol[:, 0], q2d_vol[:, 1])
 
     u_particular = (
         (fundamental_soln_matrix(obs_pt, q2d_vol) * q2d_vol_wts[None, None, :])
@@ -107,8 +91,8 @@ def run(obs_pt, nq):
 ```
 
 ```{code-cell} ipython3
-obs_pt = np.array([[-0.9, -0.9]])
-correct = xy_soln_fnc(obs_pt[0, 0], obs_pt[0, 1])
+obs_pt = np.array([[-0.1, -0.1]])
+correct = ethridge_soln_fnc(obs_pt[0, 0], obs_pt[0, 1])
 
 steps = np.arange(2, 500, 6)
 ests = np.array([run(obs_pt, s) for s in steps])
@@ -119,11 +103,11 @@ plt.plot(steps, np.log10(difference))
 plt.show()
 ```
 
-## Precomputing singular integrals
-
-### MOVE STUFF UP HERE
+## Two-dimensional interpolation
 
 ```{code-cell} ipython3
+import quadpy
+
 def clencurt(n1):
     """Computes the Clenshaw Curtis quadrature nodes and weights"""
     C = quadpy.c1.clenshaw_curtis(n1)
@@ -151,15 +135,7 @@ def cheblob(n):
     return pts, wts  # tensor_product(pts, wts)
 ```
 
-## Two-dimensional interpolation
-
 ```{code-cell} ipython3
-import quadpy
-```
-
-```{code-cell} ipython3
-
-
 eps = np.finfo(float).eps
 
 
@@ -201,18 +177,18 @@ obsx_flat = obsx.flatten()
 obsy_flat = obsy.flatten()
 
 
-nI = 3
+nI = 90
 Ix, Iwts = cheblob(nI)
 Ipts, Iwts2d = tensor_product(Ix, Iwts)
-F = xy_laplacian_fnc(Ipts[:, 0], Ipts[:, 1])
+F = ethridge_laplacian_fnc(Ipts[:, 0], Ipts[:, 1])
 F_interp = barycentric_tensor_product(obsx_flat, obsy_flat, Ix, Iwts, np.array([F]))
 F_interp2d = F_interp.reshape(obsx.shape)
-F_correct = xy_laplacian_fnc(obsx_flat, obsy_flat).reshape(obsx.shape)
+F_correct = ethridge_laplacian_fnc(obsx_flat, obsy_flat).reshape(obsx.shape)
 ```
 
 ```{code-cell} ipython3
-plt.figure(figsize=(12,4))
-plt.subplot(1,3,1)
+plt.figure(figsize=(8.5,8.5))
+plt.subplot(2,2,1)
 levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
 cntf = plt.contourf(
     Ipts[:, 0].reshape((nI, nI)),
@@ -231,11 +207,12 @@ plt.contour(
     levels=levels,
     extend="both",
 )
+plt.plot(Ipts[:,0], Ipts[:,1], 'ro', markersize=0.5)
 plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
-plt.subplot(1,3,2)
+plt.subplot(2,2,2)
 levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
 cntf = plt.contourf(obsx, obsy, F_interp2d, levels=levels, extend="both")
 plt.contour(
@@ -252,9 +229,27 @@ plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
-plt.subplot(1, 3, 3)
+
+plt.subplot(2,2,3)
+levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
+cntf = plt.contourf(obsx, obsy, F_correct, levels=levels, extend="both")
+plt.contour(
+    obsx,
+    obsy,
+    F_correct,
+    colors="k",
+    linestyles="-",
+    linewidths=0.5,
+    levels=levels,
+    extend="both",
+)
+plt.colorbar(cntf)
+plt.xlim(zoomx)
+plt.ylim(zoomy)
+
+plt.subplot(2, 2, 4)
 levels = np.linspace(-5, 1, 7)
-err = np.log10(np.abs(F_correct - F_interp2d))
+err = np.log10(np.abs(F_correct - F_interp2d)) / np.log10(np.mean(np.abs(F_interp2d)))
 cntf = plt.contourf(obsx, obsy, err, levels=levels, extend="both")
 plt.contour(
     obsx,
@@ -276,10 +271,6 @@ plt.show()
 
 ### TODO: Restrict adjacency sizes
 
-+++
-
-### TODO: Compute a set of leaves to do integration much faster?
-
 ```{code-cell} ipython3
 q1 = clencurt_2d(4)
 q2 = clencurt_2d(7)
@@ -289,7 +280,7 @@ interp2 = cheblob(7)
 
 ```{code-cell} ipython3
 import matplotlib.patches as patches
-
+from typing import List
 from dataclasses import dataclass
 
 
@@ -301,6 +292,10 @@ class TreeLevel:
     parents: np.ndarray
     is_leaf: np.ndarray
 
+@dataclass()
+class Tree:
+    levels: List[TreeLevel]
+    leaves: TreeLevel
 
 def build_box_tree(f, start_centers, start_sizes, max_levels, tol):
     parents = np.zeros(start_centers.shape[0])
@@ -357,52 +352,60 @@ def build_box_tree(f, start_centers, start_sizes, max_levels, tol):
             ]
         )
         sizes = np.repeat(sizes[refine_boxes] / 2, 4, axis=0)
-    return levels
+
+    return calculate_leaves(Tree(levels=levels, leaves=None))
+
+def calculate_leaves(tree):
+    leaves = []
+    for i in range(len(tree.levels)):
+        L = tree.levels[i]
+        leaves.append((L.fhigh[L.is_leaf], L.centers[L.is_leaf], L.sizes[L.is_leaf], L.parents[L.is_leaf]))
+    
+    leaf_data = [
+        np.concatenate([L[i] for L in leaves])
+        for i in range(4)
+    ]
+    leaves = TreeLevel(*leaf_data, np.ones(leaf_data[0].shape[0], dtype=bool))
+    return Tree(levels = tree.levels, leaves=leaves)
 ```
 
 ```{code-cell} ipython3
 %%time
-tree = build_box_tree(laplacian_fnc, np.array([[0, 0]]), np.array([[1, 1]]), 10, 0.1)
+tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([[1, 1]]), 10, 0.1)
 ```
 
 ```{code-cell} ipython3
-tree = build_box_tree(
-    lambda x, y: np.cos(np.exp(7 * x)), np.array([[0, 0]]), np.array([[1, 1]]), 10, 0.1
-)
+tree.leaves.centers.shape
+```
 
-for level in tree:
-    centers = level.centers
-    sizes = level.sizes
-    for i in range(centers.shape[0]):
+```{code-cell} ipython3
+def plot_level(L):
+    for i in range(L.centers.shape[0]):
+        c = L.centers[i]
+        s = L.sizes[i]
         plt.gca().add_patch(
             patches.Rectangle(
-                (centers[i][0] - sizes[i][0] / 2, centers[i][1] - sizes[i][1] / 2),
-                sizes[i][0],
-                sizes[i][1],
+                (c[0] - s[0] / 2, c[1] - s[1] / 2),
+                s[0],
+                s[1],
                 edgecolor="k",
                 facecolor="none",
             )
         )
+plot_level(tree.leaves)
 plt.xlim([-0.55, 0.55])
 plt.ylim([-0.55, 0.55])
 plt.show()
+```
 
-S = 0
-for level in tree:
-    if not np.any(level.is_leaf):
-        continue
-    leaf_sizes = level.sizes[level.is_leaf]
-    leaf_centers = level.sizes[level.is_leaf]
-    leaf_f = level.fhigh[level.is_leaf]
-
-    box_high_pts = (
-        q2[0][None, :] * 0.5 * leaf_sizes[:, None, :] + leaf_centers[:, None, :]
-    )
-    box_quad_wts = (
-        q2[1][None, :] * 0.25 * leaf_sizes[:, 0, None] * leaf_sizes[:, 1, None]
-    )
-
-    S += np.sum(box_quad_wts.ravel() * leaf_f.ravel())
+```{code-cell} ipython3
+box_high_pts = (
+    q2[0][None, :] * 0.5 * tree.leaves.sizes[:, None, :] + tree.leaves.centers[:, None, :]
+)
+box_quad_wts = (
+    q2[1][None, :] * 0.25 * tree.leaves.sizes[:, 0, None] * tree.leaves.sizes[:, 1, None]
+)
+S = np.sum(box_quad_wts.ravel() * tree.leaves.fhigh.ravel())
 S
 ```
 
@@ -413,217 +416,116 @@ obs_test = np.array([[-0.10, -0.10]])
 ```
 
 ```{code-cell} ipython3
-testF = lambda x, y: laplacian_fnc(x, y)
-```
-
-```{code-cell} ipython3
-tree = build_box_tree(testF, np.array([[0, 0]]), np.array([[1, 1]]), 15, 0.000001)
-S = np.zeros_like(obsx_test)
-for level in tree:
-    leaf_sizes = level.sizes[level.is_leaf]
-    leaf_centers = level.centers[level.is_leaf]
-    leaf_f = level.fhigh[level.is_leaf]
-
-    box_high_pts = (
-        q2[0][None, :] * 0.5 * leaf_sizes[:, None, :] + leaf_centers[:, None, :]
-    )
-    box_quad_wts = (
-        q2[1][None, :] * 0.25 * leaf_sizes[:, 0, None] * leaf_sizes[:, 1, None]
-    )
-
-    G = (
-        fundamental_soln_matrix(obs_test, box_high_pts.reshape((-1, 2)))[:, 0, :]
-        * box_quad_wts.ravel()[None, :]
-    )
-    S += G.dot(leaf_f.ravel())
+G = (
+    fundamental_soln_matrix(obs_test, box_high_pts.reshape((-1, 2)))[:, 0, :]
+    * box_quad_wts.ravel()[None, :]
+)
+S = G.dot(tree.leaves.fhigh.ravel())[0]
 S
 ```
 
 ```{code-cell} ipython3
-len(tree)
+correct = ethridge_soln_fnc(obs_test[0,0], obs_test[0,1])
+
+S, correct, np.linalg.norm(S - correct) / np.linalg.norm(correct)
 ```
 
-```{code-cell} ipython3
-correct = soln_fnc(obsx_test, obsy_test)
-```
+## The 2:1 balance condition
 
 ```{code-cell} ipython3
-np.linalg.norm(S - correct) / np.linalg.norm(correct)
-```
-
-## Pre-computing near-field coefficients
-
-```{code-cell} ipython3
-q2 = clencurt_2d(7)
-```
-
-```{code-cell} ipython3
-obs_pt = q2[0][0]
-obs_pt
-```
-
-What is the implied polynomial when `f(src_pt) = 1` and `f(the other pts) = 0`? 
-
-```{code-cell} ipython3
-idx = 22
-single_nonzero = np.zeros((1, q2[0].shape[0]))
-single_nonzero[0, idx] = 1
-src_pt = q2[0][idx]
-src_pt
-```
-
-```{code-cell} ipython3
-out = barycentric_tensor_product(
-    obsx_flat * 2, obsy_flat * 2, interp2[0], interp2[1], single_nonzero
-).reshape(obsx.shape)
-```
-
-```{code-cell} ipython3
-levels = np.linspace(np.min(out), np.max(out), 7)
-cntf = plt.contourf(2 * obsx, 2 * obsy, out, levels=levels, extend="both")
-plt.contour(
-    2 * obsx,
-    2 * obsy,
-    out,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.plot(src_pt[0:1], src_pt[1:2], "ro")
-plt.colorbar(cntf)
-plt.xlim(2 * zoomx)
-plt.ylim(2 * zoomy)
+def test_f(x, y):
+    return (y > 0.15) * 1.0
+tree = build_box_tree(test_f, np.array([[0, 0]]), np.array([[1, 1]]), 6, 1.0)
+plot_level(tree.leaves)
+plt.xlim([-0.55, 0.55])
+plt.ylim([-0.55, 0.55])
+plt.axis('equal')
 plt.show()
 ```
 
 ```{code-cell} ipython3
-import tanh_sinh
+def balance_21(tree, plot_progress=False):
+    i = 0
+    while i <= len(tree.levels) - 3:
+        # We can skip splitting the level above because those cells all satisfy the 
+        # 2:1 criteria already
+        did_refine = False
+        for j in range(i + 2, len(tree.levels)):
+            big_L = tree.levels[i]
+            small_L = tree.levels[j]
+            dx = small_L.centers[:,None,0] - big_L.centers[None,:,0]
+            dy = small_L.centers[:,None,1] - big_L.centers[None,:,1]
 
-n_digits = 7
-tol = 10 ** -(n_digits + 1)
-tol
+            closex = np.abs(dx) <= 0.5 * (small_L.sizes[:,None,0] + big_L.sizes[None,:,0])
+            closey = np.abs(dy) <= 0.5 * (small_L.sizes[:,None,1] + big_L.sizes[None,:,1])
 
+            refine_boxes = np.any(closex & closey, axis=0) & big_L.is_leaf
+            refine_centers = big_L.centers[refine_boxes]
+            if refine_centers.shape[0] == 0:
+                continue
 
-def integrand(x, ys):
-    xs = np.full_like(ys, x)
-    interp_val = barycentric_tensor_product(
-        xs, ys, interp2[0], interp2[1], single_nonzero.reshape((1, -1))
-    )[0, :]
-    src_pts = np.array([xs, ys]).T.copy()
-    out = (
-        fundamental_soln_matrix(obs_pt.reshape((1, -1)), src_pts)[0, 0, :] * interp_val
-    )
-    return out
+            bump = big_L.sizes[refine_boxes] / 4
 
+            parents = np.repeat(np.arange(big_L.centers.shape[0])[refine_boxes], 4)
+            centers = np.concatenate(
+                [
+                    refine_centers + np.array([bump[:, 0], bump[:, 1]]).T,
+                    refine_centers + np.array([-bump[:, 0], bump[:, 1]]).T,
+                    refine_centers + np.array([bump[:, 0], -bump[:, 1]]).T,
+                    refine_centers + np.array([-bump[:, 0], -bump[:, 1]]).T,
+                ]
+            )
+            sizes = np.repeat(big_L.sizes[refine_boxes] / 2, 4, axis=0)
 
-def inner(xs):
-    out = np.empty_like(xs)
-    for i, x in enumerate(xs):
-        f = lambda y: integrand(x, y)
-        I1, error_est = tanh_sinh.integrate(
-            f,
-            -1.0,
-            obs_pt[1],
-            tol,
-        )
-        I2, error_est = tanh_sinh.integrate(
-            f,
-            obs_pt[1],
-            1.0,
-            tol,
-        )
-        out[i] = I1 + I2
-    return out
+            box_high_pts = q2[0][None, :] * 0.5 * sizes[:, None, :] + centers[:, None, :]
+            box_quad_wts = q2[1][None, :] * 0.25 * sizes[:, 0, None] * sizes[:, 1, None]
 
+            f_high = test_f(
+                box_high_pts[:, :, 0].ravel(), box_high_pts[:, :, 1].ravel()
+            ).reshape((centers.shape[0], -1))
+            # TODO: at the end, re-calculate leaves.
 
-f = lambda x: inner(obs_pt, x)
-I1, error_est = tanh_sinh.integrate(inner, 0, obs_pt[0], tol)
-I2, error_est = tanh_sinh.integrate(inner, obs_pt[0], 1.0, tol)
-result = I1 + I2
+            child_L = tree.levels[i+1]
+            big_L.is_leaf[refine_boxes] = False
+            tree.levels[i+1] = TreeLevel(
+                np.concatenate([child_L.fhigh, f_high]),
+                np.concatenate([child_L.centers, centers]),
+                np.concatenate([child_L.sizes, sizes]),
+                np.concatenate([child_L.parents, parents]),
+                np.concatenate([child_L.is_leaf, np.ones(centers.shape[0], dtype=bool)])
+            )
+            did_refine = True
+            break
+
+        if did_refine:
+            if plot_progress:
+                print(f'Splitting {refine_centers.shape[0]} boxes in level {i}')
+                tree = calculate_leaves(tree)
+                plot_level(tree.leaves)
+                plt.xlim([-0.55, 0.55])
+                plt.ylim([-0.55, 0.55])
+                plt.axis('equal')
+                plt.show()
+            i -= 1
+        else:
+            i += 1
+            
 ```
 
 ```{code-cell} ipython3
-result
+balance_21(tree, plot_progress=False)
 ```
 
 ```{code-cell} ipython3
-import mpmath as mp
+tree = calculate_leaves(tree)
+
+plot_level(tree.leaves)
+plt.xlim([-0.55, 0.55])
+plt.ylim([-0.55, 0.55])
+plt.axis('equal')
+plt.show()
 ```
 
 ```{code-cell} ipython3
-n_digits = 20
-mp.dps = n_digits
-tol = 10 ** -(n_digits + 1)
-mp_eps = tol * 10
-```
 
-```{code-cell} ipython3
-obs_pt
-```
-
-```{code-cell} ipython3
-grid = np.array(grid)
-```
-
-```{code-cell} ipython3
-np.save("obs_pt0_grid.npy", grid)
-```
-
-```{code-cell} ipython3
-def mp_barycentric_tensor_product(evalx, evaly, interp_pts, interp_wts, fnc_vals):
-    dx = evalx - interp_pts
-    dy = evaly - interp_pts
-
-    idx0 = np.where(dx == 0)
-    dx[idx0] = mp_eps
-    idx0 = np.where(dy == 0)
-    dy[idx0] = mp_eps
-
-    kernelX = interp_wts / dx
-    kernelY = interp_wts / dy
-    kernel = (kernelX[None, :] * kernelY[:, None]).reshape(fnc_vals[0].shape)
-    return kernel.dot(fnc_vals[0]) / np.sum(kernel)
-
-
-def mp_fundamental_soln(obsx, obsy, srcx, srcy):
-    dx = obsx - srcx
-    dy = obsy - srcy
-    r2 = (dx ** 2) + (dy ** 2)
-    r = mp.sqrt(r2)
-    return (1.0 / (2 * mp.pi)) * mp.log(r)
-
-
-def mp_integral(n, m, x, y):
-    #     interp_val = mp_barycentric_tensor_product(
-    #         x, y, interp2[0], interp2[1], single_nonzero
-    #     )
-    interp_val = mp.chebyt(n, x) * mp.chebyt(m, y)
-    out = mp_fundamental_soln(obs_pt[0], obs_pt[1], x, y) * interp_val
-    return out
-
-
-grid = []
-for n in range(10):
-    for m in range(10):
-        result = mp.quad(
-            lambda x, y: mp_integral(n, m, x, y),
-            [-1, obs_pt[0], 1],
-            [-1, obs_pt[1], 1],
-            error=True,
-            verbose=True,
-        )
-        grid.append((n, m, result))
-        print(grid[-1])
-        print(len(grid))
-```
-
-```{code-cell} ipython3
-def fun(x, y):
-    return (
-        fundamental_soln_matrix(obsx, obsy, np.array([[x, y]]), np.array([1.0])).dot(
-            laplacian_fnc(np.array([x]), np.array([y]))
-        )
-    )[0]
 ```
