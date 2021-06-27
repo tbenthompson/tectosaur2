@@ -12,16 +12,17 @@ kernelspec:
   name: python3
 ---
 
-```{code-cell} ipython3
-%load_ext autoreload
-%autoreload 2
-```
+# [DRAFT] Body forces
+
++++
 
 ## TODO: 
 
 * The remaining fundamental issue is the singularity in the volume integral. Set up a way of testing the accuracy of this integral.
-* There's something preventing convergence in the L2 and Linf norms that isn't preventing convergence in the L1 norm. That suggests that the problem is some kind of outlier. The problem might be the scalloping in the QBX zone!!!
-* Getting an exterior solution would be nice! 
+* There's something preventing convergence in the L2 and Linf norms that isn't preventing convergence in the L1 norm. That suggests that the problem is some kind of outlier. The problem might be the scalloping in the QBX zone!!! 
+* Fix the scalloping issue!
+* Measure the error just inside r < 0.99.
+* Getting an exterior solution would be nice!
 
 +++
 
@@ -66,12 +67,32 @@ t = sp.symbols("t")
 theta = sp.pi * (t + 1)
 circle_rule[1] *= np.pi
 
-sym_circle = common.symbolic_surface(t, sp.cos(theta), sp.sin(theta))
+sym_circle = common.symbolic_suvrface(t, sp.cos(theta), sp.sin(theta))
 circle = common.symbolic_eval(t, circle_rule[0], sym_circle)
 ```
 
 ```{code-cell} ipython3
 np.sum(circle_rule[1])
+```
+
+We will solve for the function
+
+```{code-cell} ipython3
+x, y = sp.symbols('x, y')
+sym_soln = 2 + x + y + x**2 + y*sp.cos(6*x) + x*sp.sin(6*y)
+
+sym_laplacian = (
+    sp.diff(sp.diff(sym_soln, x), x) + 
+    sp.diff(sp.diff(sym_soln, y), y)
+)
+soln_fnc = sp.lambdify((x, y), sym_soln, "numpy")
+laplacian_fnc = sp.lambdify((x, y), sym_laplacian, "numpy")
+
+sym_soln
+```
+
+```{code-cell} ipython3
+sym_laplacian
 ```
 
 ## Body force quadrature
@@ -118,24 +139,6 @@ obsx, obsy = np.meshgrid(xs, ys)
 obs2d = np.array([obsx.flatten(), obsy.flatten()]).T.copy()
 obs2d_mask = np.sqrt(obs2d[:,0] ** 2 + obs2d[:,1] ** 2) <= 1
 obs2d_mask_sq = obs2d_mask.reshape(obsx.shape)
-```
-
-```{code-cell} ipython3
-x, y = sp.symbols('x, y')
-sym_soln = 2 + x + y + x**2 + y*sp.cos(6*x) + x*sp.sin(6*y)
-
-sym_laplacian = (
-    sp.diff(sp.diff(sym_soln, x), x) + 
-    sp.diff(sp.diff(sym_soln, y), y)
-)
-soln_fnc = sp.lambdify((x, y), sym_soln, "numpy")
-laplacian_fnc = sp.lambdify((x, y), sym_laplacian, "numpy")
-
-sym_soln
-```
-
-```{code-cell} ipython3
-sym_laplacian
 ```
 
 ```{code-cell} ipython3

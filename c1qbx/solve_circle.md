@@ -12,10 +12,9 @@ kernelspec:
   name: python3
 ---
 
-```{code-cell} ipython3
-%load_ext autoreload
-%autoreload 2
-```
+# [DRAFT] Dirichlet problem on a circle.
+
++++
 
 ## TODO: 
 

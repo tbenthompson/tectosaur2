@@ -1,0 +1,6 @@
+name: sage
+channels:
+  - conda-forge
+dependencies:
+  - sage
+  - python

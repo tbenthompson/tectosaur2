@@ -320,6 +320,12 @@ def interior_eval(
     return out
 
 
+def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
+    dist = eval_pts[:, None] - interp_pts[None, :]
+    kernel = interp_wts[None, :] / dist
+    return (kernel.dot(fnc_vals)) / np.sum(kernel, axis=1)
+
+
 def interp_fnc(f, in_xhat, out_xhat):
     permutation = np.random.permutation(in_xhat.shape[0])
     permuted_in_xhat = in_xhat[permutation]

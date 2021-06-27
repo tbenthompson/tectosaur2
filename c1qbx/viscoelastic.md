@@ -12,7 +12,7 @@ kernelspec:
   name: python3
 ---
 
-# Viscoelasticity
+# [DRAFT] Viscoelasticity
 
 ## TODO-list
 
@@ -55,7 +55,7 @@ Rewriting the right hand side as $F_i$, we see that this is an elastic problem w
 $$ \textrm{"Elastic-like": }~~ \sum_j \frac{\partial \big[2\mu\dot{\epsilon}_{ij} + \lambda\dot{\epsilon}_{kk}\delta_{ij}\big]}{\partial x_j} = F_i$$
 $$ \textrm{"Viscoelastic body force": }~~ F_i = \dot{f}_i + \sum_j \frac{\partial[\frac{\mu}{\eta}(\sigma_{ij} - \frac{\sigma_{kk}}{3}\delta_{ij})]}{\partial x_j} $$
 
-It's important to notice that in the main "Elastic-like" equation, we are operating in terms of velocity/strain-rate/stressing-rate because the whole equation has had a time derivative applied. 
+It's important to notice that in the main "Elastic-like" equation, we are operating in terms of velocity/strain-rate/stressing-rate because the whole equation has had a time derivative applied.
 
 +++
 
