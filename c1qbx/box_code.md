@@ -16,12 +16,21 @@ kernelspec:
 
 +++
 
+The basic method I'm implementing here is from {cite:p}`ethridgeNewFastMultipoleAccelerated2001`.
+
+Also:
+{cite:p}`langstonFreespaceAdaptiveFMMBased2011` extended the method to 3D and {cite:p}`malhotraPVFMMParallelKernel2015b` made it distributed and fast. 
+
+{cite:p}`gholamiFFTFMMMultigrid2016a` demonstrates that an FMM method based on these ideas can be very competitive with other state of the art volumetric Poisson solver
+
++++
+
 ### Next steps:
 
-* Cite the Ethridge and Greengard paper. 
-* Build the singular integrals and do a single box test for those. 
-* Do a nine box grid with singular integrals. 
-* Split into nearfield and far-field.
+* Figure out the reflections and rotations for reducing the number of box pairs.
+* Split into nearfield and far-field and run the full box code.
+* Do some runtime benchmarks with the box code.
+* Start on the function extension stuff!!
 
 +++
 
@@ -269,8 +278,6 @@ plt.show()
 
 ## A box code
 
-### TODO: Restrict adjacency sizes
-
 ```{code-cell} ipython3
 q1 = clencurt_2d(4)
 q2 = clencurt_2d(7)
@@ -506,8 +513,12 @@ def balance_21(tree, plot_progress=False):
                 plt.ylim([-0.55, 0.55])
                 plt.axis('equal')
                 plt.show()
+            # If cells were refined in this level, then there may be cells in
+            # the parent's level that now need to be refined, so we back up a step to 
+            # check.
             i -= 1
         else:
+            # If no cells were refined, then proceed down the tree to the next level
             i += 1
             
 ```
@@ -524,8 +535,4 @@ plt.xlim([-0.55, 0.55])
 plt.ylim([-0.55, 0.55])
 plt.axis('equal')
 plt.show()
-```
-
-```{code-cell} ipython3
-
 ```
