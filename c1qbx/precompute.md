@@ -16,11 +16,6 @@ kernelspec:
 
 +++
 
-Thoughts:
-* build the symbolic solution for all x, y!
-
-+++
-
 ## Setting up a test problem
 
 ```{code-cell} ipython3
@@ -78,6 +73,8 @@ for i in range(N):
 basis_functions
 ```
 
+### Polar integration
+
 ```{code-cell} ipython3
 C = 1.0 / (4 * np.pi)
 def fundamental_solution(obsx, obsy, srcx, srcy):
@@ -90,34 +87,22 @@ sx, sy = sp.var("sx, sy")
 ```
 
 ```{code-cell} ipython3
-inputs = []
-for obsi in range(N):
-    for obsj in range(N):
-        obsx = float(chebyshev_pts[obsi])
-        obsy = float(chebyshev_pts[obsj])
-        for srci in range(N):
-            for srcj in range(N):
-                inputs.append((obsx, obsy, srci, srcj))
-
-                
-                
+import scipy.integrate
 def to_corner(ox, oy, cx, cy):
     t = np.arctan2(cy - oy, cx - ox)
     r = np.sqrt((cx - ox) ** 2 + (cy - oy) ** 2)
     return (t, r)
 
 
-def compute_pair(obsx, obsy, srci, srcj):
+def compute_pair(obsx, obsy, basis):
     tol = 1e-16
-    basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
-    basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
     
     def F(srcR, srcT):
-        srcx = np.cos(srcT) * srcR
-        srcy = np.sin(srcT) * srcR
-        out = srcR * basis(srcx, srcy) * fundamental_solution(obsx, obsy, srcx, srcy)
         if srcR == 0:
-            out = 0
+            return 0
+        srcx = obsx + np.cos(srcT) * srcR
+        srcy = obsy + np.sin(srcT) * srcR
+        out = srcR * basis(srcx, srcy) * fundamental_solution(obsx, obsy, srcx, srcy)
         return out
     
     corner_vecs = [
@@ -128,10 +113,10 @@ def compute_pair(obsx, obsy, srci, srcj):
     ]
 
     subdomain = [
-        (corner_vecs[0][0], corner_vecs[1][0], lambda t: 1.0 / np.sin(t)),
-        (corner_vecs[1][0], corner_vecs[2][0] + 2 * np.pi, lambda t: -1.0 / np.cos(t)),
-        (corner_vecs[2][0], corner_vecs[3][0], lambda t: -1.0 / np.sin(t)),
-        (corner_vecs[3][0], corner_vecs[0][0], lambda t: 1.0 / np.cos(t)),
+        (corner_vecs[0][0], corner_vecs[1][0], lambda t: (1.0 - obsy) / np.sin(t)),
+        (corner_vecs[1][0], corner_vecs[2][0] + 2 * np.pi, lambda t: (-1.0 - obsx) / np.cos(t)),
+        (corner_vecs[2][0], corner_vecs[3][0], lambda t: (-1.0 - obsy) / np.sin(t)),
+        (corner_vecs[3][0], corner_vecs[0][0], lambda t: (1.0 - obsx) / np.cos(t)),
     ]
     
     Is = []
@@ -146,23 +131,19 @@ def compute_pair(obsx, obsy, srci, srcj):
 ```
 
 ```{code-cell} ipython3
-compute_pair(0,0,0,0)
+compute_pair(-0.5,-0.5, lambda sx, sy: 1.0)
 ```
 
 ```{code-cell} ipython3
-integrals[2,2,0,0] - _
+compute_pair_old(-0.5,-0.5,0,0)
 ```
 
 ```{code-cell} ipython3
-p = multiprocessing.Pool()
-integrals_and_err = p.starmap(compute_pair, inputs)
+compute_pair(-1,-1,0,0)
 ```
 
-## Pre-computing near-field coefficients
-
 ```{code-cell} ipython3
-import scipy.integrate
-import multiprocessing
+compute_pair_old(-0.9999,-0.9999,0,0)
 ```
 
 ```{code-cell} ipython3
@@ -173,10 +154,21 @@ for obsi in range(N):
         obsy = float(chebyshev_pts[obsj])
         for srci in range(N):
             for srcj in range(N):
-                inputs.append((obsx, obsy, srci, srcj))
+                basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
+                basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
+                inputs.append((obsx, obsy, basis))
+```
 
+```{code-cell} ipython3
+import multiprocessing
+p = multiprocessing.Pool()
+integrals_and_err = p.starmap(compute_pair, inputs)
+```
 
-def compute_pair(obsx, obsy, srci, srcj):
+## Pre-computing near-field coefficients
+
+```{code-cell} ipython3
+def compute_pair_old(obsx, obsy, srci, srcj):
     tol = 1e-16
     basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
     basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
@@ -199,7 +191,7 @@ def compute_pair(obsx, obsy, srci, srcj):
 ```
 
 ```{code-cell} ipython3
-compute_pair(0,0,0,0)
+compute_pair_old(0.5,0.5,0,0)
 ```
 
 ```{code-cell} ipython3
