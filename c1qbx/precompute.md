@@ -28,17 +28,11 @@ import sympy as sp
 ```{code-cell} ipython3
 import pickle
 
-with open("data/test_integral.pkl", "rb") as f:
-    coincident, nearfield = pickle.load(f)
+with open("data/constant_test_integral.pkl", "rb") as f:
+    symbolic_coincident = pickle.load(f)
 
 ox, oy = sp.symbols("ox, oy")
-xy_soln_coincident = sp.lambdify((ox, oy), coincident, "mpmath")
-xy_soln_nearfield = sp.lambdify((ox, oy), nearfield, "mpmath")
-```
-
-```{code-cell} ipython3
-def xy_laplacian_fnc(x, y):
-    return (1 - x) * (1 - y)
+soln_coincident = sp.lambdify((ox, oy), symbolic_coincident, "numpy")
 ```
 
 ### Lagrange basis functions
@@ -77,6 +71,8 @@ basis_functions
 
 ```{code-cell} ipython3
 C = 1.0 / (4 * np.pi)
+
+
 def fundamental_solution(obsx, obsy, srcx, srcy):
     r2 = ((obsx - srcx) ** 2) + ((obsy - srcy) ** 2)
     return C * np.log(r2)
@@ -110,14 +106,23 @@ def compute_pair(obsx, obsy, basis):
         to_corner(obsx, obsy, -1, 1),
         to_corner(obsx, obsy, -1, -1),
         to_corner(obsx, obsy, 1, -1)
-    ]
+    ]]
+    # Normally the theta value for corner idx 2 is negative because it 
+    # is greater than Pi and the output range of arctan2 is [-pi,pi]
+    # But, if the observation point is on the bottom edge of the domain (y=-1)
+    # then it's possible for the the theta value to be exactly pi. If this is the
+    # case it will be positive and will mess up the integration domains for
+    # integrals 2 and 3. So, if it's positive here, we loop around and make 
+    # it negative.
+    if corner_vecs[2][0] > 0:
+        corner_vecs[2][0] -= 2 * np.pi
 
     subdomain = [
-        (corner_vecs[0][0], corner_vecs[1][0], lambda t: (1.0 - obsy) / np.sin(t)),
-        (corner_vecs[1][0], corner_vecs[2][0] + 2 * np.pi, lambda t: (-1.0 - obsx) / np.cos(t)),
-        (corner_vecs[2][0], corner_vecs[3][0], lambda t: (-1.0 - obsy) / np.sin(t)),
-        (corner_vecs[3][0], corner_vecs[0][0], lambda t: (1.0 - obsx) / np.cos(t)),
-    ]
+        [corner_vecs[0][0], corner_vecs[1][0], lambda t: (1.0 - obsy) / np.sin(t)],
+        [corner_vecs[1][0], corner_vecs[2][0] + 2 * np.pi, lambda t: (-1.0 - obsx) / np.cos(t)],
+        [corner_vecs[2][0], corner_vecs[3][0], lambda t: (-1.0 - obsy) / np.sin(t)],
+        [corner_vecs[3][0], corner_vecs[0][0], lambda t: (1.0 - obsx) / np.cos(t)],
+    
     
     Is = []
     for d in subdomain:
@@ -126,83 +131,48 @@ def compute_pair(obsx, obsy, basis):
     
     result = sum([I[0] for I in Is])
     err = sum([I[1] for I in Is])
-    print(result, err)
     return result, err
 ```
 
 ```{code-cell} ipython3
-compute_pair(-0.5,-0.5, lambda sx, sy: 1.0)
+%%time
+est = compute_pair(-0.5, -0.5, lambda sx, sy: 1.0)
+true = soln_coincident(-0.5, -0.5)
+est, true, est[0] - true[0]
 ```
 
 ```{code-cell} ipython3
-compute_pair_old(-0.5,-0.5,0,0)
+est = compute_pair(1, 1, lambda sx, sy: 1.0)
+true = soln_coincident(1 - 1e-7, 1 - 1e-7)
+est, true, est[0] - true[0]
 ```
 
 ```{code-cell} ipython3
-compute_pair(-1,-1,0,0)
-```
-
-```{code-cell} ipython3
-compute_pair_old(-0.9999,-0.9999,0,0)
-```
-
-```{code-cell} ipython3
-inputs = []
-for obsi in range(N):
-    for obsj in range(N):
-        obsx = float(chebyshev_pts[obsi])
-        obsy = float(chebyshev_pts[obsj])
-        for srci in range(N):
-            for srcj in range(N):
-                basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
-                basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
-                inputs.append((obsx, obsy, basis))
-```
-
-```{code-cell} ipython3
+---
+jupyter:
+  outputs_hidden: true
+tags: []
+---
+%%time
 import multiprocessing
-p = multiprocessing.Pool()
-integrals_and_err = p.starmap(compute_pair, inputs)
-```
 
-## Pre-computing near-field coefficients
+def compute_grid(obs_scale, obs_offsetx, obs_offsety)
+    inputs = []
+    for obsi in range(N):
+        for obsj in range(N):
+            obsx = obs_scale * float(chebyshev_pts[obsi]) + obs_offsetx
+            obsy = obs_scale * float(chebyshev_pts[obsj]) + obs_offsety
+            for srci in range(N):
+                for srcj in range(N):
+                    inputs.append((obsx, obsy, srci, srcj))
 
-```{code-cell} ipython3
-def compute_pair_old(obsx, obsy, srci, srcj):
-    tol = 1e-16
-    basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
-    basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
-    F = lambda srcx, srcy: basis(srcx, srcy) * fundamental_solution(
-        obsx, obsy, srcx, srcy
-    )
-    # Split the domain into four boxes with corners at the singular point.
-    domains = [
-        [-1.0, obsx, -1.0, obsy],
-        [-1.0, obsx, obsy, 1.0],
-        [obsx, 1.0, -1.0, obsy],
-        [obsx, 1.0, obsy, 1.0],
-    ]
+    def mp_compute_pair(obsx, obsy, srci, srcj):
+        basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
+        basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
+        return compute_pair(obsx, obsy, basis)
 
-    Is = [scipy.integrate.dblquad(F, *d, epsabs=tol, epsrel=tol) for d in domains]
-    result = sum([I[0] for I in Is])
-    err = sum([I[1] for I in Is])
-    print(result, err)
-    return result, err
-```
-
-```{code-cell} ipython3
-compute_pair_old(0.5,0.5,0,0)
-```
-
-```{code-cell} ipython3
-integrals[2,2,0,0]
-```
-
-```{code-cell} ipython3
-:tags: []
-
-p = multiprocessing.Pool()
-integrals_and_err = p.starmap(compute_pair, inputs)
+    p = multiprocessing.Pool()
+    return p.starmap(mp_compute_pair, inputs)
 ```
 
 ```{code-cell} ipython3
@@ -214,184 +184,41 @@ integrals = integrals_and_err[:, 0].reshape((N, N, N, N))
 error = integrals_and_err[:, 1].reshape((N, N, N, N))
 ```
 
+There are no estimated errors greated than `5e-15`:
+
 ```{code-cell} ipython3
-np.where(error > 1e-12)
+np.array(inputs, dtype=object).reshape((5, 5, 5, 5, 4))[np.where(error > 5e-15)]
 ```
 
 ```{code-cell} ipython3
-inputs_arr = np.array(inputs, dtype=object).reshape((5, 5, 5, 5, 4))
+for i in range(1, N - 1):
+    for j in range(1, N - 1):
+        err = (
+            soln_coincident(float(chebyshev_pts[i]), float(chebyshev_pts[j]))
+            - integrals[i, j, :, :].sum()
+        )
+        print(err[0])
 ```
 
-```{code-cell} ipython3
-inputs_arr[2, 3, 2, 3]
-```
-
-```{code-cell} ipython3
-A[1], B[1]
-```
-
-```{code-cell} ipython3
-result - xy_soln_coincident(obsx, obsy)
-```
-
-```{code-cell} ipython3
-
-```
-
-```{code-cell} ipython3
-:tags: []
-
-n_chebyshev_terms = 5
-chebyshev_pts = np.array(
-    [
-        mp.cos(mp.pi * mp.mpf(i) / (n_chebyshev_terms - 1))
-        for i in range(n_chebyshev_terms)
-    ]
-)
-```
-
-```{code-cell} ipython3
-:tags: []
-
-def compute_for_pt(obsx, obsy, srcI, srcJ, verbose=False):
-    mp.dps = n_digits
-    print("Computing integrals for point:", obsx, obsy)
-    grid = []
-    for n in range(n_chebyshev_terms):
-        for m in range(n_chebyshev_terms):
-            integral, error_estimate = mp.quadts(
-                lambda x, y: volume_integral(obsx, obsy, n, m, x, y),
-                [mp.mpf("-1"), obsx, mp.mpf("1")],
-                [mp.mpf("-1"), obsy, mp.mpf("1")],
-                error=True,
-                verbose=verbose,
-            )
-            py_integral = float(integral)
-            grid.append((n, m, py_integral, integral, error_estimate))
-            if verbose:
-                print(n, m, py_integral, integral, error_estimate)
-    return grid
-```
-
-```{code-cell} ipython3
-from mpmath.calculus.quadrature import TanhSinh
-```
-
-```{code-cell} ipython3
-obsx = mp.mpf("-0.99")
-obsy = obsx
-```
-
-```{code-cell} ipython3
-mp.dps = 30
-```
-
-```{code-cell} ipython3
-TS = TanhSinh(mp)
-```
-
-```{code-cell} ipython3
-degree = 3  # TS.guess_degree(mp.prec)
-nodes1 = np.array(TS.get_nodes(-1, obsx, degree, mp.prec - 15))
-nodes2 = np.array(TS.get_nodes(obsx, 1, degree, mp.prec - 15))
-nodesy = np.array(TS.get_nodes(-1, 1, degree, mp.prec - 15))
-```
-
-```{code-cell} ipython3
-def clencurt(n1):
-    """Computes the Clenshaw Curtis quadrature nodes and weights"""
-    C = quadpy.c1.clenshaw_curtis(n1)
-    return (C.points[::-1], C.weights[::-1])
-
-
-# nodes1 = np.array(clencurt(20)).T
-# nodes2 = np.array(clencurt(20)).T
-# nodesy = np.array(clencurt(20)).T
-```
-
-```{code-cell} ipython3
-%%time
-S = 0
-for j in range(nodesy.shape[0]):
-    for i in range(nodes1.shape[0]):
-        v1 = 1.0  # volume_integral(obsx, obsy, 0, 0, nodes1[i,0], nodesy[j,0])
-        v2 = 1.0  # volume_integral(obsx, obsy, 0, 0, nodes2[i,0], nodesy[j,0])
-        V1 = v1 * nodes1[i, 1] * nodesy[j, 1]
-        V2 = v2 * nodes2[i, 1] * nodesy[j, 1]
-        S += V1 + V2
-```
-
-```{code-cell} ipython3
-S
-```
-
-```{code-cell} ipython3
-quad_nodes = np.array(.calc_nodes(6, mp.prec - 9))
-```
-
-```{code-cell} ipython3
-pts01 = (quad_nodes[:, 0] + 1) / 2
-wts01 = quad_nodes[:, 1] / 2
-```
-
-```{code-cell} ipython3
-pts01.shape, wts01[-4:], pts01[-4:]
-```
-
-```{code-cell} ipython3
-def to_interval(a, b):
-    return pts01 * (a - b) + a
-```
-
-```{code-cell} ipython3
-def compute_for_pt2(obsx, obsy):
-    
-```
-
-```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-grid = compute_for_pt(2, mp.mpf("-0.99"), mp.mpf("-0.99"), verbose=True)
-```
-
-```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-p = multiprocessing.Pool()
-
-
-def compute_grid(multx, multy, offsetx, offsety):
-    X, Y = np.meshgrid(multx * chebyshev_pts + offsetx, multy * chebyshev_pts + offsety)
-    grid_input = zip([n_chebyshev_terms] * n_chebyshev_terms ** 2, X.ravel(), Y.ravel())
-    return np.array(p.starmap(compute_for_pt, grid_input))
-```
+## Pre-computing near-field coefficients
 
 ```{code-cell} ipython3
 np.save(
     "data/coincident_grid.npy",
-    compute_grid(mp.mpf("1.0"), mp.mpf("1.0"), mp.mpf("0.0"), mp.mpf("0.0")),
+    compute_grid(1, 1, 0, 0),
 )
 np.save(
     "data/adj1_grid.npy",
-    compute_grid(mp.mpf("1.0"), mp.mpf("1.0"), mp.mpf("2.0"), mp.mpf("2.0")),
+    compute_grid(1, 1, 2, 2),
 )
-np.save(
-    "data/adj2_grid.npy",
-    compute_grid(mp.mpf("1.0"), mp.mpf("1.0"), mp.mpf("0.0"), mp.mpf("2.0")),
-)
+np.save("data/adj2_grid.npy", compute_grid(1, 1, 0, 2))
 np.save(
     "data/adj3_grid.npy",
-    compute_grid(mp.mpf("2.0"), mp.mpf("2.0"), mp.mpf("3.0"), mp.mpf("3.0")),
+    compute_grid(2, 2, 3, 3),
 )
 np.save(
     "data/adj4_grid.npy",
-    compute_grid(mp.mpf("2.0"), mp.mpf("2.0"), mp.mpf("1.0"), mp.mpf("3.0")),
+    compute_grid(2, 2, 1, 3),
 )
 ```
 
@@ -409,7 +236,7 @@ raw_grids = np.array([np.load(g, allow_pickle=True) for g in grid_filenames])
 ### Test coincident
 
 ```{code-cell} ipython3
-est = (
+cest = (
     raw_grids[0, :, 0, 3]
     - raw_grids[0, :, 1, 3]
     - raw_grids[0, :, 5, 3]
