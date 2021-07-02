@@ -172,6 +172,7 @@ def mp_compute_coincident(obsx, obsy, srci, srcj):
     basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
     return compute_coincident(obsx, obsy, basis)
 
+
 def get_inputs(obs_scale, obs_offsetx, obs_offsety):
     inputs = []
     for obsi in range(N):
@@ -191,12 +192,12 @@ def coincident_grid():
 ```
 
 ```{code-cell} ipython3
-np.save("data/coincident_grid.npy", coincident_grid())
+# np.save("data/coincident_grid.npy", coincident_grid())
 ```
 
 ```{code-cell} ipython3
-#integrals_and_err = compute_grid(1, 0, 0)
-integrals_and_err = np.load('data/coincident_grid.npy')
+# integrals_and_err = compute_grid(1, 0, 0)
+integrals_and_err = np.load("data/coincident_grid.npy")
 integrals = integrals_and_err[:, 0].reshape((N, N, N, N))
 error = integrals_and_err[:, 1].reshape((N, N, N, N))
 ```
@@ -204,8 +205,7 @@ error = integrals_and_err[:, 1].reshape((N, N, N, N))
 There are no estimated errors greated than `5e-15`:
 
 ```{code-cell} ipython3
-inputs_arr = np.array(inputs, dtype=object).reshape((5, 5, 5, 5, 4))
-inputs_arr[np.where(error > 5e-15)]
+np.where(error > 5e-15)[0].shape[0]
 ```
 
 ```{code-cell} ipython3
@@ -242,12 +242,13 @@ for i in range(1, N - 1):
 def is_on_source_edge(obsx, obsy):
     on_left_right_edges = np.abs(obsx) == 1 and np.abs(obsy) <= 1
     on_top_bottom_edges = np.abs(obsy) == 1 and np.abs(obsx) <= 1
-    return (on_left_right_edges or on_top_bottom_edges)
+    return on_left_right_edges or on_top_bottom_edges
+
 
 def compute_nearfield(obsx, obsy, basis):
     if is_on_source_edge(obsx, obsy):
         return compute_coincident(obsx, obsy, basis)
-    
+
     tol = 1e-16
 
     def F(srcy, srcx):
@@ -295,38 +296,49 @@ jupyter:
 tags: []
 ---
 import matplotlib.patches as patches
-xrange = [-1.5,6]
-yrange = [-1.5,6]
+
+xrange = [-1.5, 6]
+yrange = [-1.5, 6]
+
 
 def size_and_aspect():
     plt.xlim(*xrange)
     plt.ylim(*yrange)
-    plt.axis('off')
-    #plt.axis('equal')
+    plt.axis("off")
+    # plt.axis('equal')
 
-plt.figure(figsize=(8,8))
 
-plt.subplot(2,2,1)
-plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
-plt.gca().add_patch(patches.Rectangle((1, 1), 2, 2, linewidth=1, edgecolor='k', facecolor='none'))
+plt.figure(figsize=(8, 8))
+
+plt.subplot(2, 2, 1)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((1, 1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
+)
 plt.text(1.85, 1.7, "1", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2,2,2)
-plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
-plt.gca().add_patch(patches.Rectangle((1, -1), 2, 2, linewidth=1, edgecolor='k', facecolor='none'))
+plt.subplot(2, 2, 2)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((1, -1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
+)
 plt.text(1.85, -0.3, "2", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2,2,3)
-plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
-plt.gca().add_patch(patches.Rectangle((1, 1), 4, 4, linewidth=1, edgecolor='k', facecolor='none'))
+plt.subplot(2, 2, 3)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((1, 1), 4, 4, linewidth=1, edgecolor="k", facecolor="none")
+)
 plt.text(2.65, 2.65, "3", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2,2,4)
-plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
-plt.gca().add_patch(patches.Rectangle((-1, 1), 4, 4, linewidth=1, edgecolor='k', facecolor='none'))
+plt.subplot(2, 2, 4)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((-1, 1), 4, 4, linewidth=1, edgecolor="k", facecolor="none")
+)
 plt.text(0.65, 2.65, "4", fontsize=30)
 size_and_aspect()
 
@@ -334,43 +346,13 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-%%time
-np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
-```
+:tags: []
 
-```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-%%time
-np.save("data/adj2_grid.npy", compute_grid(1, 0, 2))
-```
-
-```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-%%time
-np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
-```
-
-```{code-cell} ipython3
----
-jupyter:
-  outputs_hidden: true
-tags: []
----
-%%time
-np.save("data/adj4_grid.npy", compute_grid(2, 1, 3))
+# %%time
+# np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
+# np.save("data/adj2_grid.npy", compute_grid(1, 2, 0))
+# np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
+# np.save("data/adj4_grid.npy", compute_grid(2, 1, 3))
 ```
 
 ```{code-cell} ipython3
@@ -387,7 +369,11 @@ raw_grids = np.array([np.load(g, allow_pickle=True) for g in grid_filenames])
 The estimated error is extremely small for all the integrals!
 
 ```{code-cell} ipython3
-np.where(raw_grids[:,:,1] > 5e-15)
+np.where(raw_grids[:, :, 1] > 5e-15)
+```
+
+```{code-cell} ipython3
+all_integrals = raw_grids[:,:,0].reshape((5,N,N,N**2))
 ```
 
 ## Rotations
@@ -397,24 +383,177 @@ np.where(raw_grids[:,:,1] > 5e-15)
 ### Type 1
 
 ```{code-cell} ipython3
-#(1 - chebyshev_pts_np[:, None]) * (1 - chebyshev_pts_np[None, :] ** 2)
-correct = np.zeros((N, N))
-for i in range(N):
-    for j in range(N):
-        obsx = 2.0 + chebyshev_pts_np[i]
-        obsy = 2.0 + chebyshev_pts_np[j]
-        if np.abs(obsx) == 1 or np.abs(obsy) == 1:
-            correct[i,j] = np.nan
-        else:
-            correct[i,j] = constant_soln_nearfield(obsx, obsy)
-            
-f = np.ones((N ** 2))
-integrals = raw_grids[1, :, 0].reshape((N,N,N**2))
-est = integrals.dot(f)
+def get_test_values(soln_fnc, scale, offsetx, offsety):
+    correct = np.zeros((N, N))
+    for i in range(N):
+        for j in range(N):
+            obsx = offsetx + scale * chebyshev_pts_np[i]
+            obsy = offsety + scale * chebyshev_pts_np[j]
+            if np.abs(obsx) == 1 or np.abs(obsy) == 1:
+                correct[i, j] = np.nan
+            else:
+                correct[i, j] = soln_fnc(obsx, obsy)
+    return correct
 ```
 
 ```{code-cell} ipython3
-true - est
+correct_upper_right = get_test_values(constant_soln_nearfield, 1.0, 2.0, 2.0)
+correct_upper_left = get_test_values(constant_soln_nearfield, 1.0, -2.0, 2.0)
+correct_lower_left = get_test_values(constant_soln_nearfield, 1.0, -2.0, -2.0)
+correct_lower_right = get_test_values(constant_soln_nearfield, 1.0, 2.0, -2.0)
+```
+
+```{code-cell} ipython3
+correct_upper_right
+```
+
+```{code-cell} ipython3
+correct_upper_left
+```
+
+```{code-cell} ipython3
+correct_lower_left
+```
+
+```{code-cell} ipython3
+correct_lower_right
+```
+
+```{code-cell} ipython3
+flipud = correct_upper_right[::-1, :]
+fliplr = correct_upper_right[:, ::-1]
+flipudlr = correct_upper_right[::-1, ::-1]
+
+print(np.max(np.abs((flipud - correct_upper_left)[~np.isnan(flipud)])))
+print(np.max(np.abs((fliplr - correct_lower_right)[~np.isnan(fliplr)])))
+print(np.max(np.abs((flipudlr - correct_lower_left)[~np.isnan(flipudlr)])))
+```
+
+```{code-cell} ipython3
+correct_upper_right = get_test_values(xy_soln_nearfield, 1.0, 2.0, 2.0)
+correct_upper_left = get_test_values(xy_soln_nearfield, 1.0, -2.0, 2.0)
+correct_lower_left = get_test_values(xy_soln_nearfield, 1.0, -2.0, -2.0)
+correct_lower_right = get_test_values(xy_soln_nearfield, 1.0, 2.0, -2.0)
+```
+
+```{code-cell} ipython3
+correct_upper_right
+```
+
+```{code-cell} ipython3
+correct_upper_left
+```
+
+```{code-cell} ipython3
+correct_lower_left
+```
+
+```{code-cell} ipython3
+correct_lower_right
+```
+
+```{code-cell} ipython3
+srcX, srcY = np.meshgrid(chebyshev_pts_np, chebyshev_pts_np)
+src_pts = np.array([srcX, srcY]).T.reshape((-1, 2)).copy()
+F = lambda x, y: (1 - x) * (1 - y ** 2)
+```
+
+```{code-cell} ipython3
+def adjacent(I, F, flipx, flipy, rotxy):
+    x = flipx * ((1 - rotxy) * src_pts[:,0] + rotxy * src_pts[:, 1])
+    y = flipy * (rotxy * src_pts[:,0] + (1 - rotxy) * src_pts[:, 1])
+    est = I.dot(F(x,y).ravel())
+    if rotxy == 1:
+        est = est.T
+    if flipx == -1:
+        est = est[::-1]
+    if flipy == -1:
+        est = est[:, ::-1]
+    return est
+
+
+for C, flipx, flipy in [
+    (correct_upper_right, 1, 1),
+    (correct_upper_left, -1, 1),
+    (correct_lower_left, -1, -1),
+    (correct_lower_right, 1, -1),
+]:
+    est = adjacent(all_integrals[1], F, flipx, flipy, 0)
+    print(np.max(np.abs((C - est)[~np.isnan(C)])))
+```
+
+### Type 2
+
+```{code-cell} ipython3
+correct_middle_right = get_test_values(xy_soln_nearfield, 1.0, 2.0, 0.0)
+correct_top_center = get_test_values(xy_soln_nearfield, 1.0, 0.0, 2.0)
+correct_middle_left = get_test_values(xy_soln_nearfield, 1.0, -2.0, 0.0)
+correct_bottom_center = get_test_values(xy_soln_nearfield, 1.0, 0.0, -2.0)
+```
+
+```{code-cell} ipython3
+for C, flipx, flipy, rotxy in [
+    (correct_middle_right, 1, 1, 0),
+    (correct_top_center, 1, 1, 1),
+    (correct_middle_left, -1, 1, 0),
+    (correct_bottom_center, 1, -1, 1),
+]:
+    est = adjacent(all_integrals[2], F, flipx, flipy, rotxy)
+    print(np.max(np.abs((C - est)[~np.isnan(C)])))
+```
+
+### Type 3
+
+```{code-cell} ipython3
+correct_upper_right = get_test_values(xy_soln_nearfield, 2.0, 3.0, 3.0)
+correct_upper_left = get_test_values(xy_soln_nearfield, 2.0, -3.0, 3.0)
+correct_lower_left = get_test_values(xy_soln_nearfield, 2.0, -3.0, -3.0)
+correct_lower_right = get_test_values(xy_soln_nearfield, 2.0, 3.0, -3.0)
+```
+
+```{code-cell} ipython3
+for C, flipx, flipy in [
+    (correct_upper_right, 1, 1),
+    (correct_upper_left, -1, 1),
+    (correct_lower_left, -1, -1),
+    (correct_lower_right, 1, -1),
+]:
+    est = adjacent(all_integrals[3], F, flipx, flipy, rotxy)
+    print(np.max(np.abs((C - est)[~np.isnan(C)])))
+```
+
+### Type 4
+
+```{code-cell} ipython3
+correct_upper_right = get_test_values(xy_soln_nearfield, 2.0, 1.0, 3.0)
+correct_upper_left = get_test_values(xy_soln_nearfield, 2.0, -1.0, 3.0)
+correct_left_top = get_test_values(xy_soln_nearfield, 2.0, -3.0, 1.0)
+correct_left_bottom = get_test_values(xy_soln_nearfield, 2.0, -3.0, -1.0)
+correct_bottom_left = get_test_values(xy_soln_nearfield, 2.0, -1.0, -3.0)
+correct_bottom_right = get_test_values(xy_soln_nearfield, 2.0, 1.0, -3.0)
+correct_right_bottom = get_test_values(xy_soln_nearfield, 2.0, 3.0, -1.0)
+correct_right_top = get_test_values(xy_soln_nearfield, 2.0, 3.0, 1.0)
+```
+
+```{code-cell} ipython3
+for C, flipx, flipy, rotxy in [
+    (correct_upper_right, 1, 1, 0),
+    (correct_upper_left, -1, 1, 0),
+    (correct_left_top, -1, 1, 1),
+    (correct_left_bottom, -1, -1, 1),
+    (correct_bottom_left, -1, -1, 0),
+    (correct_bottom_right, 1, -1, 0),
+    (correct_right_bottom, 1, -1, 1),
+    (correct_right_top, 1, 1, 1)
+]:
+    est = adjacent(all_integrals[4], F, flipx, flipy, rotxy)
+    print(np.max(np.abs((C - est)[~np.isnan(C)])))
+```
+
+### Determine type and rotation
+
+```{code-cell} ipython3
+
 ```
 
 ### Archive
