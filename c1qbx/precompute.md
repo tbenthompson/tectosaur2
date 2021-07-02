@@ -25,16 +25,6 @@ import sympy as sp
 %config InlineBackend.figure_format='retina'
 ```
 
-```{code-cell} ipython3
-import pickle
-
-with open("data/constant_test_integral.pkl", "rb") as f:
-    symbolic_coincident = pickle.load(f)
-
-ox, oy = sp.symbols("ox, oy")
-soln_coincident = sp.lambdify((ox, oy), symbolic_coincident, "numpy")
-```
-
 ### Lagrange basis functions
 
 ```{code-cell} ipython3
@@ -42,6 +32,7 @@ soln_coincident = sp.lambdify((ox, oy), symbolic_coincident, "numpy")
 
 N = 5
 chebyshev_pts = [sp.cos(sp.pi * i / (N - 1)) for i in range(N)][::-1]
+chebyshev_pts_np = np.array([float(p) for p in chebyshev_pts])
 x = sp.var("x")
 ```
 
@@ -67,7 +58,7 @@ for i in range(N):
 basis_functions
 ```
 
-### Polar integration
+### Precomputing coincident integrals with polar integration
 
 ```{code-cell} ipython3
 C = 1.0 / (4 * np.pi)
@@ -84,15 +75,17 @@ sx, sy = sp.var("sx, sy")
 
 ```{code-cell} ipython3
 import scipy.integrate
+
+
 def to_corner(ox, oy, cx, cy):
     t = np.arctan2(cy - oy, cx - ox)
     r = np.sqrt((cx - ox) ** 2 + (cy - oy) ** 2)
-    return (t, r)
+    return [t, r]
 
 
-def compute_pair(obsx, obsy, basis):
+def compute_coincident(obsx, obsy, basis):
     tol = 1e-16
-    
+
     def F(srcR, srcT):
         if srcR == 0:
             return 0
@@ -100,51 +93,244 @@ def compute_pair(obsx, obsy, basis):
         srcy = obsy + np.sin(srcT) * srcR
         out = srcR * basis(srcx, srcy) * fundamental_solution(obsx, obsy, srcx, srcy)
         return out
-    
+
     corner_vecs = [
         to_corner(obsx, obsy, 1, 1),
         to_corner(obsx, obsy, -1, 1),
         to_corner(obsx, obsy, -1, -1),
-        to_corner(obsx, obsy, 1, -1)
-    ]]
-    # Normally the theta value for corner idx 2 is negative because it 
+        to_corner(obsx, obsy, 1, -1),
+    ]
+    # Normally the theta value for corner idx 2 is negative because it
     # is greater than Pi and the output range of arctan2 is [-pi,pi]
     # But, if the observation point is on the bottom edge of the domain (y=-1)
     # then it's possible for the the theta value to be exactly pi. If this is the
     # case it will be positive and will mess up the integration domains for
-    # integrals 2 and 3. So, if it's positive here, we loop around and make 
+    # integrals 2 and 3. So, if it's positive here, we loop around and make
     # it negative.
     if corner_vecs[2][0] > 0:
         corner_vecs[2][0] -= 2 * np.pi
 
     subdomain = [
         [corner_vecs[0][0], corner_vecs[1][0], lambda t: (1.0 - obsy) / np.sin(t)],
-        [corner_vecs[1][0], corner_vecs[2][0] + 2 * np.pi, lambda t: (-1.0 - obsx) / np.cos(t)],
+        [
+            corner_vecs[1][0],
+            corner_vecs[2][0] + 2 * np.pi,
+            lambda t: (-1.0 - obsx) / np.cos(t),
+        ],
         [corner_vecs[2][0], corner_vecs[3][0], lambda t: (-1.0 - obsy) / np.sin(t)],
         [corner_vecs[3][0], corner_vecs[0][0], lambda t: (1.0 - obsx) / np.cos(t)],
-    
-    
+    ]
+
     Is = []
     for d in subdomain:
         I = scipy.integrate.dblquad(F, d[0], d[1], 0.0, d[2], epsabs=tol, epsrel=tol)
         Is.append(I)
-    
+
     result = sum([I[0] for I in Is])
     err = sum([I[1] for I in Is])
     return result, err
 ```
 
 ```{code-cell} ipython3
-%%time
-est = compute_pair(-0.5, -0.5, lambda sx, sy: 1.0)
-true = soln_coincident(-0.5, -0.5)
-est, true, est[0] - true[0]
+import pickle
+
+with open("data/constant_test_integral.pkl", "rb") as f:
+    coincident, nearfield = pickle.load(f)
+
+ox, oy = sp.symbols("ox, oy")
+constant_soln_coincident = sp.lambdify((ox, oy), coincident, "numpy")
+constant_soln_nearfield = sp.lambdify((ox, oy), nearfield, "numpy")
 ```
 
 ```{code-cell} ipython3
-est = compute_pair(1, 1, lambda sx, sy: 1.0)
-true = soln_coincident(1 - 1e-7, 1 - 1e-7)
-est, true, est[0] - true[0]
+%%time
+est = compute_coincident(-0.5, -0.5, lambda sx, sy: 1.0)
+true = constant_soln_coincident(-0.5, -0.5)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+est = compute_coincident(1, 1, lambda sx, sy: 1.0)
+true = constant_soln_coincident(1 - 1e-7, 1 - 1e-7)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+est = compute_coincident(0, 1, lambda sx, sy: 1.0)
+true = constant_soln_coincident(0, -1 + 1e-7)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+:tags: []
+
+import multiprocessing
+
+
+def mp_compute_coincident(obsx, obsy, srci, srcj):
+    basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
+    basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
+    return compute_coincident(obsx, obsy, basis)
+
+def get_inputs(obs_scale, obs_offsetx, obs_offsety):
+    inputs = []
+    for obsi in range(N):
+        for obsj in range(N):
+            obsx = obs_scale * chebyshev_pts_np[obsi] + obs_offsetx
+            obsy = obs_scale * chebyshev_pts_np[obsj] + obs_offsety
+            for srci in range(N):
+                for srcj in range(N):
+                    inputs.append((obsx, obsy, srci, srcj))
+    return inputs
+
+
+def coincident_grid():
+    inputs = get_inputs(1, 0, 0)
+    p = multiprocessing.Pool()
+    return inputs, np.array(p.starmap(mp_compute_coincident, inputs))
+```
+
+```{code-cell} ipython3
+np.save("data/coincident_grid.npy", coincident_grid())
+```
+
+```{code-cell} ipython3
+#integrals_and_err = compute_grid(1, 0, 0)
+integrals_and_err = np.load('data/coincident_grid.npy')
+integrals = integrals_and_err[:, 0].reshape((N, N, N, N))
+error = integrals_and_err[:, 1].reshape((N, N, N, N))
+```
+
+There are no estimated errors greated than `5e-15`:
+
+```{code-cell} ipython3
+inputs_arr = np.array(inputs, dtype=object).reshape((5, 5, 5, 5, 4))
+inputs_arr[np.where(error > 5e-15)]
+```
+
+```{code-cell} ipython3
+for i in range(1, N - 1):
+    for j in range(1, N - 1):
+        err = (
+            constant_soln_coincident(chebyshev_pts_np[i], chebyshev_pts_np[j])
+            - integrals[i, j, :, :].sum()
+        )
+        print(err)
+```
+
+```{code-cell} ipython3
+with open("data/xy_test_integral.pkl", "rb") as f:
+    coincident, nearfield = pickle.load(f)
+xy_soln_coincident = sp.lambdify((ox, oy), coincident, "numpy")
+xy_soln_nearfield = sp.lambdify((ox, oy), nearfield, "numpy")
+```
+
+```{code-cell} ipython3
+f = (1 - chebyshev_pts_np[:, None]) * (1 - chebyshev_pts_np[None, :] ** 2)
+
+for i in range(1, N - 1):
+    for j in range(1, N - 1):
+        true = xy_soln_coincident(chebyshev_pts_np[i], chebyshev_pts_np[j])
+        est = integrals[i, j, :, :].ravel().dot(f.ravel())
+        err = true - est
+        print(err)
+```
+
+## Pre-computing adjacent integrals
+
+```{code-cell} ipython3
+def is_on_source_edge(obsx, obsy):
+    on_left_right_edges = np.abs(obsx) == 1 and np.abs(obsy) <= 1
+    on_top_bottom_edges = np.abs(obsy) == 1 and np.abs(obsx) <= 1
+    return (on_left_right_edges or on_top_bottom_edges)
+
+def compute_nearfield(obsx, obsy, basis):
+    if is_on_source_edge(obsx, obsy):
+        return compute_coincident(obsx, obsy, basis)
+    
+    tol = 1e-16
+
+    def F(srcy, srcx):
+        return basis(srcx, srcy) * fundamental_solution(obsx, obsy, srcx, srcy)
+
+    I = scipy.integrate.dblquad(F, -1, 1, -1, 1, epsabs=tol, epsrel=tol)
+    return I
+```
+
+```{code-cell} ipython3
+est = compute_nearfield(1.1, 1.1, lambda x, y: 1.0)
+true = constant_soln_nearfield(1.1, 1.1)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+est = compute_nearfield(-1.1, -1.1, lambda x, y: (1 - x) * (1 - y ** 2))
+true = xy_soln_nearfield(-1.1, -1.1)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+est = compute_nearfield(1.0, 1.0, lambda x, y: 1.0)
+true = constant_soln_nearfield(1.0 + 1e-7, 1.0 + 1e-7)
+est[0], true, est[0] - true
+```
+
+```{code-cell} ipython3
+def mp_compute_nearfield(obsx, obsy, srci, srcj):
+    basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
+    basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
+    return compute_nearfield(obsx, obsy, basis)
+
+
+def compute_grid(obs_scale, obs_offsetx, obs_offsety):
+    inputs = get_inputs(obs_scale, obs_offsetx, obs_offsety)
+    p = multiprocessing.Pool()
+    return np.array(p.starmap(mp_compute_nearfield, inputs))
+```
+
+```{code-cell} ipython3
+---
+jupyter:
+  source_hidden: true
+tags: []
+---
+import matplotlib.patches as patches
+xrange = [-1.5,6]
+yrange = [-1.5,6]
+
+def size_and_aspect():
+    plt.xlim(*xrange)
+    plt.ylim(*yrange)
+    plt.axis('off')
+    #plt.axis('equal')
+
+plt.figure(figsize=(8,8))
+
+plt.subplot(2,2,1)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
+plt.gca().add_patch(patches.Rectangle((1, 1), 2, 2, linewidth=1, edgecolor='k', facecolor='none'))
+plt.text(1.85, 1.7, "1", fontsize=30)
+size_and_aspect()
+
+plt.subplot(2,2,2)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
+plt.gca().add_patch(patches.Rectangle((1, -1), 2, 2, linewidth=1, edgecolor='k', facecolor='none'))
+plt.text(1.85, -0.3, "2", fontsize=30)
+size_and_aspect()
+
+plt.subplot(2,2,3)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
+plt.gca().add_patch(patches.Rectangle((1, 1), 4, 4, linewidth=1, edgecolor='k', facecolor='none'))
+plt.text(2.65, 2.65, "3", fontsize=30)
+size_and_aspect()
+
+plt.subplot(2,2,4)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor='k'))
+plt.gca().add_patch(patches.Rectangle((-1, 1), 4, 4, linewidth=1, edgecolor='k', facecolor='none'))
+plt.text(0.65, 2.65, "4", fontsize=30)
+size_and_aspect()
+
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -154,72 +340,37 @@ jupyter:
 tags: []
 ---
 %%time
-import multiprocessing
-
-def compute_grid(obs_scale, obs_offsetx, obs_offsety)
-    inputs = []
-    for obsi in range(N):
-        for obsj in range(N):
-            obsx = obs_scale * float(chebyshev_pts[obsi]) + obs_offsetx
-            obsy = obs_scale * float(chebyshev_pts[obsj]) + obs_offsety
-            for srci in range(N):
-                for srcj in range(N):
-                    inputs.append((obsx, obsy, srci, srcj))
-
-    def mp_compute_pair(obsx, obsy, srci, srcj):
-        basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
-        basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
-        return compute_pair(obsx, obsy, basis)
-
-    p = multiprocessing.Pool()
-    return p.starmap(mp_compute_pair, inputs)
+np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
 ```
 
 ```{code-cell} ipython3
-integrals_and_err = np.array(integrals_and_err)
+---
+jupyter:
+  outputs_hidden: true
+tags: []
+---
+%%time
+np.save("data/adj2_grid.npy", compute_grid(1, 0, 2))
 ```
 
 ```{code-cell} ipython3
-integrals = integrals_and_err[:, 0].reshape((N, N, N, N))
-error = integrals_and_err[:, 1].reshape((N, N, N, N))
+---
+jupyter:
+  outputs_hidden: true
+tags: []
+---
+%%time
+np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
 ```
 
-There are no estimated errors greated than `5e-15`:
-
 ```{code-cell} ipython3
-np.array(inputs, dtype=object).reshape((5, 5, 5, 5, 4))[np.where(error > 5e-15)]
-```
-
-```{code-cell} ipython3
-for i in range(1, N - 1):
-    for j in range(1, N - 1):
-        err = (
-            soln_coincident(float(chebyshev_pts[i]), float(chebyshev_pts[j]))
-            - integrals[i, j, :, :].sum()
-        )
-        print(err[0])
-```
-
-## Pre-computing near-field coefficients
-
-```{code-cell} ipython3
-np.save(
-    "data/coincident_grid.npy",
-    compute_grid(1, 1, 0, 0),
-)
-np.save(
-    "data/adj1_grid.npy",
-    compute_grid(1, 1, 2, 2),
-)
-np.save("data/adj2_grid.npy", compute_grid(1, 1, 0, 2))
-np.save(
-    "data/adj3_grid.npy",
-    compute_grid(2, 2, 3, 3),
-)
-np.save(
-    "data/adj4_grid.npy",
-    compute_grid(2, 2, 1, 3),
-)
+---
+jupyter:
+  outputs_hidden: true
+tags: []
+---
+%%time
+np.save("data/adj4_grid.npy", compute_grid(2, 1, 3))
 ```
 
 ```{code-cell} ipython3
@@ -233,24 +384,40 @@ grid_filenames = [
 raw_grids = np.array([np.load(g, allow_pickle=True) for g in grid_filenames])
 ```
 
-### Test coincident
+The estimated error is extremely small for all the integrals!
 
 ```{code-cell} ipython3
-cest = (
-    raw_grids[0, :, 0, 3]
-    - raw_grids[0, :, 1, 3]
-    - raw_grids[0, :, 5, 3]
-    + raw_grids[0, :, 6, 3]
-)
-for i in range(1, n_chebyshev_terms - 1):
-    for j in range(1, n_chebyshev_terms - 1):
-        print(
-            est[i * n_chebyshev_terms + j]
-            - xy_soln_coincident(chebyshev_pts[i], chebyshev_pts[j])
-        )
+np.where(raw_grids[:,:,1] > 5e-15)
 ```
 
-### Build nearfield
+## Rotations
+
++++
+
+### Type 1
+
+```{code-cell} ipython3
+#(1 - chebyshev_pts_np[:, None]) * (1 - chebyshev_pts_np[None, :] ** 2)
+correct = np.zeros((N, N))
+for i in range(N):
+    for j in range(N):
+        obsx = 2.0 + chebyshev_pts_np[i]
+        obsy = 2.0 + chebyshev_pts_np[j]
+        if np.abs(obsx) == 1 or np.abs(obsy) == 1:
+            correct[i,j] = np.nan
+        else:
+            correct[i,j] = constant_soln_nearfield(obsx, obsy)
+            
+f = np.ones((N ** 2))
+integrals = raw_grids[1, :, 0].reshape((N,N,N**2))
+est = integrals.dot(f)
+```
+
+```{code-cell} ipython3
+true - est
+```
+
+### Archive
 
 ```{code-cell} ipython3
 import quadpy
