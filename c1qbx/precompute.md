@@ -308,9 +308,9 @@ def size_and_aspect():
     # plt.axis('equal')
 
 
-plt.figure(figsize=(8, 8))
+plt.figure(figsize=(8, 12))
 
-plt.subplot(2, 2, 1)
+plt.subplot(3, 2, 1)
 plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
 plt.gca().add_patch(
     patches.Rectangle((1, 1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
@@ -318,7 +318,7 @@ plt.gca().add_patch(
 plt.text(1.85, 1.7, "1", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2, 2, 2)
+plt.subplot(3, 2, 2)
 plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
 plt.gca().add_patch(
     patches.Rectangle((1, -1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
@@ -326,7 +326,7 @@ plt.gca().add_patch(
 plt.text(1.85, -0.3, "2", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2, 2, 3)
+plt.subplot(3, 2, 3)
 plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
 plt.gca().add_patch(
     patches.Rectangle((1, 1), 4, 4, linewidth=1, edgecolor="k", facecolor="none")
@@ -334,13 +334,31 @@ plt.gca().add_patch(
 plt.text(2.65, 2.65, "3", fontsize=30)
 size_and_aspect()
 
-plt.subplot(2, 2, 4)
+plt.subplot(3, 2, 4)
 plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
 plt.gca().add_patch(
-    patches.Rectangle((-1, 1), 4, 4, linewidth=1, edgecolor="k", facecolor="none")
+    patches.Rectangle((1, -1), 4, 4, linewidth=1, edgecolor="k", facecolor="none")
 )
-plt.text(0.65, 2.65, "4", fontsize=30)
+plt.text(2.65, 0.65, "4", fontsize=30)
 size_and_aspect()
+
+
+plt.subplot(3, 2, 5)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((1, 1), 1, 1, linewidth=1, edgecolor="k", facecolor="none")
+)
+plt.text(1.30, 1.13, "5", fontsize=30)
+size_and_aspect()
+
+plt.subplot(3, 2, 6)
+plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
+plt.gca().add_patch(
+    patches.Rectangle((1, 0), 1, 1, linewidth=1, edgecolor="k", facecolor="none")
+)
+plt.text(1.30, 0.13, "6", fontsize=30)
+size_and_aspect()
+
 
 plt.show()
 ```
@@ -352,7 +370,9 @@ plt.show()
 # np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
 # np.save("data/adj2_grid.npy", compute_grid(1, 2, 0))
 # np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
-# np.save("data/adj4_grid.npy", compute_grid(2, 1, 3))
+# np.save("data/adj4_grid.npy", compute_grid(2, 3, 1))
+#np.save("data/adj5_grid.npy", compute_grid(0.5, 1.5, 1.5))
+np.save("data/adj6_grid.npy", compute_grid(0.5, 1.5, 0.5))
 ```
 
 ```{code-cell} ipython3
@@ -362,6 +382,8 @@ grid_filenames = [
     "data/adj2_grid.npy",
     "data/adj3_grid.npy",
     "data/adj4_grid.npy",
+    "data/adj5_grid.npy",
+    "data/adj6_grid.npy",
 ]
 raw_grids = np.array([np.load(g, allow_pickle=True) for g in grid_filenames])
 ```
@@ -373,14 +395,10 @@ np.where(raw_grids[:, :, 1] > 5e-15)
 ```
 
 ```{code-cell} ipython3
-all_integrals = raw_grids[:,:,0].reshape((5,N,N,N**2))
+all_integrals = raw_grids[:, :, 0].reshape((7, N, N, N ** 2))
 ```
 
 ## Rotations
-
-+++
-
-### Type 1
 
 ```{code-cell} ipython3
 def get_test_values(soln_fnc, scale, offsetx, offsety):
@@ -396,38 +414,7 @@ def get_test_values(soln_fnc, scale, offsetx, offsety):
     return correct
 ```
 
-```{code-cell} ipython3
-correct_upper_right = get_test_values(constant_soln_nearfield, 1.0, 2.0, 2.0)
-correct_upper_left = get_test_values(constant_soln_nearfield, 1.0, -2.0, 2.0)
-correct_lower_left = get_test_values(constant_soln_nearfield, 1.0, -2.0, -2.0)
-correct_lower_right = get_test_values(constant_soln_nearfield, 1.0, 2.0, -2.0)
-```
-
-```{code-cell} ipython3
-correct_upper_right
-```
-
-```{code-cell} ipython3
-correct_upper_left
-```
-
-```{code-cell} ipython3
-correct_lower_left
-```
-
-```{code-cell} ipython3
-correct_lower_right
-```
-
-```{code-cell} ipython3
-flipud = correct_upper_right[::-1, :]
-fliplr = correct_upper_right[:, ::-1]
-flipudlr = correct_upper_right[::-1, ::-1]
-
-print(np.max(np.abs((flipud - correct_upper_left)[~np.isnan(flipud)])))
-print(np.max(np.abs((fliplr - correct_lower_right)[~np.isnan(fliplr)])))
-print(np.max(np.abs((flipudlr - correct_lower_left)[~np.isnan(flipudlr)])))
-```
+### Type 1
 
 ```{code-cell} ipython3
 correct_upper_right = get_test_values(xy_soln_nearfield, 1.0, 2.0, 2.0)
@@ -460,9 +447,9 @@ F = lambda x, y: (1 - x) * (1 - y ** 2)
 
 ```{code-cell} ipython3
 def adjacent(I, F, flipx, flipy, rotxy):
-    x = flipx * ((1 - rotxy) * src_pts[:,0] + rotxy * src_pts[:, 1])
-    y = flipy * (rotxy * src_pts[:,0] + (1 - rotxy) * src_pts[:, 1])
-    est = I.dot(F(x,y).ravel())
+    x = flipx * ((1 - rotxy) * src_pts[:, 0] + rotxy * src_pts[:, 1])
+    y = flipy * (rotxy * src_pts[:, 0] + (1 - rotxy) * src_pts[:, 1])
+    est = I.dot(F(x, y).ravel())
     if rotxy == 1:
         est = est.T
     if flipx == -1:
@@ -537,14 +524,14 @@ correct_right_top = get_test_values(xy_soln_nearfield, 2.0, 3.0, 1.0)
 
 ```{code-cell} ipython3
 for C, flipx, flipy, rotxy in [
-    (correct_upper_right, 1, 1, 0),
-    (correct_upper_left, -1, 1, 0),
-    (correct_left_top, -1, 1, 1),
-    (correct_left_bottom, -1, -1, 1),
-    (correct_bottom_left, -1, -1, 0),
-    (correct_bottom_right, 1, -1, 0),
-    (correct_right_bottom, 1, -1, 1),
-    (correct_right_top, 1, 1, 1)
+    (correct_upper_right, 1, 1, 1),
+    (correct_upper_left, -1, 1, 1),
+    (correct_left_top, -1, 1, 0),
+    (correct_left_bottom, -1, -1, 0),
+    (correct_bottom_left, -1, -1, 1),
+    (correct_bottom_right, 1, -1, 1),
+    (correct_right_bottom, 1, -1, 0),
+    (correct_right_top, 1, 1, 0),
 ]:
     est = adjacent(all_integrals[4], F, flipx, flipy, rotxy)
     print(np.max(np.abs((C - est)[~np.isnan(C)])))
@@ -552,8 +539,71 @@ for C, flipx, flipy, rotxy in [
 
 ### Determine type and rotation
 
-```{code-cell} ipython3
++++
 
+Note that all the correct positionings are in the upper right quadrant with:
+1. the left edge of the observation box aligned with the right edge of the source box
+2. the y coordinate of the observation box is >= 0
+
+Build the algorithm in terms of the source center to observation center vector.
+
+```{code-cell} ipython3
+boxes = {
+    # Type 1
+    (1, 2, 2): (1, 1, 1, 0),
+    (1, -2, 2): (1, -1, 1, 0),
+    (1, -2, -2): (1, -1, -1, 0),
+    (1, 2, -2): (1, 1, -1, 0),
+    
+    # Type 2
+    (1, 2, 0): (2, 1, 1, 0),
+    (1, 0, 2): (2, 1, 1, 1),
+    (1, -2, 0): (2, -1, 1, 0),
+    (1, 0, -2): (2, 1, -1, 1),
+    
+    # Type 3
+    (2, 3, 3): (3, 1, 1, 0),
+    (2, -3, 3): (3, -1, 1, 0),
+    (2, -3, -3): (3, -1, -1, 0),
+    (2, 3, -3): (3, 1, -1, 0),
+    
+    # Type 4
+    (2, 1, 3): (4, 1, 1, 1),
+    (2, -1, 3): (4, -1, 1, 1),
+    (2, -3, 1): (4, -1, 1, 0),
+    (2, -3, -1): (4, -1, -1, 0),
+    (2, -1, -3): (4, -1, -1, 1),
+    (2, 1, -3): (4, 1, -1, 1),
+    (2, 3, -1): (4, 1, -1, 0),
+    (2, 3, 1): (4,  1, 1, 0),
+    
+    # Type 5
+    (0.5, 1.5, 1.5): (5, 1, 1, 0),
+    (0.5, -1.5, 1.5): (5, -1, 1, 0),
+    (0.5, -1.5, -1.5): (5, -1, -1, 0),
+    (0.5, 1.5, -1.5): (5, 1, -1, 0),
+    
+    # Type 6
+    (0.5, 0.5, 1.5): (6, 1, 1, 1),
+    (0.5, -0.5, 1.5): (6, -1, 1, 1),
+    (0.5, -1.5, 0.5): (6, -1, 1, 0),
+    (0.5, -1.5, -0.5): (6, -1, -1, 0),
+    (0.5, -0.5, -1.5): (6, -1, -1, 1),
+    (0.5, 0.5, -1.5): (6, 1, -1, 1),
+    (0.5, 1.5, -0.5): (6, 1, -1, 0),
+    (0.5, 1.5, 0.5): (6,  1, 1, 0),
+}
+```
+
+```{code-cell} ipython3
+len(boxes)
+```
+
+```{code-cell} ipython3
+for box_loc, rot_params in boxes.items():
+    C = get_test_values(xy_soln_nearfield, *box_loc)
+    est = adjacent(all_integrals[rot_params[0]], F, *rot_params[1:])
+    print(np.max(np.abs((C - est)[~np.isnan(C)])))
 ```
 
 ### Archive
