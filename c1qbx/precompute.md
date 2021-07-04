@@ -223,10 +223,16 @@ with open("data/xy_test_integral.pkl", "rb") as f:
     coincident, nearfield = pickle.load(f)
 xy_soln_coincident = sp.lambdify((ox, oy), coincident, "numpy")
 xy_soln_nearfield = sp.lambdify((ox, oy), nearfield, "numpy")
+xy_laplacian = lambda x, y: (1 - (1 - x) ** 3) * (1 - (y + 1) ** 2)
 ```
 
 ```{code-cell} ipython3
-f = (1 - chebyshev_pts_np[:, None]) * (1 - chebyshev_pts_np[None, :] ** 2)
+cheb2dX, cheb2dY = np.meshgrid(chebyshev_pts_np, chebyshev_pts_np)
+cheb2d = np.array([cheb2dX, cheb2dY]).T.reshape((-1, 2)).copy()
+```
+
+```{code-cell} ipython3
+f = xy_laplacian(cheb2d[:, 0], cheb2d[:, 1])
 
 for i in range(1, N - 1):
     for j in range(1, N - 1):
@@ -265,7 +271,7 @@ est[0], true, est[0] - true
 ```
 
 ```{code-cell} ipython3
-est = compute_nearfield(-1.1, -1.1, lambda x, y: (1 - x) * (1 - y ** 2))
+est = compute_nearfield(-1.1, -1.1, xy_laplacian)
 true = xy_soln_nearfield(-1.1, -1.1)
 est[0], true, est[0] - true
 ```
@@ -290,11 +296,8 @@ def compute_grid(obs_scale, obs_offsetx, obs_offsety):
 ```
 
 ```{code-cell} ipython3
----
-jupyter:
-  source_hidden: true
-tags: []
----
+:tags: []
+
 import matplotlib.patches as patches
 
 xrange = [-1.5, 6]
@@ -305,17 +308,23 @@ def size_and_aspect():
     plt.xlim(*xrange)
     plt.ylim(*yrange)
     plt.axis("off")
+    ax = plt.gca()
+    ax.set_axis_off()
+    plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+    plt.margins(0, 0)
+    ax.xaxis.set_major_locator(plt.NullLocator())
+    ax.yaxis.set_major_locator(plt.NullLocator())
     # plt.axis('equal')
 
 
-plt.figure(figsize=(8, 12))
+plt.figure(figsize=(4, 8))
 
 plt.subplot(3, 2, 1)
 plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"))
 plt.gca().add_patch(
     patches.Rectangle((1, 1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
 )
-plt.text(1.85, 1.7, "1", fontsize=30)
+plt.text(1.75, 1.65, "1", fontsize=30)
 size_and_aspect()
 
 plt.subplot(3, 2, 2)
@@ -323,7 +332,7 @@ plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"
 plt.gca().add_patch(
     patches.Rectangle((1, -1), 2, 2, linewidth=1, edgecolor="k", facecolor="none")
 )
-plt.text(1.85, -0.3, "2", fontsize=30)
+plt.text(1.75, -0.35, "2", fontsize=30)
 size_and_aspect()
 
 plt.subplot(3, 2, 3)
@@ -348,7 +357,7 @@ plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"
 plt.gca().add_patch(
     patches.Rectangle((1, 1), 1, 1, linewidth=1, edgecolor="k", facecolor="none")
 )
-plt.text(1.30, 1.13, "5", fontsize=30)
+plt.text(1.25, 1.13, "5", fontsize=30)
 size_and_aspect()
 
 plt.subplot(3, 2, 6)
@@ -356,9 +365,8 @@ plt.gca().add_patch(patches.Rectangle((-1, -1), 2, 2, linewidth=1, edgecolor="k"
 plt.gca().add_patch(
     patches.Rectangle((1, 0), 1, 1, linewidth=1, edgecolor="k", facecolor="none")
 )
-plt.text(1.30, 0.13, "6", fontsize=30)
+plt.text(1.25, 0.13, "6", fontsize=30)
 size_and_aspect()
-
 
 plt.show()
 ```
@@ -371,8 +379,8 @@ plt.show()
 # np.save("data/adj2_grid.npy", compute_grid(1, 2, 0))
 # np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
 # np.save("data/adj4_grid.npy", compute_grid(2, 3, 1))
-#np.save("data/adj5_grid.npy", compute_grid(0.5, 1.5, 1.5))
-np.save("data/adj6_grid.npy", compute_grid(0.5, 1.5, 0.5))
+# np.save("data/adj5_grid.npy", compute_grid(0.5, 1.5, 1.5))
+# np.save("data/adj6_grid.npy", compute_grid(0.5, 1.5, 0.5))
 ```
 
 ```{code-cell} ipython3
@@ -401,13 +409,17 @@ all_integrals = raw_grids[:, :, 0].reshape((7, N, N, N ** 2))
 ## Rotations
 
 ```{code-cell} ipython3
-def get_test_values(soln_fnc, scale, offsetx, offsety):
+def get_test_values(
+    soln_fnc, obs_scale, obs_offsetx, obs_offsety, src_center=[0, 0], src_size=[2, 2]
+):
     correct = np.zeros((N, N))
     for i in range(N):
         for j in range(N):
-            obsx = offsetx + scale * chebyshev_pts_np[i]
-            obsy = offsety + scale * chebyshev_pts_np[j]
-            if np.abs(obsx) == 1 or np.abs(obsy) == 1:
+            obsx = obs_offsetx + obs_scale * chebyshev_pts_np[i]
+            obsy = obs_offsety + obs_scale * chebyshev_pts_np[j]
+            is_x_edge = np.abs(np.abs(obsx - src_center[0]) - (src_size[0] / 2)) < 1e-8
+            is_y_edge = np.abs(np.abs(obsy - src_center[1]) - (src_size[1] / 2)) < 1e-8
+            if is_x_edge or is_y_edge:
                 correct[i, j] = np.nan
             else:
                 correct[i, j] = soln_fnc(obsx, obsy)
@@ -440,22 +452,31 @@ correct_lower_right
 ```
 
 ```{code-cell} ipython3
-srcX, srcY = np.meshgrid(chebyshev_pts_np, chebyshev_pts_np)
-src_pts = np.array([srcX, srcY]).T.reshape((-1, 2)).copy()
-F = lambda x, y: (1 - x) * (1 - y ** 2)
+4 % 2
 ```
 
 ```{code-cell} ipython3
-def adjacent(I, F, flipx, flipy, rotxy):
-    x = flipx * ((1 - rotxy) * src_pts[:, 0] + rotxy * src_pts[:, 1])
-    y = flipy * (rotxy * src_pts[:, 0] + (1 - rotxy) * src_pts[:, 1])
-    est = I.dot(F(x, y).ravel())
-    if rotxy == 1:
+def nearfield_box(I, Fv, flipx, flipy, rotxy):
+    Fv = Fv.reshape((5,5))
+    
+    n_rot = {
+        (1, 1): 0,
+        (1, -1): 1,
+        (-1, -1): 2,
+        (-1, 1): 3
+    }[(flipx, flipy)]
+    n_transpose = ((n_rot % 2) == 1) + rotxy
+    
+    # Rotate from input coordinates into position
+    Fv = np.rot90(Fv, n_rot)
+    if n_transpose % 2 == 1:
+        Fv = Fv.T
+
+    est = I.dot(Fv.ravel())
+    # Reverse the transformation back to the original input space
+    if n_transpose % 2 == 1:
         est = est.T
-    if flipx == -1:
-        est = est[::-1]
-    if flipy == -1:
-        est = est[:, ::-1]
+    est = np.rot90(est, -n_rot)
     return est
 
 
@@ -465,7 +486,8 @@ for C, flipx, flipy in [
     (correct_lower_left, -1, -1),
     (correct_lower_right, 1, -1),
 ]:
-    est = adjacent(all_integrals[1], F, flipx, flipy, 0)
+    Fv = xy_laplacian(cheb2d[:,0], cheb2d[:,1]).reshape((5,5))
+    est = nearfield_box(all_integrals[1], Fv, flipx, flipy, 0)
     print(np.max(np.abs((C - est)[~np.isnan(C)])))
 ```
 
@@ -485,88 +507,30 @@ for C, flipx, flipy, rotxy in [
     (correct_middle_left, -1, 1, 0),
     (correct_bottom_center, 1, -1, 1),
 ]:
-    est = adjacent(all_integrals[2], F, flipx, flipy, rotxy)
+    Fv = xy_laplacian(cheb2d[:,0], cheb2d[:,1])
+    est = nearfield_box(all_integrals[2], Fv, flipx, flipy, rotxy)
     print(np.max(np.abs((C - est)[~np.isnan(C)])))
 ```
-
-### Type 3
-
-```{code-cell} ipython3
-correct_upper_right = get_test_values(xy_soln_nearfield, 2.0, 3.0, 3.0)
-correct_upper_left = get_test_values(xy_soln_nearfield, 2.0, -3.0, 3.0)
-correct_lower_left = get_test_values(xy_soln_nearfield, 2.0, -3.0, -3.0)
-correct_lower_right = get_test_values(xy_soln_nearfield, 2.0, 3.0, -3.0)
-```
-
-```{code-cell} ipython3
-for C, flipx, flipy in [
-    (correct_upper_right, 1, 1),
-    (correct_upper_left, -1, 1),
-    (correct_lower_left, -1, -1),
-    (correct_lower_right, 1, -1),
-]:
-    est = adjacent(all_integrals[3], F, flipx, flipy, rotxy)
-    print(np.max(np.abs((C - est)[~np.isnan(C)])))
-```
-
-### Type 4
-
-```{code-cell} ipython3
-correct_upper_right = get_test_values(xy_soln_nearfield, 2.0, 1.0, 3.0)
-correct_upper_left = get_test_values(xy_soln_nearfield, 2.0, -1.0, 3.0)
-correct_left_top = get_test_values(xy_soln_nearfield, 2.0, -3.0, 1.0)
-correct_left_bottom = get_test_values(xy_soln_nearfield, 2.0, -3.0, -1.0)
-correct_bottom_left = get_test_values(xy_soln_nearfield, 2.0, -1.0, -3.0)
-correct_bottom_right = get_test_values(xy_soln_nearfield, 2.0, 1.0, -3.0)
-correct_right_bottom = get_test_values(xy_soln_nearfield, 2.0, 3.0, -1.0)
-correct_right_top = get_test_values(xy_soln_nearfield, 2.0, 3.0, 1.0)
-```
-
-```{code-cell} ipython3
-for C, flipx, flipy, rotxy in [
-    (correct_upper_right, 1, 1, 1),
-    (correct_upper_left, -1, 1, 1),
-    (correct_left_top, -1, 1, 0),
-    (correct_left_bottom, -1, -1, 0),
-    (correct_bottom_left, -1, -1, 1),
-    (correct_bottom_right, 1, -1, 1),
-    (correct_right_bottom, 1, -1, 0),
-    (correct_right_top, 1, 1, 0),
-]:
-    est = adjacent(all_integrals[4], F, flipx, flipy, rotxy)
-    print(np.max(np.abs((C - est)[~np.isnan(C)])))
-```
-
-### Determine type and rotation
-
-+++
-
-Note that all the correct positionings are in the upper right quadrant with:
-1. the left edge of the observation box aligned with the right edge of the source box
-2. the y coordinate of the observation box is >= 0
-
-Build the algorithm in terms of the source center to observation center vector.
 
 ```{code-cell} ipython3
 boxes = {
+    # Type 0 (coincident)
+    (1, 0, 0): (0, 1, 1, 0),
     # Type 1
     (1, 2, 2): (1, 1, 1, 0),
     (1, -2, 2): (1, -1, 1, 0),
     (1, -2, -2): (1, -1, -1, 0),
     (1, 2, -2): (1, 1, -1, 0),
-    
     # Type 2
     (1, 2, 0): (2, 1, 1, 0),
     (1, 0, 2): (2, 1, 1, 1),
     (1, -2, 0): (2, -1, 1, 0),
     (1, 0, -2): (2, 1, -1, 1),
-    
     # Type 3
     (2, 3, 3): (3, 1, 1, 0),
     (2, -3, 3): (3, -1, 1, 0),
     (2, -3, -3): (3, -1, -1, 0),
     (2, 3, -3): (3, 1, -1, 0),
-    
     # Type 4
     (2, 1, 3): (4, 1, 1, 1),
     (2, -1, 3): (4, -1, 1, 1),
@@ -575,14 +539,12 @@ boxes = {
     (2, -1, -3): (4, -1, -1, 1),
     (2, 1, -3): (4, 1, -1, 1),
     (2, 3, -1): (4, 1, -1, 0),
-    (2, 3, 1): (4,  1, 1, 0),
-    
+    (2, 3, 1): (4, 1, 1, 0),
     # Type 5
     (0.5, 1.5, 1.5): (5, 1, 1, 0),
     (0.5, -1.5, 1.5): (5, -1, 1, 0),
     (0.5, -1.5, -1.5): (5, -1, -1, 0),
     (0.5, 1.5, -1.5): (5, 1, -1, 0),
-    
     # Type 6
     (0.5, 0.5, 1.5): (6, 1, 1, 1),
     (0.5, -0.5, 1.5): (6, -1, 1, 1),
@@ -591,246 +553,137 @@ boxes = {
     (0.5, -0.5, -1.5): (6, -1, -1, 1),
     (0.5, 0.5, -1.5): (6, 1, -1, 1),
     (0.5, 1.5, -0.5): (6, 1, -1, 0),
-    (0.5, 1.5, 0.5): (6,  1, 1, 0),
+    (0.5, 1.5, 0.5): (6, 1, 1, 0),
 }
 ```
 
 ```{code-cell} ipython3
-len(boxes)
-```
-
-```{code-cell} ipython3
 for box_loc, rot_params in boxes.items():
-    C = get_test_values(xy_soln_nearfield, *box_loc)
-    est = adjacent(all_integrals[rot_params[0]], F, *rot_params[1:])
+    soln_fnc = xy_soln_coincident if rot_params[0] == 0 else xy_soln_nearfield
+    C = get_test_values(soln_fnc, *box_loc)
+    Fv = xy_laplacian(cheb2d[:,0], cheb2d[:,1])
+    est = nearfield_box(all_integrals[rot_params[0]], Fv, *rot_params[1:])
     print(np.max(np.abs((C - est)[~np.isnan(C)])))
 ```
 
-### Archive
+## Scaling
+
++++
+
+The remaining piece is to scale the source and observation boxes so that they fit into the rotation scheme above.
 
 ```{code-cell} ipython3
-import quadpy
+def get_test_values(
+    soln_fnc, obs_scale, obs_offsetx, obs_offsety, src_center=[0, 0], src_size=2
+):
+    correct = np.zeros((N, N))
+    for i in range(N):
+        for j in range(N):
+            obsx = obs_offsetx + obs_scale * chebyshev_pts_np[i]
+            obsy = obs_offsety + obs_scale * chebyshev_pts_np[j]
+            is_x_edge = np.abs(np.abs(obsx - src_center[0]) - (src_size / 2)) < 1e-8
+            is_y_edge = np.abs(np.abs(obsy - src_center[1]) - (src_size / 2)) < 1e-8
+            if is_x_edge or is_y_edge:
+                correct[i, j] = np.nan
+            else:
+                correct[i, j] = soln_fnc(obsx, obsy)
+    return correct
+```
 
+```{code-cell} ipython3
+with open("data/constant_transformed_test_integral.pkl", "rb") as f:
+    constant_soln_shifted = [sp.lambdify((ox, oy), I, "numpy") for I in pickle.load(f)]
+with open("data/xy_transformed_test_integral.pkl", "rb") as f:
+    xy_soln_shifted = [sp.lambdify((ox, oy), I, "numpy") for I in pickle.load(f)]
+```
 
-def clencurt(n1):
-    """Computes the Clenshaw Curtis quadrature nodes and weights"""
-    C = quadpy.c1.clenshaw_curtis(n1)
-    return (C.points[::-1], C.weights[::-1])
+```{code-cell} ipython3
+basis_integrals = np.empty((N, N))
+for srci in range(N):
+    for srcj in range(N):
+        basis_sxsy = basis_functions[srci].subs(x, sx) * basis_functions[srcj].subs(x, sy)
+        basis = sp.lambdify((sx, sy), basis_sxsy, "numpy")
+        I = scipy.integrate.dblquad(basis, -1, 1, -1, 1, epsabs=1e-16, epsrel=1e-16)
+        basis_integrals[srci, srcj] = I[0]
+```
 
-
-# TODO: is there a quadpy function that does tensor products?
-def tensor_product(x, w):
-    rect_x, rect_y = np.meshgrid(x, x)
-    rect_pts = np.array([rect_x.flatten(), rect_y.flatten()]).T
-    rect_w = np.outer(w, w).flatten()
-    return rect_pts, rect_w
-
-
-def cheblob(n):
-    """Computes the chebyshev lobatto."""
-    pts = clencurt(n)[0]
-    wts = (-1) ** np.arange(n).astype(np.float64)
-    wts[0] *= 0.5
-    wts[-1] *= 0.5
-    return pts, wts  # tensor_product(pts, wts)
-
-
-eps = np.finfo(float).eps
-
-
-def barycentric_tensor_product(evalx, evaly, interp_pts, interp_wts, fnc_vals):
-    """
-    eval_pts is (N, 2)
-    interp_pts is (Q,)
-    interp_wts is (Q,)
-    fnc_vals is (P, Q^2)
-    """
-
-    dx = evalx[:, None] - interp_pts
-    dy = evaly[:, None] - interp_pts
-
-    idx0, idx1 = np.where(dx == 0)
-    dx[idx0, idx1] = eps
-    idx0, idx1 = np.where(dy == 0)
-    dy[idx0, idx1] = eps
-
-    kernelX = interp_wts[None, :] / dx
-    kernelY = interp_wts[None, :] / dy
-    kernel = (kernelX[:, None, :] * kernelY[:, :, None]).reshape(
-        (-1, fnc_vals.shape[1])
+```{code-cell} ipython3
+def scale_integral(I, basis_dot_F, src_s):
+    scale_T = src_s / 2.0
+    C = scale_T ** 2
+    log_factor = C * (1 / (2 * np.pi)) * np.log(scale_T)
+    return C * I + log_factor * basis_dot_F
+    
+F_1 = lambda x,y: np.ones_like(x)
+F_xy = lambda x, y: (1 - x) * (1 - y ** 2)
+for i, mult in enumerate([1, 2, 4, 8, 16]):
+    src_c = np.array([0, 0])
+    src_s = mult / 4.0
+    obs_c = np.array([src_c[0] + 0.5 * src_s, src_c[1] - 1.5 * src_s])
+    #obs_c = np.array([src_c[0] - 0.5 * src_s, src_c[1] - 1.5 * src_s])
+    obs_s = src_s * 2
+    transformed_obs_center = np.round(2 * (obs_c - src_c) / src_s, decimals=1)
+    transformed_obs_size = np.round(obs_s / src_s, decimals=1)
+    
+    correct_1 = get_test_values(
+        constant_soln_shifted[i],
+        obs_s / 2.0,
+        obs_c[0],
+        obs_c[1],
+        src_center=src_c,
+        src_size=src_s,
     )
-    return (
-        np.sum(kernel[None, :] * fnc_vals[:, None, :], axis=2)
-        / np.sum(kernel, axis=1)[None, :]
+    
+    correct_xy = get_test_values(
+        xy_soln_shifted[i],
+        obs_s / 2.0,
+        obs_c[0],
+        obs_c[1],
+        src_center=src_c,
+        src_size=src_s,
     )
+
+    src_box_pts = cheb2d * 0.5 * src_s + src_c[None,:]
+    Fv_1 = F_1(src_box_pts[:,0], src_box_pts[:,1])
+    Fv_xy = F_xy(src_box_pts[:,0], src_box_pts[:,1])
+    
+    nearfield_info = boxes[(transformed_obs_size, *transformed_obs_center)]
+    integral_type, flipx, flipy, rotxy = nearfield_info
+    
+
+    d = 0
+    scale_T = src_s / 2.0
+    C = scale_T ** (d + 2)
+    log_factor = C * (1 / (2 * np.pi)) * np.log(scale_T)
+    
+    basis_I_1 = basis_integrals.ravel().dot(Fv_1.ravel())
+    basis_I_xy = basis_integrals.ravel().dot(Fv_xy.ravel())
+    
+    log_integral_1 = log_factor * basis_I_1
+    log_integral_xy = log_factor * basis_I_xy
+    
+    I_1 = nearfield_box(all_integrals[integral_type], Fv_1, flipx, flipy, rotxy)
+    I_xy = nearfield_box(all_integrals[integral_type], Fv_xy, flipx, flipy, rotxy)
+    est_1 = scale_integral(I_1, basis_I_1) 
+    est_xy = C * I_xy + log_integral_xy
+    
+    print(f'\n  for mult={mult}')
+    print("one error: ", np.max(np.abs(correct_1 - est_1)[~np.isnan(correct_1)]))
+    print("xy error: ", np.max(np.abs(correct_xy - est_xy)[~np.isnan(correct_1)]))
 ```
+
+### Computing for an arbitrary box pair.
+
++++
+
+1. Scale the source box to have width and length 2.
+2. Center the source box at `(0,0)`
+3. Perform the same transformations on the observation box. 
+4. Because adjacent boxes are at most one level apart, they will fall into one of the 33 categories defined above.
+5. Retrieve the integral type and rotation information and compute the integral!
+6. Reverse the rotations.
+7. Reverse the scaling via the equations above.
 
 ```{code-cell} ipython3
-raw_grid_subset = raw_grids[:, :, np.array([[0, 1], [5, 6]]), 2]
-coeffs = np.array([[1.0, -1.0], [-1.0, 1.0]])
+np.save("data/nearfield_integrals.npy", np.array([basis_integrals, all_integrals], dtype=object))
 ```
-
-```{code-cell} ipython3
-obs_center = np.array([-2, 0.0])
-src_center = np.array([0, 0.0])
-```
-
-```{code-cell} ipython3
-nobs = 100
-zoomx = np.array([obs_center[0] - 0.999, obs_center[0] + 0.999])
-zoomy = np.array([obs_center[1] - 0.999, obs_center[1] + 0.999])
-xs = np.linspace(*zoomx, nobs)
-ys = np.linspace(*zoomy, nobs)
-obsx, obsy = np.meshgrid(xs, ys)
-obsx_flat = obsx.flatten()
-obsy_flat = obsy.flatten()
-```
-
-```{code-cell} ipython3
-# def nearfield_interact(src_center, obs_center, size_ratio):
-# Currently, assume sizes are the same (size_ratio == 1)
-# TODO: identify whether it's a type 1 or type 2 interaction
-# TODO: reflect/rotate to get in position
-A = obs_center - src_center
-A /= np.linalg.norm(A)
-if np.prod(A) == 0:
-    # type 2
-    pair_type = 2
-    B = np.array([1.0, 0.0])
-    B_center = np.array([2.0, 0.0])
-else:
-    # type 1
-    pair_type = 1
-    B = np.array([1.0 / np.sqrt(2), 1.0 / np.sqrt(2)])
-    B_center = np.array([2.0, 2.0])
-R0 = A[0] * B[0] + A[1] * B[1]
-R1 = B[0] * A[1] - A[0] * B[1]
-rot_mat = np.array([[R0, R1], [-R1, R0]])
-```
-
-```{code-cell} ipython3
-A, B, rot_mat, rot_mat.dot(A) - B
-```
-
-```{code-cell} ipython3
-rot_obsx_flat, rot_obsy_flat = rot_mat.dot(np.array([obsx_flat, obsy_flat]))
-```
-
-```{code-cell} ipython3
-Ix, Iwts = cheblob(n_chebyshev_terms)
-Ipts, Iwts2d = tensor_product(chebyshev_pts, Iwts)
-
-rot_coeffs = rot_mat.dot(coeffs.T).T
-rot_coeffs = np.array([[1, 1], [1, 1]])
-F = np.sum(
-    (rot_coeffs[None, :, :] * raw_grid_subset[pair_type]).reshape((-1, 4)), axis=1
-)
-
-F_interp = barycentric_tensor_product(
-    rot_obsx_flat - B_center[0], rot_obsy_flat - B_center[1], Ix, Iwts, np.array([F])
-)
-F_interp2d = F_interp.reshape(obsx.shape)
-```
-
-```{code-cell} ipython3
-xy_soln_coincident_np = sp.lambdify((ox, oy), coincident, "numpy")
-xy_soln_nearfield_np = sp.lambdify((ox, oy), nearfield, "numpy")
-F_correct = xy_soln_coincident_np(obsx_flat, obsy_flat).reshape(obsx.shape)
-outside = (np.abs(obsx) > 1) | (np.abs(obsy) > 1)
-F_correct[outside] = xy_soln_nearfield_np(obsx_flat, obsy_flat).reshape(obsx.shape)[
-    outside
-]
-```
-
-```{code-cell} ipython3
-import matplotlib.pyplot as plt
-```
-
-```{code-cell} ipython3
-nI = n_chebyshev_terms
-plt.figure(figsize=(8.5, 8.5))
-plt.subplot(2, 2, 1)
-levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
-cntf = plt.contourf(
-    (Ipts[:, 0] + center[0]).reshape((nI, nI)),
-    (Ipts[:, 1] + center[1]).reshape((nI, nI)),
-    F.reshape((nI, nI)),
-    levels=levels,
-    extend="both",
-)
-plt.contour(
-    (Ipts[:, 0] + center[0]).reshape((nI, nI)),
-    (Ipts[:, 1] + center[1]).reshape((nI, nI)),
-    F.reshape((nI, nI)),
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.xlim(zoomx)
-plt.ylim(zoomy)
-
-plt.subplot(2, 2, 2)
-levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
-cntf = plt.contourf(obsx, obsy, F_interp2d, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    F_interp2d,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.xlim(zoomx)
-plt.ylim(zoomy)
-
-
-plt.subplot(2, 2, 3)
-levels = np.linspace(np.min(F_correct), np.max(F_correct), 7)
-cntf = plt.contourf(obsx, obsy, F_correct, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    F_correct,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.colorbar(cntf)
-plt.xlim(zoomx)
-plt.ylim(zoomy)
-
-plt.subplot(2, 2, 4)
-err = F_correct - F_interp2d
-levels = np.linspace(-0.003, 0.003, 7)
-cntf = plt.contourf(obsx, obsy, err, levels=levels, extend="both")
-plt.contour(
-    obsx,
-    obsy,
-    err,
-    colors="k",
-    linestyles="-",
-    linewidths=0.5,
-    levels=levels,
-    extend="both",
-)
-plt.plot(Ipts[:, 0] + obs_center[0], Ipts[:, 1] + obs_center[1], "ro", markersize=4.5)
-plt.colorbar(cntf)
-plt.xlim(zoomx)
-plt.ylim(zoomy)
-plt.tight_layout()
-plt.show()
-```
-
-There are two sources of error here:
-1. The integration error for the values of the integrals at the interpolation points. 
-2. The interpolation error for the values of the integrals away from the interpolation points.
-
-Based on the previous demonstration, the first type of error is nonexistant. The red points in the error figure above show the location of the interpolation points. You can see that the error oscillates around these points crossing zero at the points themselves.

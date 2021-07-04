@@ -27,10 +27,9 @@ Also:
 
 ### Next steps:
 
-* Figure out the reflections and rotations for reducing the number of box pairs.
 * Split into nearfield and far-field and run the full box code.
 * Do some runtime benchmarks with the box code.
-* Start on the function extension stuff!!
+* Function extension by zero as default.
 
 +++
 
@@ -189,6 +188,9 @@ obsy_flat = obsy.flatten()
 nI = 90
 Ix, Iwts = cheblob(nI)
 Ipts, Iwts2d = tensor_product(Ix, Iwts)
+```
+
+```{code-cell} ipython3
 F = ethridge_laplacian_fnc(Ipts[:, 0], Ipts[:, 1])
 F_interp = barycentric_tensor_product(obsx_flat, obsy_flat, Ix, Iwts, np.array([F]))
 F_interp2d = F_interp.reshape(obsx.shape)
@@ -279,10 +281,10 @@ plt.show()
 ## A box code
 
 ```{code-cell} ipython3
-q1 = clencurt_2d(4)
-q2 = clencurt_2d(7)
-interp1 = cheblob(4)
-interp2 = cheblob(7)
+q1 = clencurt_2d(3)
+q2 = clencurt_2d(5)
+interp1 = cheblob(3)
+interp2 = cheblob(5)
 ```
 
 ```{code-cell} ipython3
@@ -310,9 +312,9 @@ def build_box_tree(f, start_centers, start_sizes, max_levels, tol):
     sizes = start_sizes
     levels = []
     for i in range(max_levels):
-        box_low_pts = q1[0][None, :] * 0.5 * sizes[:, None, :] + centers[:, None, :]
-        box_high_pts = q2[0][None, :] * 0.5 * sizes[:, None, :] + centers[:, None, :]
-        box_quad_wts = q2[1][None, :] * 0.25 * sizes[:, 0, None] * sizes[:, 1, None]
+        box_low_pts = q1[0][None, :] * 0.5 * sizes[:, None, None] + centers[:, None, :]
+        box_high_pts = q2[0][None, :] * 0.5 * sizes[:, None, None] + centers[:, None, :]
+        box_quad_wts = q2[1][None, :] * 0.25 * sizes[:, None] ** 2
 
         f_high = f(
             box_high_pts[:, :, 0].ravel(), box_high_pts[:, :, 1].ravel()
@@ -352,10 +354,10 @@ def build_box_tree(f, start_centers, start_sizes, max_levels, tol):
         parents = np.repeat(np.arange(centers.shape[0])[refine_boxes], 4)
         centers = np.concatenate(
             [
-                refine_centers + np.array([bump[:, 0], bump[:, 1]]).T,
-                refine_centers + np.array([-bump[:, 0], bump[:, 1]]).T,
-                refine_centers + np.array([bump[:, 0], -bump[:, 1]]).T,
-                refine_centers + np.array([-bump[:, 0], -bump[:, 1]]).T,
+                refine_centers + np.array([bump, bump]).T,
+                refine_centers + np.array([-bump, bump]).T,
+                refine_centers + np.array([bump, -bump]).T,
+                refine_centers + np.array([-bump, -bump]).T,
             ]
         )
         sizes = np.repeat(sizes[refine_boxes] / 2, 4, axis=0)
@@ -378,7 +380,7 @@ def calculate_leaves(tree):
 
 ```{code-cell} ipython3
 %%time
-tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([[1, 1]]), 10, 0.1)
+tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([1]), 10, 1.0)
 ```
 
 ```{code-cell} ipython3
@@ -392,9 +394,9 @@ def plot_level(L):
         s = L.sizes[i]
         plt.gca().add_patch(
             patches.Rectangle(
-                (c[0] - s[0] / 2, c[1] - s[1] / 2),
-                s[0],
-                s[1],
+                (c[0] - s / 2, c[1] - s / 2),
+                s,
+                s,
                 edgecolor="k",
                 facecolor="none",
             )
@@ -407,10 +409,10 @@ plt.show()
 
 ```{code-cell} ipython3
 box_high_pts = (
-    q2[0][None, :] * 0.5 * tree.leaves.sizes[:, None, :] + tree.leaves.centers[:, None, :]
+    q2[0][None, :] * 0.5 * tree.leaves.sizes[:, None, None] + tree.leaves.centers[:, None, :]
 )
 box_quad_wts = (
-    q2[1][None, :] * 0.25 * tree.leaves.sizes[:, 0, None] * tree.leaves.sizes[:, 1, None]
+    q2[1][None, :] * 0.25 * tree.leaves.sizes[:, None] ** 2
 )
 S = np.sum(box_quad_wts.ravel() * tree.leaves.fhigh.ravel())
 S
@@ -419,7 +421,7 @@ S
 ## Volumetric Green's function integrals
 
 ```{code-cell} ipython3
-obs_test = np.array([[-0.10, -0.10]])
+obs_test = np.array([[-0.1, -0.1]])
 ```
 
 ```{code-cell} ipython3
@@ -442,8 +444,8 @@ S, correct, np.linalg.norm(S - correct) / np.linalg.norm(correct)
 ```{code-cell} ipython3
 def test_f(x, y):
     return (y > 0.15) * 1.0
-tree = build_box_tree(test_f, np.array([[0, 0]]), np.array([[1, 1]]), 6, 1.0)
-plot_level(tree.leaves)
+discontinuity_tree = build_box_tree(test_f, np.array([[0, 0]]), np.array([1]), 6, 0.1)
+plot_level(discontinuity_tree.leaves)
 plt.xlim([-0.55, 0.55])
 plt.ylim([-0.55, 0.55])
 plt.axis('equal')
@@ -451,7 +453,7 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-def balance_21(tree, plot_progress=False):
+def balance_21(tree, f, plot_progress=False):
     i = 0
     while i <= len(tree.levels) - 3:
         # We can skip splitting the level above because those cells all satisfy the 
@@ -463,8 +465,8 @@ def balance_21(tree, plot_progress=False):
             dx = small_L.centers[:,None,0] - big_L.centers[None,:,0]
             dy = small_L.centers[:,None,1] - big_L.centers[None,:,1]
 
-            closex = np.abs(dx) <= 0.5 * (small_L.sizes[:,None,0] + big_L.sizes[None,:,0])
-            closey = np.abs(dy) <= 0.5 * (small_L.sizes[:,None,1] + big_L.sizes[None,:,1])
+            closex = np.abs(dx) <= 0.5 * (small_L.sizes[:,None] + big_L.sizes[None,:])
+            closey = np.abs(dy) <= 0.5 * (small_L.sizes[:,None] + big_L.sizes[None,:])
 
             refine_boxes = np.any(closex & closey, axis=0) & big_L.is_leaf
             refine_centers = big_L.centers[refine_boxes]
@@ -476,18 +478,19 @@ def balance_21(tree, plot_progress=False):
             parents = np.repeat(np.arange(big_L.centers.shape[0])[refine_boxes], 4)
             centers = np.concatenate(
                 [
-                    refine_centers + np.array([bump[:, 0], bump[:, 1]]).T,
-                    refine_centers + np.array([-bump[:, 0], bump[:, 1]]).T,
-                    refine_centers + np.array([bump[:, 0], -bump[:, 1]]).T,
-                    refine_centers + np.array([-bump[:, 0], -bump[:, 1]]).T,
+                    refine_centers + np.array([bump, bump]).T,
+                    refine_centers + np.array([-bump, bump]).T,
+                    refine_centers + np.array([bump, -bump]).T,
+                    refine_centers + np.array([-bump, -bump]).T,
                 ]
             )
             sizes = np.repeat(big_L.sizes[refine_boxes] / 2, 4, axis=0)
 
-            box_high_pts = q2[0][None, :] * 0.5 * sizes[:, None, :] + centers[:, None, :]
-            box_quad_wts = q2[1][None, :] * 0.25 * sizes[:, 0, None] * sizes[:, 1, None]
+            box_high_pts = q2[0][None, :] * 0.5 * sizes[:, None, None] + centers[:, None, :]
+            box_quad_wts = q2[1][None, :] * 0.25 * sizes[:, None] ** 2
 
-            f_high = test_f(
+            # TODO: either interpolate here or re-use the original function.
+            f_high = f(
                 box_high_pts[:, :, 0].ravel(), box_high_pts[:, :, 1].ravel()
             ).reshape((centers.shape[0], -1))
             # TODO: at the end, re-calculate leaves.
@@ -524,15 +527,223 @@ def balance_21(tree, plot_progress=False):
 ```
 
 ```{code-cell} ipython3
-balance_21(tree, plot_progress=False)
+balance_21(discontinuity_tree, test_f, plot_progress=False)
 ```
 
 ```{code-cell} ipython3
-tree = calculate_leaves(tree)
+discontinuity_tree = calculate_leaves(discontinuity_tree)
 
-plot_level(tree.leaves)
+plot_level(discontinuity_tree.leaves)
 plt.xlim([-0.55, 0.55])
 plt.ylim([-0.55, 0.55])
 plt.axis('equal')
 plt.show()
 ```
+
+```{code-cell} ipython3
+import copy
+balanced_tree = copy.deepcopy(tree)
+balance_21(balanced_tree, ethridge_laplacian_fnc)
+balanced_tree = calculate_leaves(balanced_tree)
+```
+
+```{code-cell} ipython3
+plt.figure(figsize=(8,4))
+plt.subplot(1, 2, 1)
+plot_level(tree.leaves)
+plt.xlim([-0.55, 0.55])
+plt.ylim([-0.55, 0.55])
+plt.axis('equal')
+
+plt.subplot(1, 2, 2)
+plot_level(balanced_tree.leaves)
+for i in range(balanced_tree.leaves.centers.shape[0]):
+    c = balanced_tree.leaves.centers[i]
+    s = balanced_tree.leaves.sizes[i]
+    if np.any(np.linalg.norm(c[None,:] - tree.leaves.centers, axis=1) == 0):
+        continue
+    plt.gca().add_patch(
+        patches.Rectangle(
+            (c[0] - s / 2, c[1] - s / 2),
+            s,
+            s,
+            linewidth=2,
+            edgecolor="r",
+            facecolor="none",
+        )
+    )
+plt.xlim([-0.55, 0.55])
+plt.ylim([-0.55, 0.55])
+plt.axis('equal')
+plt.tight_layout()
+plt.show()
+```
+
+```{code-cell} ipython3
+box_high_pts = (
+    q2[0][None, :] * 0.5 * balanced_tree.leaves.sizes[:, None, None] + balanced_tree.leaves.centers[:, None, :]
+)
+box_quad_wts = (
+    q2[1][None, :] * 0.25 * balanced_tree.leaves.sizes[:, None] ** 2
+)
+#S = np.sum(box_quad_wts.ravel() * balanced_tree.leaves.fhigh.ravel())
+G = (
+    fundamental_soln_matrix(obs_test, box_high_pts.reshape((-1, 2)))[:, 0, :]
+    * box_quad_wts.ravel()[None, :]
+)
+S = G.dot(balanced_tree.leaves.fhigh.ravel())[0]
+S, correct, np.linalg.norm(S - correct) / np.linalg.norm(correct)
+```
+
+## Using precomputed near-field integrals
+
+```{code-cell} ipython3
+boxes = {
+    # Type 0 (coincident)
+    (1, 0, 0): (0, 1, 1, 0),
+    # Type 1
+    (1, 2, 2): (1, 1, 1, 0),
+    (1, -2, 2): (1, -1, 1, 0),
+    (1, -2, -2): (1, -1, -1, 0),
+    (1, 2, -2): (1, 1, -1, 0),
+    # Type 2
+    (1, 2, 0): (2, 1, 1, 0),
+    (1, 0, 2): (2, 1, 1, 1),
+    (1, -2, 0): (2, -1, 1, 0),
+    (1, 0, -2): (2, 1, -1, 1),
+    # Type 3
+    (2, 3, 3): (3, 1, 1, 0),
+    (2, -3, 3): (3, -1, 1, 0),
+    (2, -3, -3): (3, -1, -1, 0),
+    (2, 3, -3): (3, 1, -1, 0),
+    # Type 4
+    (2, 1, 3): (4, 1, 1, 1),
+    (2, -1, 3): (4, -1, 1, 1),
+    (2, -3, 1): (4, -1, 1, 0),
+    (2, -3, -1): (4, -1, -1, 0),
+    (2, -1, -3): (4, -1, -1, 1),
+    (2, 1, -3): (4, 1, -1, 1),
+    (2, 3, -1): (4, 1, -1, 0),
+    (2, 3, 1): (4, 1, 1, 0),
+    # Type 5
+    (0.5, 1.5, 1.5): (5, 1, 1, 0),
+    (0.5, -1.5, 1.5): (5, -1, 1, 0),
+    (0.5, -1.5, -1.5): (5, -1, -1, 0),
+    (0.5, 1.5, -1.5): (5, 1, -1, 0),
+    # Type 6
+    (0.5, 0.5, 1.5): (6, 1, 1, 1),
+    (0.5, -0.5, 1.5): (6, -1, 1, 1),
+    (0.5, -1.5, 0.5): (6, -1, 1, 0),
+    (0.5, -1.5, -0.5): (6, -1, -1, 0),
+    (0.5, -0.5, -1.5): (6, -1, -1, 1),
+    (0.5, 0.5, -1.5): (6, 1, -1, 1),
+    (0.5, 1.5, -0.5): (6, 1, -1, 0),
+    (0.5, 1.5, 0.5): (6, 1, 1, 0),
+}
+```
+
+```{code-cell} ipython3
+N = 5
+chebyshev_pts_np = np.array([np.cos(np.pi * i / (N - 1)) for i in range(N)][::-1])
+cheb2dX, cheb2dY = np.meshgrid(chebyshev_pts_np, chebyshev_pts_np)
+cheb2d = np.array([cheb2dX, cheb2dY]).T.reshape((-1, 2)).copy()
+```
+
+```{code-cell} ipython3
+def nearfield_box(I, Fv, flipx, flipy, rotxy):
+    Fv = Fv.reshape((5,5))
+    
+    n_rot = {
+        (1, 1): 0,
+        (1, -1): 1,
+        (-1, -1): 2,
+        (-1, 1): 3
+    }[(flipx, flipy)]
+    n_transpose = ((n_rot % 2) == 1) + rotxy
+    
+    # Rotate from input coordinates into position
+    Fv = np.rot90(Fv, n_rot)
+    if n_transpose % 2 == 1:
+        Fv = Fv.T
+
+    est = I.dot(Fv.ravel())
+
+    # Reverse the transformation back to the original input space
+    if n_transpose % 2 == 1:
+        est = est.T
+    est = np.rot90(est, -n_rot)
+    return est
+```
+
+```{code-cell} ipython3
+basis_integrals, nearfield_integrals = np.load("data/nearfield_integrals.npy", allow_pickle=True)
+```
+
+```{code-cell} ipython3
+obs_test
+```
+
+```{code-cell} ipython3
+for i in range(tree.leaves.centers.shape[0]):
+    c = tree.leaves.centers[i]
+    s = tree.leaves.sizes[i]
+    sep = obs_test - c
+    if np.all(np.abs(sep) <= s / 2):
+        print(f'point contained in box {i}\n  with center: {c}\n  and size: {s}')
+        obs_i = i
+```
+
+```{code-cell} ipython3
+box_high_pts = (
+    q2[0][None, :] * 0.5 * balanced_tree.leaves.sizes[:, None, None] + balanced_tree.leaves.centers[:, None, :]
+)
+box_quad_wts = (
+    q2[1][None, :] * 0.25 * balanced_tree.leaves.sizes[:, None] ** 2
+)
+```
+
+```{code-cell} ipython3
+result = np.zeros((tree.leaves.fhigh.shape[1]))
+obs_c = tree.leaves.centers[obs_i]
+obs_s = tree.leaves.sizes[obs_i]
+obs_pts = q2[0] * 0.5 * obs_s + obs_c
+
+nearfield = 0
+for j in range(tree.leaves.centers.shape[0]):
+    src_c = tree.leaves.centers[j]
+    src_s = tree.leaves.sizes[j]
+    F = tree.leaves.fhigh[j]
+    transformed_obs_center = np.round(2 * (obs_c - src_c) / src_s, decimals=1)
+    transformed_obs_size = np.round(obs_s / src_s, decimals=1)
+    
+    sep = obs_c - src_c
+    nearfield_info = boxes.get((transformed_obs_size, *transformed_obs_center), None)
+    if nearfield_info is not None:
+        integral_type, flipx, flipy, rotxy = nearfield_info
+        I = nearfield_box(nearfield_integrals[integral_type], F, flipx, flipy, rotxy)
+        #print("nearfield", nearfield_info, I)
+        result += I.ravel()
+        nearfield += 1
+    else:
+        assert(not np.all(np.abs(sep) <= 0.5 * (obs_s + src_s)))
+        pts = q2[0] * 0.5 * src_s + src_c
+        wts = q2[1] * 0.25 * src_s ** 2
+        G = (
+            fundamental_soln_matrix(obs_pts, pts)[:, 0, :]
+            * wts.ravel()
+        )
+        result += G.dot(F)
+        
+#print(transformed_size, transformed_center)
+nearfield
+```
+
+```{code-cell} ipython3
+result
+```
+
+There are two sources of error here:
+1. The integration error for the values of the integrals at the interpolation points. 
+2. The interpolation error for the values of the integrals away from the interpolation points.
+
+Based on the previous demonstration, the first type of error is almost zero. The red points in the error figure above show the location of the interpolation points. You can see that the error oscillates around these points crossing zero at the points themselves.

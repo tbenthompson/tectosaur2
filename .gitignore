@@ -4,3 +4,4 @@ __pycache__
 _build
 # ignore ipynb, use MyST Markdown files instead!
 */*.ipynb
+.vscode
