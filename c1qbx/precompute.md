@@ -614,25 +614,16 @@ def scale_integral(I, basis_dot_F, src_s):
     log_factor = C * (1 / (2 * np.pi)) * np.log(scale_T)
     return C * I + log_factor * basis_dot_F
     
-F_1 = lambda x,y: np.ones_like(x)
 F_xy = lambda x, y: (1 - x) * (1 - y ** 2)
 for i, mult in enumerate([1, 2, 4, 8, 16]):
     src_c = np.array([0, 0])
     src_s = mult / 4.0
     obs_c = np.array([src_c[0] + 0.5 * src_s, src_c[1] - 1.5 * src_s])
     #obs_c = np.array([src_c[0] - 0.5 * src_s, src_c[1] - 1.5 * src_s])
+    
     obs_s = src_s * 2
     transformed_obs_center = np.round(2 * (obs_c - src_c) / src_s, decimals=1)
     transformed_obs_size = np.round(obs_s / src_s, decimals=1)
-    
-    correct_1 = get_test_values(
-        constant_soln_shifted[i],
-        obs_s / 2.0,
-        obs_c[0],
-        obs_c[1],
-        src_center=src_c,
-        src_size=src_s,
-    )
     
     correct_xy = get_test_values(
         xy_soln_shifted[i],
@@ -644,31 +635,18 @@ for i, mult in enumerate([1, 2, 4, 8, 16]):
     )
 
     src_box_pts = cheb2d * 0.5 * src_s + src_c[None,:]
-    Fv_1 = F_1(src_box_pts[:,0], src_box_pts[:,1])
     Fv_xy = F_xy(src_box_pts[:,0], src_box_pts[:,1])
     
     nearfield_info = boxes[(transformed_obs_size, *transformed_obs_center)]
     integral_type, flipx, flipy, rotxy = nearfield_info
     
-
-    d = 0
-    scale_T = src_s / 2.0
-    C = scale_T ** (d + 2)
-    log_factor = C * (1 / (2 * np.pi)) * np.log(scale_T)
-    
-    basis_I_1 = basis_integrals.ravel().dot(Fv_1.ravel())
     basis_I_xy = basis_integrals.ravel().dot(Fv_xy.ravel())
     
-    log_integral_1 = log_factor * basis_I_1
-    log_integral_xy = log_factor * basis_I_xy
-    
-    I_1 = nearfield_box(all_integrals[integral_type], Fv_1, flipx, flipy, rotxy)
     I_xy = nearfield_box(all_integrals[integral_type], Fv_xy, flipx, flipy, rotxy)
-    est_1 = scale_integral(I_1, basis_I_1) 
-    est_xy = C * I_xy + log_integral_xy
     
-    print(f'\n  for mult={mult}')
-    print("one error: ", np.max(np.abs(correct_1 - est_1)[~np.isnan(correct_1)]))
+    est_xy = scale_integral(I_xy, basis_I_xy, src_s)
+    
+    print(f'\nfor source size={src_s}')
     print("xy error: ", np.max(np.abs(correct_xy - est_xy)[~np.isnan(correct_1)]))
 ```
 
