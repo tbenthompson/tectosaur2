@@ -119,7 +119,7 @@ The hypersingular integral will computes $\sigma_{xz}$ for us given the source s
 As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section. 
 ```
 
-Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
+Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. (COMMENT ON DIRECT EVALUTION VERSUS LIMIT TO THE BOUNDARY, IN THE LIMIT VS AS A LIMIT). This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
 
 ```{code-cell} ipython3
 def hypersingular_matrix(surface, quad_rule, obsx, obsy):

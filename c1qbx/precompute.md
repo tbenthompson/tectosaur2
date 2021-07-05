@@ -30,7 +30,7 @@ import sympy as sp
 ```{code-cell} ipython3
 :tags: []
 
-N = 5
+N = 9
 chebyshev_pts = [sp.cos(sp.pi * i / (N - 1)) for i in range(N)][::-1]
 chebyshev_pts_np = np.array([float(p) for p in chebyshev_pts])
 x = sp.var("x")
@@ -187,17 +187,18 @@ def get_inputs(obs_scale, obs_offsetx, obs_offsety):
 
 def coincident_grid():
     inputs = get_inputs(1, 0, 0)
-    p = multiprocessing.Pool()
-    return inputs, np.array(p.starmap(mp_compute_coincident, inputs))
+    p = multiprocessing.Pool(5)
+    return np.array(p.starmap(mp_compute_coincident, inputs))
 ```
 
 ```{code-cell} ipython3
-# np.save("data/coincident_grid.npy", coincident_grid())
+%%time
+np.save("data/coincident_grid.npy", coincident_grid())
 ```
 
 ```{code-cell} ipython3
 # integrals_and_err = compute_grid(1, 0, 0)
-integrals_and_err = np.load("data/coincident_grid.npy")
+integrals_and_err = np.load("data/coincident_grid.npy", allow_pickle=True)
 integrals = integrals_and_err[:, 0].reshape((N, N, N, N))
 error = integrals_and_err[:, 1].reshape((N, N, N, N))
 ```
@@ -374,13 +375,43 @@ plt.show()
 ```{code-cell} ipython3
 :tags: []
 
-# %%time
-# np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
-# np.save("data/adj2_grid.npy", compute_grid(1, 2, 0))
-# np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
-# np.save("data/adj4_grid.npy", compute_grid(2, 3, 1))
-# np.save("data/adj5_grid.npy", compute_grid(0.5, 1.5, 1.5))
-# np.save("data/adj6_grid.npy", compute_grid(0.5, 1.5, 0.5))
+%%time
+np.save("data/adj1_grid.npy", compute_grid(1, 2, 2))
+```
+
+```{code-cell} ipython3
+:tags: []
+
+%%time
+np.save("data/adj2_grid.npy", compute_grid(1, 2, 0))
+```
+
+```{code-cell} ipython3
+:tags: []
+
+%%time
+np.save("data/adj3_grid.npy", compute_grid(2, 3, 3))
+```
+
+```{code-cell} ipython3
+:tags: []
+
+%%time
+np.save("data/adj4_grid.npy", compute_grid(2, 3, 1))
+```
+
+```{code-cell} ipython3
+:tags: []
+
+%%time
+np.save("data/adj5_grid.npy", compute_grid(0.5, 1.5, 1.5))
+```
+
+```{code-cell} ipython3
+:tags: []
+
+%%time
+np.save("data/adj6_grid.npy", compute_grid(0.5, 1.5, 0.5))
 ```
 
 ```{code-cell} ipython3
