@@ -21,19 +21,21 @@ kernelspec:
 
 ## Antiplane shear
 
-A basic result in linear elastic earthquake modeling is the infinitely long strike-slip fault. Because the fault is infinitely long, all displacements is fault parallel. This results in a displacement and strain state like:
-
-$$ \vec{u} = (0, 0, u_3) $$
-$$ \boldsymbol{\varepsilon} = \begin{bmatrix}
+A basic result in linear elastic earthquake modeling is the representation of displacement from slip on an infinitely long strike-slip fault. Because the fault is infinitely long, all displacements is fault parallel. Suppose we're looking at a cross-section in the $x,y$ plane with all displacement occuring in the $z$ direction. Then the displacement vector is $\mathbf{u} = (0, 0, u_z)$. And the strain state is:
+\begin{equation}
+\boldsymbol{\varepsilon} = \begin{bmatrix}
 0 & 0 & \epsilon_{13} \\
 0 & 0 & \epsilon_{23}\\
- \epsilon_{13}    &    \epsilon_{23}      & 0\end{bmatrix} $$
+ \epsilon_{13}    &    \epsilon_{23}      & 0\end{bmatrix}
+\end{equation}
  
-This special state is called "antiplane shear". If we simplify the elasticity equations to this setting, we get the result that $u_3$ is a solution to the Laplace equation:
+This special state is called "antiplane shear". We can simplify the equations of linear elasticity to be in terms of a vector strain, $\epsilon_z = (\epsilon_{xz}, \epsilon_{yz})$ and vector stress, $\sigma_z = (2\mu\epsilon_{xz}, 2\mu\epsilon_{yz})$. Combined with Newtons law, we get the result that $u_z$ is a solution to the Laplace equation:
 
-$$ \nabla^2 u_3 = 0 $$
+\begin{equation}
+\nabla^2 u_z = 0
+\end{equation}
 
-As a result, we can describe solutions to the Laplace equation in terms of the elastic behavior of infinitely long strike-slip faults (aka a "screw dislocation"). 
+As a result, we can describe the elastic behavior of infinitely long strike-slip faults (aka a "screw dislocation") in terms of solutions to the Laplace equation. 
 
 Below, we're going to use QBX to compute the displacements and stresses resulting from slip on infinitely long strike-slip faults with fun shapes. In particular, the "double layer" integral we computed in part 1 will compute displacement in the volume from the input slip on the fault. We'll also introduce the "hypersingular" integral to calculate stresses from slip.
 
@@ -56,9 +58,9 @@ import common
 
 +++
 
-When we compute a boundary integral, there are two sources of error: the surface approximation error and the quadrature error. We've been focusing here on the quadrature error because it can be reduced dramatically with better algorithms (QBX!). The surface approximation error is handled simply through using a higher resolution approximation to the surface -- for example, represent a circle with 100 points instead of 50. However, below, it will be nice to be able to hold the surface approximation error constant while reducing the quadrature error to zero. But, in the integration techniques we have been using, the quadrature error and the surface error are inextricably linked. When we increase from using 50 to 100 points to integrate a function over a circle, we have been improving both the surface approximation and also using a more accurate quadrature rule. 
+When we compute a boundary integral, there are two sources of error: the surface approximation error and the quadrature error. We've been focusing so far on the quadrature error because it can be reduced dramatically with better algorithms, especially in the singular or near-singular case. The surface approximation error is handled simply through using a higher resolution approximation to the surface -- for example, represent a circle with 100 points instead of 50. However, below, it will be nice to be able to hold the surface approximation error constant while reducing the quadrature error to zero. But, in the integration techniques we have been using, the quadrature error and the surface error are inextricably linked. When we increase from using 50 to 100 points to integrate a function over a circle, we have been improving both the surface approximation and also using a more accurate quadrature rule. 
 
-To separate the two components, we'll interpolate points from a low order surface approximation in order to calculate the locations of quadrature points for a higher order integral approximation. To make the difference more concrete... Before, we would calculate new point locations for a circle by calculating $(cos \theta, sin \theta)$. Now, we will calculate the new point from a polynomial interpolation of the $n$ existing points $\sum_{i}^n c_i p_i(x)$. In some sense, this is also more realistic. In a real-world application, we normally have a data-derived surface representation that we can't improve. On the other hand, we *can* add more quadrature points by interpolating on that surface. But adding more quadrature points won't make the surface itself any more accurate.
+To separate the two components, we'll interpolate points from a low order surface approximation in order to calculate the locations of quadrature points for a higher order integral approximation. To make the difference more concrete... Before, we would calculate new point locations for a circle by calculating $(cos \theta, sin \theta)$. Now, we will calculate the new point from a polynomial interpolation of the $n$ existing points $\sum_{i}^n c_i p_i(x)$. In some sense, this is also more realistic. In a real-world application, we normally have a data-derived surface representation that we can't improve. On the other hand, even in that real world setting, we *can* add more quadrature points by interpolating on that surface. But adding more quadrature points won't make the surface itself any more accurate.
 
 To do this, it's going to be helpful to have some functions for polynomial interpolation! We'll use the `scipy.interpolate.BarycentricInterpolator` implementation of [barycentric Lagrange interpolation](https://people.maths.ox.ac.uk/trefethen/barycentric.pdf){cite:p}`Berrut2004`. I strongly recommend that paper if you've never run into barycentric Lagrange interpolation before!
 
@@ -119,7 +121,7 @@ The hypersingular integral will computes $\sigma_{xz}$ for us given the source s
 As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section. 
 ```
 
-Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. (COMMENT ON DIRECT EVALUTION VERSUS LIMIT TO THE BOUNDARY, IN THE LIMIT VS AS A LIMIT). This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
+Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. (Add a foot note on weakly singular vs strongly singular vs hypersingular.). This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
 
 ```{code-cell} ipython3
 def hypersingular_matrix(surface, quad_rule, obsx, obsy):
@@ -469,7 +471,12 @@ def wavy(q):
 
 
 qbx_example(
-    common.double_layer_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15
+    common.double_layer_matrix,
+    surface_fnc=wavy,
+    n=256,
+    offset_mult=2.5,
+    kappa=5,
+    qbx_p=15,
 )
 ```
 
@@ -479,8 +486,4 @@ qbx_example(
 qbx_example(
     hypersingular_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15
 )
-```
-
-```{code-cell} ipython3
-
 ```

@@ -70,10 +70,6 @@ ethridge_laplacian_fnc = sp.lambdify((x, y), ethridge_sym_laplacian, "numpy")
 ```
 
 ```{code-cell} ipython3
-print(ethridge_sym_laplacian)
-```
-
-```{code-cell} ipython3
 C = 1.0 / (4 * np.pi)
 def fundamental_soln_matrix(obs_pts, src_pts):
     dx = obs_pts[:, None, 0] - src_pts[None, :, 0]
@@ -285,10 +281,10 @@ plt.show()
 ## A box code
 
 ```{code-cell} ipython3
-q1 = clencurt_2d(3)
-q2 = clencurt_2d(5)
-interp1 = cheblob(3)
-interp2 = cheblob(5)
+q1 = clencurt_2d(5)
+q2 = clencurt_2d(9)
+interp1 = cheblob(5)
+interp2 = cheblob(9)
 ```
 
 ```{code-cell} ipython3
@@ -337,7 +333,7 @@ def build_box_tree(f, start_centers, start_sizes, max_levels, tol):
         f_high_interp = barycentric_tensor_product(
             q2[0][:, 0], q2[0][:, 1], interp1[0], interp1[1], f_low_flat
         )
-        err = np.linalg.norm(f_high_interp - f_high_flat, axis=1)
+        err = np.sqrt(np.sum((f_high_interp - f_high_flat) ** 2 * box_quad_wts, axis=1))
 
         # Don't refine if we're at the last level.
         if i == max_levels - 1:
@@ -384,7 +380,7 @@ def calculate_leaves(tree):
 
 ```{code-cell} ipython3
 %%time
-ethridge_tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([1]), 10, 1.0)
+ethridge_tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([1]), 10, 0.01)
 ```
 
 ```{code-cell} ipython3
@@ -523,7 +519,7 @@ plt.show()
 ```{code-cell} ipython3
 def test_f(x, y):
     return (y > 0.15) * 1.0
-discontinuity_tree = build_box_tree(test_f, np.array([[0, 0]]), np.array([1]), 6, 0.1)
+discontinuity_tree = build_box_tree(test_f, np.array([[0, 0]]), np.array([1]), 6, 0.001)
 plot_level(discontinuity_tree.leaves)
 plt.xlim([-0.55, 0.55])
 plt.ylim([-0.55, 0.55])
@@ -723,15 +719,9 @@ boxes = {
 ```
 
 ```{code-cell} ipython3
-N = 5
-chebyshev_pts_np = np.array([np.cos(np.pi * i / (N - 1)) for i in range(N)][::-1])
-cheb2dX, cheb2dY = np.meshgrid(chebyshev_pts_np, chebyshev_pts_np)
-cheb2d = np.array([cheb2dX, cheb2dY]).T.reshape((-1, 2)).copy()
-```
-
-```{code-cell} ipython3
 def nearfield_box(I, Fv, flipx, flipy, rotxy):
-    Fv = Fv.reshape((5,5))
+    # NOTE: The transpose is necessary simply because the definition of the basis functions here is the transpose of the definition in precompute. I should fix this!
+    Fv = Fv.reshape((N,N)).T
     
     n_rot = {
         (1, 1): 0,
@@ -766,19 +756,25 @@ basis_integrals, nearfield_integrals = np.load("data/nearfield_integrals.npy", a
 ```
 
 ```{code-cell} ipython3
-6481 * 25
+nearfield_integrals.shape
 ```
 
 ```{code-cell} ipython3
 %%time
-new_tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([1]), 50, 0.01)
-print(f'built tree with {new_tree.leaves.centers.shape[0]} leaves and {len(new_tree.levels)} levels')
+new_tree = build_box_tree(ethridge_laplacian_fnc, np.array([[0, 0]]), np.array([1]), 50, 10.0)
+print(f'built tree with {new_tree.leaves.centers.shape[0] * q2[0].shape[0]} degrees of freedom, {new_tree.leaves.centers.shape[0]} leaves, and {len(new_tree.levels)} levels')
+
+balance_21(new_tree, ethridge_laplacian_fnc)
+new_tree = calculate_leaves(new_tree)
+print(f'balanced tree has {new_tree.leaves.centers.shape[0]} leaves')
 ```
 
 ```{code-cell} ipython3
-# balance_21(new_tree, ethridge_laplacian_fnc)
-# new_tree = calculate_leaves(new_tree)
-# print(f'balanced tree has {new_tree.leaves.centers.shape[0]} leaves')
+plot_level(new_tree.leaves)
+plt.xlim([-0.55, 0.55])
+plt.ylim([-0.55, 0.55])
+plt.axis('equal')
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -790,7 +786,7 @@ box_quad_wts = (
     q2[1][None, :] * 0.25 * new_tree.leaves.sizes[:, None] ** 2
 )
 
-obs_test = np.array([0.01,0.01])
+obs_test = np.array([0.05,0.05])
 sep = obs_test[None,:] - new_tree.leaves.centers
 obs_i = np.where(np.all(np.abs(sep) <= new_tree.leaves.sizes[:, None] / 2, axis=1))[0][0]
 
@@ -811,7 +807,7 @@ transformed_obs_size = np.round(obs_s / src_ss, decimals=1)
 G = (
     fundamental_soln_matrix(obs_pts, box_high_pts.reshape((-1, 2)))[:, 0, :]
     * box_quad_wts.ravel()[None,:]
-).reshape((cheb2d.shape[0], src_cs.shape[0], cheb2d.shape[0]))
+).reshape((q2[0].shape[0], src_cs.shape[0], q2[0].shape[0]))
 ```
 
 ```{code-cell} ipython3
@@ -822,6 +818,7 @@ src_terms = np.sum(G * new_tree.leaves.fhigh[None,:], axis=2)
 ```{code-cell} ipython3
 %%time
 nearfield = 0
+add = 0
 for j in range(src_cs.shape[0]):
     nearfield_info = boxes.get((transformed_obs_size[j], *transformed_obs_center[j]), None)
     if nearfield_info is not None:
@@ -836,8 +833,12 @@ for j in range(src_cs.shape[0]):
 ```
 
 ```{code-cell} ipython3
+add, correct_add
+```
+
+```{code-cell} ipython3
 %%time
-result = np.sum(src_terms, axis=1)
+result = np.sum(src_terms, axis=1) + add
 
 print(f'there were {nearfield} nearfield cells')
 
@@ -846,7 +847,10 @@ correct_pt = ethridge_soln_fnc(obs_test[0], obs_test[1])
 
 obs_test_transformed = (obs_test - obs_c) / (obs_s * 0.5)
 result_pt = barycentric_tensor_product(obs_test_transformed[:1], obs_test_transformed[1:], interp2[0], interp2[1], np.array([result]))[0,0]
+result_naive = naive_eval(new_tree, np.array([obs_test]))[0]
+print(correct_pt, result_pt)
 print(f'precompute interpolate at {obs_test} error is: {correct_pt - result_pt:.3e}')
+print(f'naive eval at {obs_test} error is: {correct_pt - result_naive:.3e}')
 ```
 
 ## Check that tree integrates a simple function well.

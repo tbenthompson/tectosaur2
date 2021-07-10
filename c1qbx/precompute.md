@@ -483,12 +483,8 @@ correct_lower_right
 ```
 
 ```{code-cell} ipython3
-4 % 2
-```
-
-```{code-cell} ipython3
 def nearfield_box(I, Fv, flipx, flipy, rotxy):
-    Fv = Fv.reshape((5,5))
+    Fv = Fv.reshape((N,N))
     
     n_rot = {
         (1, 1): 0,
@@ -517,7 +513,7 @@ for C, flipx, flipy in [
     (correct_lower_left, -1, -1),
     (correct_lower_right, 1, -1),
 ]:
-    Fv = xy_laplacian(cheb2d[:,0], cheb2d[:,1]).reshape((5,5))
+    Fv = xy_laplacian(cheb2d[:,0], cheb2d[:,1]).reshape((N,N))
     est = nearfield_box(all_integrals[1], Fv, flipx, flipy, 0)
     print(np.max(np.abs((C - est)[~np.isnan(C)])))
 ```
@@ -678,7 +674,7 @@ for i, mult in enumerate([1, 2, 4, 8, 16]):
     est_xy = scale_integral(I_xy, basis_I_xy, src_s)
     
     print(f'\nfor source size={src_s}')
-    print("xy error: ", np.max(np.abs(correct_xy - est_xy)[~np.isnan(correct_1)]))
+    print("xy error: ", np.max(np.abs(correct_xy - est_xy)[~np.isnan(correct_xy)]))
 ```
 
 ### Computing for an arbitrary box pair.
