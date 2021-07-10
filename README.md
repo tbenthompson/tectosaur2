@@ -1,4 +1,4 @@
-# BIE Book 
+# Boundary integral tutorials
 
 Using JupyterBook!
 
