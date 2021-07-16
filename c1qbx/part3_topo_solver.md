@@ -5,7 +5,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.11.3
 kernelspec:
   display_name: Python 3
   language: python
@@ -132,7 +132,7 @@ A = -np.real(np.sum(qbx_eval_flat[:, None, :, None] * qbx_expand_flat, axis=2))[
 
 For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directly perform the boundary integrals. This is because the observation points are sufficiently far away from the source fault surface that there are no nearly-singular or singular integrals. Note that we apply unit slip along the entire fault. In many models, this would be problematic because the fault tip displacement discontinuities introduce stress singularities into the model. However, for the sake of comparing with the analytical solution, we can accept the stress singularities for now. And because we are not evaluating stress near the fault, we don't need to worry about the issue. 
 
-For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points. 
+For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points.
 
 ```{code-cell} ipython3
 qr_fault = gauss_rule(25)
@@ -156,6 +156,8 @@ And let's compare with the analytical solution in the figures below. The match i
 3. The error is highest near the fault, almost 100x higher than further from the fault. The discretization error is likely to be highest where the gradients in the solution are largest. The gradients are largest near the fault.
 
 ```{code-cell} ipython3
+:tags: []
+
 s = 0.5
 analytical = (
     -s
@@ -179,7 +181,7 @@ plt.title("Displacement")
 plt.subplot(1, 2, 2)
 plt.plot(flat[0], np.log10(np.abs(surf_disp - analytical)))
 plt.xlabel("$x$")
-plt.ylabel("$\log_{10}|u_{\\textrm{BIE}} - u_{\\textrm{analytic}}|$")
+plt.ylabel("$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
 plt.title("Error")
 plt.tight_layout()
 plt.show()
@@ -188,6 +190,8 @@ plt.show()
 ## Evaluating interior displacement
 
 ```{code-cell} ipython3
+:tags: []
+
 nobs = 100
 zoomx = [-2.5, 2.5]
 zoomy = [-4.5, 0.5]
@@ -202,9 +206,11 @@ Now that we have the surface displacement, we can return to the integral form of
 u(\mathbf{p}) = \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} +\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
 \end{equation}
 
-and, using QBX via the `interior_eval` function from the last section, directly calculate the two integrals on the right hand side. The integral over $H$ will be `disp_flat` and the integral over $F$ will be `disp_fault`. 
+and, using QBX via the `interior_eval` function from the last section, directly calculate the two integrals on the right hand side. The integral over $H$ will be `disp_flat` and the integral over $F$ will be `disp_fault`.
 
 ```{code-cell} ipython3
+:tags: []
+
 disp_flat = interior_eval(
     double_layer_matrix,
     flat,
@@ -233,8 +239,10 @@ disp_full = disp_flat + disp_fault
 ```
 
 ```{code-cell} ipython3
+:tags: []
+
 levels = np.linspace(-0.5, 0.5, 11)
-cntf = plt.contourf(obsx, obsy, disp_full, levels=levels, extend="both")
+cntf = plt.contourf(obsx, obsy, disp_full, levels=levels, extend="both", cmap="bwr")
 plt.contour(
     obsx,
     obsy,
@@ -247,9 +255,14 @@ plt.contour(
 )
 plt.plot(flat[0], flat[1], "k-", linewidth=1.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=1.5)
+# plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.fill(np.array([np.min(zoomx), np.max(zoomx), np.max(zoomx), np.min(zoomx)]), np.array([0, 0, np.max(zoomy), np.max(zoomy)]), "w", zorder=100)
+
 plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
+plt.xlabel("$x \; \mathrm{(m)}$")
+plt.ylabel("$y \; \mathrm{(m)}$")
 plt.show()
 ```
 
@@ -259,9 +272,11 @@ plt.show()
 
 In the rest of this section, we'll replicate the calculation above except for a free surface with topography. The calculations will be identical except for the construction of the surface itself. 
 
-I'll first define a parametric line with a Gaussian hill in the middle. `sympy` will be helpful here so that we can symbolically compute the normal derivatives and the norm of the transformation from $t$ to $(x,y)$. 
+I'll first define a parametric line with a Gaussian hill in the middle. `sympy` will be helpful here so that we can symbolically compute the normal derivatives and the norm of the transformation from $t$ to $(x,y)$.
 
 ```{code-cell} ipython3
+:tags: []
+
 import sympy as sp
 
 sym_t = sp.symbols("t")
@@ -271,9 +286,11 @@ sym_y = sp.exp(-(sym_t ** 2) * 200) * sp.Rational(1.5) - sp.Rational(1.5)
 sp.Eq(sp.var("x,y"), sp.Tuple(sym_x, sym_y))
 ```
 
-I'll write a generic function here that can accept a parameterization of a curve and return the tuple of symbolic `(x, y, normal_x, normal_y, norm)`. 
+I'll write a generic function here that can accept a parameterization of a curve and return the tuple of symbolic `(x, y, normal_x, normal_y, norm)`.
 
 ```{code-cell} ipython3
+:tags: []
+
 def symbolic_surface(t, x, y):
     dxdt = sp.diff(x, t)
     dydt = sp.diff(y, t)
@@ -287,13 +304,17 @@ def symbolic_surface(t, x, y):
 sym_topo = symbolic_surface(sym_t, sym_x, sym_y)
 ```
 
-Here are the symbolic normal vector and norm of the transformation. 
+Here are the symbolic normal vector and norm of the transformation.
 
 ```{code-cell} ipython3
+:tags: []
+
 sp.Eq(sp.var("\\vec{n}"), sp.Tuple(sym_topo[2], sym_topo[3]))
 ```
 
 ```{code-cell} ipython3
+:tags: []
+
 sp.Eq(sp.var("\|T\|_2"), sym_topo[4])
 ```
 
@@ -302,6 +323,8 @@ And the next two cells will convert from this symbolic surface representation in
 Then I'll plot a quick diagram of the mesh and the surface normals.
 
 ```{code-cell} ipython3
+:tags: []
+
 def symbolic_eval(t, tvals, exprs):
     out = []
     for e in exprs:
@@ -310,20 +333,26 @@ def symbolic_eval(t, tvals, exprs):
 ```
 
 ```{code-cell} ipython3
+:tags: []
+
 qr_topo = gauss_rule(800)
 topo = symbolic_eval(sym_t, qr_topo[0], sym_topo)
 ```
 
 ```{code-cell} ipython3
+:tags: []
+
 plt.plot(topo[0], topo[1])
 plt.quiver(topo[0], topo[1], topo[2], topo[3], scale=20)
 plt.xlim([-2.5, 2.5])
 plt.ylim([-3.5, 1.5])
 ```
 
-And let's follow the same procedure as before, we'll solve for the surface displacement. The shape doesn't look that different from before, but the peak surface displacements near the fault are a bit higher. 
+And let's follow the same procedure as before, we'll solve for the surface displacement. The shape doesn't look that different from before, but the peak surface displacements near the fault are a bit higher.
 
 ```{code-cell} ipython3
+:tags: []
+
 qbx_p = 5
 # 1) Choose the expansion centers off the boundary.
 qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(topo, qr_topo, direction=1)
@@ -355,6 +384,8 @@ plt.show()
 ## Interior displacement under topography
 
 ```{code-cell} ipython3
+:tags: []
+
 nobs = 200
 zoomx = [-2.5, 2.5]
 zoomy = [-3.5, 1.5]
@@ -363,9 +394,11 @@ ys = np.linspace(*zoomy, nobs)
 obsx, obsy = np.meshgrid(xs, ys)
 ```
 
-And finally, we'll plot the displacement in the volume underneath the topography. Just like the in the flat case. To show the effect of both integral terms, I've separated out the topography integral term and the fault integral term in the plots. 
+And finally, we'll plot the displacement in the volume underneath the topography. Just like the in the flat case. To show the effect of both integral terms, I've separated out the topography integral term and the fault integral term in the plots.
 
 ```{code-cell} ipython3
+:tags: []
+
 disp_topo = interior_eval(
     double_layer_matrix,
     topo,
@@ -392,10 +425,12 @@ disp_fault = interior_eval(
 ```
 
 ```{code-cell} ipython3
+:tags: []
+
+levels = np.linspace(-0.5, 0.5, 21)
 plt.figure(figsize=(16, 6))
 plt.subplot(1, 3, 1)
-levels = np.linspace(-0.1, 0.1, 21)
-cntf = plt.contourf(obsx, obsy, disp_topo, levels=levels, extend="both")
+cntf = plt.contourf(obsx, obsy, disp_topo, levels=levels, extend="both", cmap="bwr")
 plt.contour(
     obsx,
     obsy,
@@ -408,16 +443,18 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.colorbar(cntf)
+plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
-plt.xlabel("$x$")
-plt.ylabel("$y$")
+plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
+plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
+plt.xlabel("$x \; \mathrm{(m)}$")
+plt.ylabel("$y \; \mathrm{(m)}$")
 plt.title("Surface displacement integral term")
 
 plt.subplot(1, 3, 2)
-levels = np.linspace(-0.5, 0.5, 21)
-cntf = plt.contourf(obsx, obsy, disp_fault, levels=levels, extend="both")
+cntf = plt.contourf(obsx, obsy, disp_fault, levels=levels, extend="both", cmap="bwr")
 plt.contour(
     obsx,
     obsy,
@@ -430,15 +467,18 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.colorbar(cntf)
+plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
-plt.xlabel("$x$")
+plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
+plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
+plt.xlabel("$x \; \mathrm{(m)}$")
+plt.ylabel("$y \; \mathrm{(m)}$")
 plt.title("Fault slip integral term")
 
 plt.subplot(1, 3, 3)
-levels = np.linspace(-0.5, 0.5, 21)
-cntf = plt.contourf(obsx, obsy, disp_topo + disp_fault, levels=levels, extend="both")
+cntf = plt.contourf(obsx, obsy, disp_topo + disp_fault, levels=levels, extend="both", cmap="bwr")
 plt.contour(
     obsx,
     obsy,
@@ -451,12 +491,20 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.colorbar(cntf)
+plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
-plt.xlabel("$x$")
+plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
+plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
+plt.xlabel("$x \; \mathrm{(m)}$")
+plt.ylabel("$y \; \mathrm{(m)}$")
 plt.title("Full displacement solution")
 
 plt.tight_layout()
 plt.show()
+```
+
+```{code-cell} ipython3
+
 ```
