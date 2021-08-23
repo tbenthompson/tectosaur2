@@ -31,6 +31,8 @@ At the moment, there are two sequences:
 
 ## Prerequisites
 
-The tutorials here are directed at a fairly experienced audience. Some prior knowledge and skills that would be helpful:
+The tutorials here are directed at a fairly experienced audience. Some prior knowledge and skills that will be necessary:
 * **Python skills**: particularly standard scientific Python tools like `numpy` and `matplotlib`. A lot of the code here is vectorized because it allows me to communicate the ideas more concisely while also having reasonably fast code. If you feel that your Python skills are weak, the tutorials here could be a decent way to learn. You might consider downloading the notebooks and running them yourself to explore.
 * **Applied math skills**: multi-variable calculus, basic partial differential equations, numerical linear algebra. Do you know what it means to "Use an LU decomposition to solve the linear system resulting from a finite difference discretization of the Poisson equation?" I'll try to provide references when I'm discussing more technical topics.
+
+It will also be helpful but not necessary to have some familiarity with earthquake and crustal deformation modeling because many of the examples are drawn from that field. Earthquake and Volcano deformation by Segall {cite:p}`segallEarthquakeVolcanoDeformation2010` is a good introduction and reference.
