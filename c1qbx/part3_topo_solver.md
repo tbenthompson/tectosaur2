@@ -5,21 +5,28 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.11.3
+    jupytext_version: 1.10.3
 kernelspec:
   display_name: Python 3
   language: python
   name: python3
 ---
 
-# [Draft] A strike slip fault underneath topography.
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+from config import setup, import_and_display_fnc
+setup()
+```
+
+# A strike slip fault underneath topography.
 
 ## Mathematical background
 Note that much of the discussion here parallels the discussion in [the section on solving topographic problems with TDEs](../tdes/sa_tdes.md).
 
 Last time we solved for the displacement and stress given slip on an infinitely long strike slip fault. This time, we'll make the problem more interesting (and a bit harder!) by adding in a free surface. First, we'll replicate classical solutions for the surface displacement on a half-space given slip on a fault. Then, we'll add in a topographic free surface and have some fun!
 
-Note that mathematicians may be uncomfortable with some of the statements here. If you feel that way, I'd recommend taking a look at an [integral equations textbook like Kress](https://www.springer.com/us/book/9781461495925).
+Note that mathematicians may be uncomfortable with the precision of some of the statements here. If you feel that way, I'd recommend taking a look at an [integral equations textbook like Kress](https://www.springer.com/us/book/9781461495925).
 
 Let's start with the integral equation for displacement resulting from slip on a crack/fault and displacement and traction on another arbitrary surface:
 
@@ -35,7 +42,11 @@ u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}
 
 So, this equation says that we can calculate displacement anywhere if we know displacement on $H$ and slip on $F$. But, we don't know the displacement on $H$! So, step one is going to be solving for the unknown displacement on the surface $H$. 
 
-To solve for surface displacement, intuitively, we need to reduce from two unknowns to one unknown in this equation. Currently we have both the unknown displacement on $H$ and the unknown displacement at an arbitrary point in the volume, $u(\mathbf{p})$. To remedy this situation, we will simply choose to only enforce the integral equation at boundary points $\mathbf{p} \in H$. This can be proven sufficient for the equation to hold everywhere and is the fundamental basis of boundary integral methodology. Because $u$ is now only evaluated on the boundary, this equation is solvable for $u(\mathbf{p})$ given $s$. 
+To solve for surface displacement, intuitively, we need to reduce from two unknowns to one unknown in this equation. Currently we have both the unknown displacement on $H$ and the unknown displacement at an arbitrary point in the volume, $u(\mathbf{p})$. To remedy this situation, we will simply choose to only enforce the integral equation at boundary points $\mathbf{p} \in H$. This can be proven sufficient for the equation to hold everywhere and is the fundamental basis of boundary value problems in potential theory and elastostatics. Because $u$ is now only evaluated on the boundary, this equation is solvable for $u(\mathbf{p})$ given $s$. 
+
+```{note}
+**Uniqueness**: In informal terms, the uniqueness theorems state that for a linear elastic boundary value problem, if we know displacement and traction on the boundary of the domain, then we can calculate displacement and traction everywhere in the volume. 
+```
 
 Re-arranging to put the unknown displacement on the left hand side: 
 \begin{equation}
@@ -58,11 +69,12 @@ where $\mathbf{A}$ and $\mathbf{B}$ are matrices representing the action of the 
 +++
 
 For the first section, we're going to reproduce analytical solutions for the displacement due to slip on a buried fault under a half space. That solution {cite:p}`segallEarthquakeVolcanoDeformation2010` is:
+
 \begin{equation}
 u_z = \frac{-s}{2\pi}\bigg[\tan^{-1}(\frac{x}{y + d_1}) - \tan^{-1}(\frac{x}{y - d_1}) - \tan^{-1}(\frac{x}{y + d_2}) + \tan^{-1}(\frac{x}{y - d_2}) \bigg]
 \end{equation}
 
-To start with the numerical implementation, we'll define two surfaces. Using the same convention as in previous sections, we'll return a tuple of `(x, y, normal_x, normal_y, jacobian)`. The `fault_fnc` function will define a fault extending from 0.5 units depth to 1.5 units depth and the `flat_fnc` function will define a free surface extending from -25 to 25 units along the x axis. 
+To start with the numerical implementation, we'll define two surfaces. The `fault_fnc` function will define a fault extending from 0.5 units depth to 1.5 units depth and the `flat_fnc` function will define a free surface extending from -25 to 25 units along the x axis. 
 
 Note that while we're trying to approximate a free surface, we won't attempt to actually have an infinite surface here. It will turn out that 25 units in both directions is enough to get a very good match with the analytical solution. If we truly wanted to model an infinite surface numerically, I could imagine achieving that via an adaptive quadrature method combined with something like [Gauss-Laguerre quadrature](https://en.wikipedia.org/wiki/Gauss%E2%80%93Laguerre_quadrature). I would enjoy trying that out some day! However, the goal here isn't to actually model an infinite domain. The Earth is not infinite! Instead, the goal is simply to demonstrate that our numerical methods work on an analytically tractable problem before moving on to problems that are not analytically intractable.
 
@@ -72,56 +84,32 @@ import matplotlib.pyplot as plt
 from common import (
     gauss_rule,
     double_layer_matrix,
-    qbx_choose_centers,
-    qbx_expand_matrix,
-    qbx_eval_matrix,
-    interaction_matrix,
-    interior_eval,
+    qbx_setup,
+    interior_matrix,
+    line
 )
 
-%config InlineBackend.figure_format='retina'
-
 fault_depth = 0.5
-
-
-def fault_fnc(q):
-    return 0 * q, q - 1 - fault_depth, np.ones_like(q), 0 * q, np.ones_like(q)
+def fault_fnc(n):
+    return line(n, (0, -0.5), (0, -2.5))
 
 
 surf_L = 25
-
-
-def flat_fnc(q):
-    return -surf_L * q, 0 * q, 0 * q, np.ones_like(q), np.full_like(q, surf_L)
+def flat_fnc(n):
+    return line(n, (surf_L, 0), (-surf_L, 0))
 ```
 
-And we'll define a slip function here on the unit interval. The slip is set up to taper to zero on both ends of the interval so that we don't accidentally introduce stress singularities into the model. If the slip at the end of the interval were non-zero, that would result in discontinuities in displacement and infinite strain and stresses. This is another place where we are making slightly different choices than the analytical solution which *does* include stress singularities.
-
-+++
-
-Conceptually, the $\mathbf{A}$ matrix is the interaction of the flat free surface with itself. Let's build that matrix first using the QBX tools from the last two sections. As mentioned, we won't need to do anything different for evaluating these integrals in the limit of the observation point being on the boundary. 
-
-The code will be a little bit different because we need to construct a matrix for arbitrary displacement fields whereas previously we already had a specific displacement field in mind.
+Conceptually, the $\mathbf{A}$ matrix is the interaction of the flat free surface with itself. Let's build that matrix first using the QBX tools from the last two sections. As mentioned, we won't need to do anything fundamentally different for evaluating these integrals in the limit of the observation point being on the boundary. In fact, because the observation surface and the source surface are the same, we can avoid a lot of the complexity in the `qbx_interior_eval_matrix` and `interior_matrix` functions. We'll create a new `self_interaction_matrix` function:
 
 ```{code-cell} ipython3
-qr_flat = gauss_rule(2000)
-flat = flat_fnc(qr_flat[0])
+import_and_display_fnc('common', 'self_interaction_matrix')
+```
 
-qbx_p = 5
-# Following the previous examples.
-# 1) Choose the expansion centers off the boundary.
-qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(flat, qr_flat, direction=1)
-# 2) Build a matrix that takes an input displacement
-qbx_expand_flat = qbx_expand_matrix(
-    double_layer_matrix, flat, qr_flat, qbx_center_x, qbx_center_y, qbx_r, qbx_p=qbx_p
-)
-# 3) Evaluate the QBX expansions for observation points on the boundary.
-# The first two arguments here are the x and y coordinates on the boundary.
-qbx_eval_flat = qbx_eval_matrix(
-    flat[0][None, :], flat[1][None, :], qbx_center_x, qbx_center_y, qbx_p=qbx_p
-)[0]
-# 4) Multiply the expansion and evaluation matrices to get the full boundary integral matrix.
-A = np.real(np.sum(qbx_eval_flat[:, None, :, None] * qbx_expand_flat, axis=2))[:, 0, :]
+```{code-cell} ipython3
+flat = flat_fnc(2000)
+
+flat_expansions = qbx_setup(flat, direction = 1.0, p = 5)
+A = self_interaction_matrix(double_layer_matrix, flat, flat_expansions)[0][:,0,:]
 ```
 
 For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directly perform the boundary integrals. This is because the observation points are sufficiently far away from the source fault surface that there are no nearly-singular or singular integrals. Note that we apply unit slip along the entire fault. In many models, this would be problematic because the fault tip displacement discontinuities introduce stress singularities into the model. However, for the sake of comparing with the analytical solution, we can accept the stress singularities for now. And because we are not evaluating stress near the fault, we don't need to worry about the issue. 
@@ -129,19 +117,27 @@ For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directl
 For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points.
 
 ```{code-cell} ipython3
-qr_fault = gauss_rule(25)
-fault = fault_fnc(qr_fault[0])
-
-B = -double_layer_matrix(fault, qr_fault, flat[0], flat[1])[:, 0, :]
-slip = np.ones_like(qr_fault[0])
-v = B.dot(slip)
+fault = fault_fnc(25)
+B = -double_layer_matrix(fault, flat.pts)[:, 0, :]
 ```
 
-And remembering the identity matrix term, we form the full left hand side as $\mathbf{I} + \mathbf{A}$. Then, solve the linear system for the unknown displacements!
+And remembering the identity matrix term, we form the full left hand side as $\mathbf{I} + \mathbf{A}$.
 
 ```{code-cell} ipython3
 lhs = np.eye(A.shape[0]) + A
-surf_disp = np.linalg.solve(lhs, v)
+```
+
+Then, apply unit slip along the entire fault to compute the right hand side.
+
+```{code-cell} ipython3
+slip = np.ones(fault.n_pts)
+rhs = B.dot(slip)
+```
+
+And finally solve the linear system for the unknown displacements!
+
+```{code-cell} ipython3
+surf_disp = np.linalg.solve(lhs, rhs)
 ```
 
 And let's compare with the analytical solution in the figures below. The match is quite good. Looking at the error figure, a couple things stand out:
@@ -155,23 +151,23 @@ analytical = (
     -s
     / (2 * np.pi)
     * (
-        np.arctan(flat[0] / (flat[1] + 2.5))
-        - np.arctan(flat[0] / (flat[1] - 2.5))
-        - np.arctan(flat[0] / (flat[1] + 0.5))
-        + np.arctan(flat[0] / (flat[1] - 0.5))
+        np.arctan(flat.pts[:,0] / (flat.pts[:,1] + 2.5))
+        - np.arctan(flat.pts[:,0] / (flat.pts[:,1] - 2.5))
+        - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + 0.5))
+        + np.arctan(flat.pts[:,0] / (flat.pts[:,1] - 0.5))
     )
 )
 
 plt.figure(figsize=(8, 4))
 plt.subplot(1, 2, 1)
-plt.plot(flat[0], surf_disp, 'k-')
-plt.plot(flat[0], analytical, 'b-')
+plt.plot(flat.pts[:,0], surf_disp, 'k-')
+plt.plot(flat.pts[:,0], analytical, 'b-')
 plt.xlabel("$x$")
 plt.ylabel("$u_z$")
 plt.title("Displacement")
 
 plt.subplot(1, 2, 2)
-plt.plot(flat[0], np.log10(np.abs(surf_disp - analytical)))
+plt.plot(flat.pts[:,0], np.log10(np.abs(surf_disp - analytical)))
 plt.xlabel("$x$")
 plt.ylabel("$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
 plt.title("Error")
@@ -245,7 +241,7 @@ plt.contour(
     levels=levels,
     extend="both",
 )
-plt.plot(flat[0], flat[1], "k-", linewidth=1.5)
+plt.plot(flat.pts[:,0], flat.pts[:,1], "k-", linewidth=1.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=1.5)
 # plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
 plt.fill(np.array([np.min(zoomx), np.max(zoomx), np.max(zoomx), np.min(zoomx)]), np.array([0, 0, np.max(zoomy), np.max(zoomy)]), "w", zorder=100)
@@ -367,7 +363,7 @@ lhs = np.eye(A.shape[0]) + A
 surf_disp_topo = np.linalg.solve(lhs, v)
 
 plt.plot(topo[0], surf_disp_topo, "k-", label="Topography")
-plt.plot(flat[0], surf_disp, "b-", label="Flat")
+plt.plot(flat.pts[:,0], surf_disp, "b-", label="Flat")
 plt.legend()
 plt.xlabel("$x$")
 plt.ylabel("$u_z$")
@@ -436,14 +432,15 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+fill_poly = np.append(topo[0], np.array([np.min(topo[0]), np.max(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]]))
+plt.fill(*fill_poly, "w", zorder=100)
 plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
 plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
-plt.xlabel("$x \; \mathrm{(m)}$")
-plt.ylabel("$y \; \mathrm{(m)}$")
+plt.xlabel("$x ~ \mathrm{(m)}$")
+plt.ylabel("$y ~ \mathrm{(m)}$")
 plt.title("Surface displacement integral term")
 
 plt.subplot(1, 3, 2)
@@ -460,14 +457,14 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.fill(*fill_poly, "w", zorder=100)
 plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
 plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
-plt.xlabel("$x \; \mathrm{(m)}$")
-plt.ylabel("$y \; \mathrm{(m)}$")
+plt.xlabel("$x ~ \mathrm{(m)}$")
+plt.ylabel("$y ~ \mathrm{(m)}$")
 plt.title("Fault slip integral term")
 
 plt.subplot(1, 3, 3)
@@ -484,20 +481,16 @@ plt.contour(
 )
 plt.plot(topo[0], topo[1], "k-", linewidth=2.5)
 plt.plot(fault[0], fault[1], "k-", linewidth=2.5)
-plt.fill(np.append(topo[0], np.array([np.max(topo[0]), np.min(topo[0])])), np.append(topo[1], np.array([zoomy[1], zoomy[1]])), "w", zorder=100)
+plt.fill(*fill_poly, "w", zorder=100)
 plt.colorbar(cntf, label="$u \; (m)$")
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.xticks(np.array([zoomx[0], 0, zoomx[1]]))
 plt.yticks(np.array([zoomy[0], -1, zoomy[1]]))
-plt.xlabel("$x \; \mathrm{(m)}$")
-plt.ylabel("$y \; \mathrm{(m)}$")
+plt.xlabel("$x ~ \mathrm{(m)}$")
+plt.ylabel("$y ~ \mathrm{(m)}$")
 plt.title("Full displacement solution")
 
 plt.tight_layout()
 plt.show()
-```
-
-```{code-cell} ipython3
-
 ```

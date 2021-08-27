@@ -17,6 +17,7 @@ parts:
     - file: c1qbx/part1_nearfield
     - file: c1qbx/part2_screw_dislocation
     - file: c1qbx/part3_topo_solver
+    - file: c1qbx/part4_viscoelastic
     # - file: c1qbx/solve_circle
     # - file: c1qbx/mms_circle
     # - file: c1qbx/box_code

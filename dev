@@ -6,7 +6,7 @@
 
 trap "kill 0" EXIT
 
-python -m http.server &> /dev/null &
+python -m http.server -d _build/html &> /dev/null &
 
 while true
 do

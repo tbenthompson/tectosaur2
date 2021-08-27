@@ -12,6 +12,13 @@ kernelspec:
   name: python3
 ---
 
+```{code-cell} ipython3
+:tags: [remove-cell]
+
+from config import setup, import_and_display_fnc
+setup()
+```
+
 # Near-field evaluation via quadrature by expansion (QBX). 
 
 ## An intro to QBX.
@@ -65,11 +72,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-%config InlineBackend.figure_format='retina'
-
 plt.figure(figsize=(8, 4))
-
-
 plt.subplot(1, 2, 1)
 theta = np.linspace(0, 2 * np.pi, 500)
 xsS = np.cos(theta) * (1.0 + 0.3 * np.sin(theta * 5))
@@ -165,31 +168,27 @@ Great, let's put together a simple implementation for the Laplace double layer p
 How easily do these double layer potential calculations extend to 2D plane-strain elasticity? Super easily. In fact, basically nothing needs to change except that we do everything four times, once for each component of the 2x2 tensor form of the equations! Extension to 3D elasticity is even more involved from a software and computational standpoint, but also does not require major algorithmic changes.
 ```
 
-First, we'll set up a few useful functions: a couple quadrature rules and a definition of the circular geometry we'll be using.
+First, we'll set up a few useful functions. We'll create a source surface/mesh out of circle evaluated the nodes of a trapezoidal quadrature rule.
 
 ```{code-cell} ipython3
 import numpy as np
 import scipy.linalg
 import matplotlib.pyplot as plt
-
-%matplotlib inline
-%config InlineBackend.figure_format='retina'
-
-# the n-point trapezoidal rule on [-1, 1], returns tuple of (points, weights)
-def trapezoidal_rule(n):
-    return np.linspace(-1.0, 1.0, n + 1)[:-1], np.full(n, 2.0 / n)
-
-
-# our simple curve functions will return (x, y, normal_x, normal_y, jacobian)
-# because the input quadrature rule is on the domain [-1, 1], the
-# jacobian of the transformation for a circle with radius 1 is
-# constant and equal to pi.
-def circle(quad_pts):
-    theta = np.pi * (quad_pts + 1)
-    x = np.cos(theta)
-    y = np.sin(theta)
-    return x, y, x, y, np.pi
 ```
+
+```{code-cell} ipython3
+:tags: [remove-input]
+
+import_and_display_fnc('common', 'trapezoidal_rule')
+import_and_display_fnc('common', 'Surface')
+import_and_display_fnc('common', 'circle')
+```
+
+```{margin}
+Functions and classes with "[Library]" in small print above are being imported from the library. I will include the implementation in the text the first time a function is used. In later notebooks, we will just import the function directly. To see the full library, take a look at `common.py`.
+```
+
++++
 
 The double layer potential takes the form of a standard boundary integral operator, where the specific form of $K(\mathbf{p}, \mathbf{q})$ can be found in the `double_layer_matrix` code below.
 
@@ -209,50 +208,40 @@ can be written in matrix form:
 \textbf{u} = \textbf{A} \textbf{b}
 \end{equation}
 
-where the matrix of interest is $A_{ij} = K(\mathbf{p}_i, \mathbf{q}_j)$. This function computes that matrix for $K(\mathbf{p}, \mathbf{q})$ as the dipole kernel of the Laplace equation or the "slip to displacement" kernel for antiplane elasticity! The function below builds this matrix!
+where the matrix of interest is $A_{ij} = K(\mathbf{p}_i, \mathbf{q}_j)$. This function computes that matrix for $K(\mathbf{p}, \mathbf{q})$ is known as the dipole kernel of the Laplace equation or the "slip to displacement" kernel for antiplane elasticity! The function below builds this matrix!
 
 ```{code-cell} ipython3
-def double_layer_matrix(surface, quad_rule, obsx, obsy):
-    srcx, srcy, srcnx, srcny, curve_jacobian = surface
+:tags: [remove-input]
 
-    dx = obsx[:, None] - srcx[None, :]
-    dy = obsy[:, None] - srcy[None, :]
-    r2 = dx ** 2 + dy ** 2
-
-    # The double layer potential
-    integrand = -1.0 / (2 * np.pi) * (dx * srcnx[None, :] + dy * srcny[None, :]) / r2
-
-    return integrand * curve_jacobian * quad_rule[1][None, :]
+import_and_display_fnc('common', 'double_layer_matrix')
 ```
 
 So, let's plot up what $u(\mathbf{p})$ looks like. For the rest of this section, we'll use the simple $\phi(\mathbf{q}) = q_y$ as the source function and use a circle as the surface $S$. In the next section, we'll explore some more interesting geometries and functions. Let's start by using a fairly low quadrature order, just 50 points on the whole circle.
 
 ```{code-cell} ipython3
+import_and_display_fnc('common', 'pts_grid')
+```
+
+```{code-cell} ipython3
 nobs = 100
 xs = np.linspace(-2, 2, nobs)
 ys = np.linspace(-2, 2, nobs)
-obsx, obsy = np.meshgrid(xs, ys)
+obs_pts = pts_grid(xs, ys)
 
-quad_rule_low = trapezoidal_rule(50)
-surface_low = circle(quad_rule_low[0])
+surface_low = circle(50)
 ```
 
 And this is the meat of the $\textbf{u} = \textbf{A}\textbf{b}$ calculation:
 
 ```{code-cell} ipython3
-A = double_layer_matrix(
-    surface=surface_low,
-    quad_rule=quad_rule_low,
-    obsx=obsx.flatten(),
-    obsy=obsy.flatten(),
-)
-phi = surface_low[1]  # phi = y_2
+A = double_layer_matrix(surface_low, obs_pts)
+phi = surface_low.pts[:, 1]  # phi = y_2
 u = A.dot(phi)  # u = Ab
-u = u.reshape(obsx.shape)
+u = u.reshape((nobs, nobs))
 ```
 
 ```{code-cell} ipython3
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 cntf = plt.contourf(xs, ys, u, levels=np.linspace(-0.5, 0.5, 11), extend="both")
 plt.contour(
     xs,
@@ -276,23 +265,19 @@ zoomx = [-1.6, -0.4]
 zoomy = [-0.6, 0.6]
 zoomxs = np.linspace(*zoomx, zoomnobs)
 zoomys = np.linspace(*zoomy, zoomnobs)
-zoomobsx, zoomobsy = np.meshgrid(zoomxs, zoomys)
+zoomobs_pts = pts_grid(zoomxs, zoomys)
+
 zoomu_low = (
-    double_layer_matrix(
-        surface_low, quad_rule_low, zoomobsx.flatten(), zoomobsy.flatten()
-    )
-    .dot(surface_low[1])
-    .reshape(zoomobsx.shape)
+    double_layer_matrix(surface_low, zoomobs_pts)
+    .dot(surface_low.pts[:,1])
+    .reshape((zoomnobs, zoomnobs))
 )
 
-quad_rule_high = trapezoidal_rule(2000)
-surface_high = circle(quad_rule_high[0])
+surface_high = circle(2000)
 zoomu_high = (
-    double_layer_matrix(
-        surface_high, quad_rule_high, zoomobsx.flatten(), zoomobsy.flatten()
-    )
-    .dot(surface_high[1])
-    .reshape(zoomobsx.shape)
+    double_layer_matrix(surface_high, zoomobs_pts)
+    .dot(surface_high.pts[:,1])
+    .reshape((zoomnobs, zoomnobs))
 )
 ```
 
@@ -312,7 +297,7 @@ plt.contour(
     levels=np.linspace(-0.2, 0.2, 11),
     extend="both",
 )
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
@@ -331,7 +316,7 @@ plt.contour(
     extend="both",
 )
 plt.colorbar(cntf)
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
@@ -352,7 +337,7 @@ plt.contour(
     extend="both",
 )
 plt.colorbar(cntf)
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.tight_layout()
@@ -371,19 +356,18 @@ qbx_center_x = -1.5
 qbx_center_y = 0.2
 ```
 
-So, we now need to compute the circular integrals for the coefficients. A rule of thumb is to use a trapezoid rule with $2p$ points.
+So, we now need to compute the circular integrals for the coefficients. A rule of thumb is to use a trapezoidal rule with $2p$ points.
 
 ```{code-cell} ipython3
 trap_x, trap_weights = trapezoidal_rule(2 * qbx_p)
 
 # transform the quadrature rule from [-1, 1] to [0, 2*pi]
 trap_theta = np.pi * (trap_x + 1)
-trap_weights *= (
-    np.pi
-)  # multiply the quadrature weights by the jacobian of the transformation
+# multiply the quadrature weights by the jacobian of the transformation
+trap_weights *= np.pi
 ```
 
-Our expansion center is approximately a distance of 0.5 from the boundary, so we our coefficient integrals are computed a distance of 0.25 from the expansion center (remember $\delta = 1/2$).
+Our expansion center is approximately a distance of 0.5 from the boundary, so our coefficient integrals are computed a distance of 0.25 from the expansion center (remember $\delta = 1/2$).
 
 ```{code-cell} ipython3
 qbx_delta_r = 0.25
@@ -395,7 +379,8 @@ qbx_y = qbx_delta_r * np.sin(trap_theta) + qbx_center_y
 Now, we need the value of $u(x)$ at the points `(qbx_x, qbx_y)`.
 
 ```{code-cell} ipython3
-qbx_u = double_layer_matrix(surface_low, quad_rule_low, qbx_x, qbx_y).dot(phi)
+qbx_xy = np.hstack((qbx_x[:,None], qbx_y[:,None]))
+qbx_u = double_layer_matrix(surface_low, qbx_xy).dot(phi)[:,0]
 ```
 
 And here we implement the coefficient integrals. This looks ugly, but it's a direct implementation of the discretized coefficient integrals where $\omega_i$ are the quadrature weights `trap_ws`
@@ -414,7 +399,7 @@ for L in range(qbx_p):
 We convert the expansion center and the observation points to be complex.
 
 ```{code-cell} ipython3
-zoom_complex = zoomobsx + zoomobsy * 1j
+zoom_complex = (zoomobs_pts[:,0] + zoomobs_pts[:,1] * 1j).reshape((zoomnobs, zoomnobs))
 qbx_center = qbx_center_x + qbx_center_y * 1j
 ```
 
@@ -444,7 +429,7 @@ plt.contour(
     levels=np.linspace(-0.2, 0.2, 11),
     extend="both",
 )
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
@@ -463,7 +448,7 @@ plt.contour(
     extend="both",
 )
 plt.colorbar(cntf)
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 
@@ -484,7 +469,7 @@ plt.contour(
     extend="both",
 )
 plt.colorbar(cntf)
-plt.plot(surface_low[0], surface_low[1], "k-", linewidth=1.5)
+plt.plot(surface_low.pts[:,0], surface_low.pts[:,1], "k-", linewidth=1.5)
 plt.xlim(zoomx)
 plt.ylim(zoomy)
 plt.tight_layout()
@@ -502,189 +487,25 @@ While what we did so far is a cool demonstration, it's not a practical implement
 
 It might make sense to skip to the end of this section and take a look at the figure generated to understand what the end goal is.
 
-First, I'll skim over the implementation of a couple functions that generalize and vectorize the code from above.
+First, I'll share the the implementation of a couple functions that generalize and vectorize the code from above. The docstring for `QBXExpansions` will hopefully provide a high-level overview of the structure of the code, separating the computation into setup, expansion and evaluation. Depending on how detailed of an understanding you want, please feel free to either read the implementation in detail or just stick to reading the docstrings. 
 
 ```{code-cell} ipython3
-def qbx_choose_centers(surface, quad_rule, mult=5.0, direction=1.0):
-    """
-    This function will produce expansion centers for QBX power series.
-    """
-    srcx, srcy, srcnx, srcny, curve_jacobian = surface
+:tags: [remove-input]
 
-    # The expansion center will be offset from the surface in the direction of
-    # (srcnx, srcny)
-    quad_pt_spacing = curve_jacobian * np.full_like(quad_rule[1], np.mean(quad_rule[1]))
-    qbx_r = mult * quad_pt_spacing
-    center_x = srcx + direction * qbx_r * srcnx
-    center_y = srcy + direction * qbx_r * srcny
-    return center_x, center_y, qbx_r
-
-
-def qbx_expand_matrix(surface, quad_rule, center_x, center_y, qbx_r, qbx_p=5):
-    """
-    This function will produce a matrix that computes the terms in the many QBX
-    expansions as a function of the source function.
-
-    We build the matrix for all the QBX expansion centers at once.
-    """
-    srcx, srcy, srcnx, srcny, curve_jacobian = surface
-
-    qbx_nq = 2 * qbx_p + 1
-    qbx_qx, qbx_qw = trapezoidal_rule(qbx_nq)
-    qbx_qw *= np.pi
-    qbx_theta = np.pi * (qbx_qx + 1)
-
-    # The coefficient integral points will have shape:
-    # (number of expansions, number of quadrature points).
-    qbx_eval_r = qbx_r * 0.5
-    qbx_x = center_x[:, None] + qbx_eval_r[:, None] * np.cos(qbx_theta)[None, :]
-    qbx_y = center_y[:, None] + qbx_eval_r[:, None] * np.sin(qbx_theta)[None, :]
-
-    qbx_u_matrix = double_layer_matrix(
-        surface, quad_rule, qbx_x.flatten(), qbx_y.flatten()
-    ).reshape((*qbx_x.shape, srcx.shape[0]))
-
-    # Compute the expansion coefficients in matrix form.
-    alpha = np.empty((center_x.shape[0], qbx_p, srcx.shape[0]), dtype=np.complex128)
-    for L in range(qbx_p):
-        C = 1.0 / (np.pi * (qbx_eval_r ** L))
-        if L == 0:
-            C /= 2.0
-        oscillatory = qbx_qw[None, :, None] * np.exp(-1j * L * qbx_theta)[None, :, None]
-        alpha[:, L, :] = C[:, None] * np.sum(qbx_u_matrix * oscillatory, axis=1)
-    return alpha
-
-
-def qbx_eval_matrix(obsx, obsy, center_x, center_y, qbx_p=5):
-    """
-    Given the expansion coefficients computed by the matrix from qbx_expand_matrix,
-    we want to evaluate the actual potential at a point. This function produces
-    a matrix that evaluates potential at (obsx, obsy) given expansions centered at
-    (center_x, center_y).
-
-    The form of the function should look very similar to the single-expansion case above.
-    """
-    obs_complex = obsx + obsy * 1j
-    qbx_center = center_x + center_y * 1j
-    sep = obs_complex - qbx_center[None, :]
-    out = np.empty((obsx.shape[0], obsx.shape[1], qbx_p), dtype=np.complex128)
-    for L in range(qbx_p):
-        out[:, :, L] = sep ** L
-    return out
+import_and_display_fnc('common', 'QBXExpansions')
+import_and_display_fnc('common', 'qbx_setup')
+import_and_display_fnc('common', 'qbx_expand_matrix')
+import_and_display_fnc('common', 'qbx_eval_matrix')
 ```
 
-Next up is the fun part. This function identifies which expansion center is closest the observation points and uses that expansion only when appropriate. See the inline comments!
+
+Next up is the fun part. This function identifies which expansion center to use for which observation points by finding which expansion is closest. And then we construct a QBX evaluation matrix to perform the evaluation. 
 
 ```{code-cell} ipython3
-from scipy.spatial import cKDTree
+:tags: [remove-input]
 
-
-def qbx_interior_eval(
-    surface,
-    quad_rule,
-    density,
-    obsx,
-    obsy,
-    qbx_center_x,
-    qbx_center_y,
-    qbx_r,
-    qbx_coeffs,
-):
-    """
-    Perform a full interior evaluation using naive calculation when acceptable
-    and using QBX when necessary.
-
-    Steps:
-    1) Use a KDTree to identify which QBX expansion center is closest to each
-       of the provided observation coordinates (obsx, obsy)
-    2) Determine if those points are close enough to the surface to justify using
-       QBX.
-    3) Construct a vectorized mapping between observation points and their
-       corresponding expansion center.
-    4) Compute the naive calculation where acceptable.
-    5) Compute the QBX calculation where necessary.
-    6) Combine the naive and QBX calculation!
-    """
-
-    # Step 1) Build a KDTree for doing nearest neighbor searches amongst the QBX centers
-    center_pts = np.array([qbx_center_x, qbx_center_y]).T
-    qbx_centers_tree = cKDTree(center_pts)
-
-    # And also for doing nearest neighbor searches on the source surface.
-    surface_pts = np.array([surface[0], surface[1]]).T
-    surface_tree = cKDTree(surface_pts)
-
-    lookup_pts = np.array([obsx.flatten(), obsy.flatten()]).T
-
-    # Step 2) Identify the distance to the closest expansion, which expansion that is,
-    # and the distance to the surface.
-    dist_to_expansion, closest_expansion = qbx_centers_tree.query(lookup_pts)
-    dist_to_surface, _ = surface_tree.query(lookup_pts)
-
-    # Only use QBX if the point is close enough to the surface and the point is
-    # close enough to its respective QBX expansion center To measure "close
-    # enough", we use qbx_r, which is the distance from the surface.
-    use_qbx = (dist_to_expansion < qbx_r[closest_expansion]) & (
-        dist_to_surface < qbx_r[closest_expansion]
-    )
-
-    # Step 3) This part is slightly complex. The vectorization in qbx_eval_matrix means
-    # that for each QBX center, we need to compute the same number of
-    # observation points. But, we have different numbers of observation points for
-    # each expansion. So, we pad the array for those expansions that have fewer
-    # corresponding observation points.
-    # To do this, we first find the maximum number of observation points
-    # for any expansion center. qbx_eval_pts is going to be the list of points
-    # for each expansion center. orig_pt_idxs is a mapping back to which indices
-    # those points correspond to in the original obsx and obsy input arrays.
-    # Because some expansion centers won't use the full n_max_per_qbx_center
-    # observation points, orig_pt_idxs equals -1 by default. This will be used
-    # later to identify which entries are valid and which are just
-    # padding/"vectorization junk".
-    # First, we identify which expansion centers are ever used, and how many times.
-    qbx_centers_used, center_counts = np.unique(
-        closest_expansion[use_qbx], return_counts=True
-    )
-    n_max_per_qbx_center = np.max(center_counts)
-    qbx_eval_pts = np.zeros((n_max_per_qbx_center, qbx_centers_used.shape[0], 2))
-    orig_pt_idxs = np.full(
-        (n_max_per_qbx_center, qbx_centers_used.shape[0]), -1, dtype=np.int32
-    )
-    for (i, c) in enumerate(qbx_centers_used):
-        # So, for each QBX center, we find the observation points that use it.
-        idxs = np.where((closest_expansion == c) & use_qbx)[0]
-        orig_pt_idxs[: idxs.shape[0], i] = idxs
-        qbx_eval_pts[: idxs.shape[0], i] = lookup_pts[
-            orig_pt_idxs[: idxs.shape[0], i], :
-        ]
-
-    # Step 4) Now, we get to actually computing integrals.  First, compute the brute
-    # force integral for every observation point. We'll just overwrite the ones
-    # using QBX next.
-    out = double_layer_matrix(
-        surface=surface, obsx=obsx.flatten(), obsy=obsy.flatten(), quad_rule=quad_rule
-    ).dot(density)
-
-    # Step 5) This is the matrix that maps from QBX coeffs to observation point
-    Q = qbx_eval_matrix(
-        qbx_eval_pts[:, :, 0],
-        qbx_eval_pts[:, :, 1],
-        qbx_center_x[qbx_centers_used],
-        qbx_center_y[qbx_centers_used],
-        qbx_p=qbx_coeffs.shape[1],
-    )
-
-    # And perform a summation over the terms in each QBX. axis=2 is the
-    # summation over the l index in the alpha expansion coefficients.
-    out_for_qbx_points = np.sum(
-        np.real(Q * qbx_coeffs[qbx_centers_used][None, :, :]), axis=2
-    )
-
-    # Step 6) Finally, use the QBX evaluation where appropriate. If orig_pt_idxs == -1,
-    # the entries are vectorization junk.
-    out[orig_pt_idxs[orig_pt_idxs >= 0]] = out_for_qbx_points[orig_pt_idxs >= 0]
-
-    return out.reshape(obsx.shape)
+import_and_display_fnc('common', 'interior_matrix')
+import_and_display_fnc('common', 'qbx_interior_eval_matrix')
 ```
 
 Whew. That was a challenge. If the code isn't making complete sense, I'd encourage you to try downloading the Jupyter notebook and stepping through line by line looking at the shapes of the various arrays. Vectorized code can be challenging.
@@ -693,36 +514,26 @@ The part below should look familiar. We're calculating a low and high order base
 
 ```{code-cell} ipython3
 n = 200
-quad_rule = trapezoidal_rule(n)
-surface = circle(quad_rule[0])
+surface = circle(n)
 
 nobs = 400
-
 zoomx = [0.75, 1.25]
 zoomy = [0.15, 0.65]
 xs = np.linspace(*zoomx, nobs)
 ys = np.linspace(*zoomy, nobs)
-obsx, obsy = np.meshgrid(xs, ys)
+obs_pts = pts_grid(xs, ys)
 
 bie_eval = (
-    double_layer_matrix(
-        surface=surface, obsx=obsx.flatten(), obsy=obsy.flatten(), quad_rule=quad_rule
-    )
-    .dot(surface[1])
-    .reshape(obsx.shape)
+    double_layer_matrix(surface, obs_pts)
+    .dot(surface.pts[:,1])
+    .reshape((nobs, nobs))
 )
 
-quad_rule_high = trapezoidal_rule(2000)
-surface_high = circle(quad_rule_high[0])
+surface_high = circle(2000)
 bie_eval_high = (
-    double_layer_matrix(
-        surface=surface_high,
-        obsx=obsx.flatten(),
-        obsy=obsy.flatten(),
-        quad_rule=quad_rule_high,
-    )
-    .dot(surface_high[1])
-    .reshape(obsx.shape)
+    double_layer_matrix(surface_high, obs_pts)
+    .dot(surface_high.pts[:,1])
+    .reshape((nobs, nobs))
 )
 ```
 
@@ -730,56 +541,34 @@ Now, we get into the meat of it. Using an 8th order QBX expansion, we'll create 
 
 Note that everything in this cell is independent of the observation points. We can re-use these expansion coefficients for many different sets of observation points.
 
-```{code-cell} ipython3
-qbx_p = 8
-qbx_center_x, qbx_center_y, qbx_r = qbx_choose_centers(
-    surface, quad_rule, mult=5.0, direction=1.0
-)
-Qexpand = qbx_expand_matrix(
-    surface, quad_rule, qbx_center_x, qbx_center_y, qbx_r, qbx_p=qbx_p
-)
-qbx_coeffs = Qexpand.dot(surface[1])
-```
++++
 
 And then compute $u(x)$ for every observation point. As we saw above, `qbx_interior_eval` will decide whether to use QBX or which expansion to use depending on where an observation point is located.
 
 ```{code-cell} ipython3
-bie_eval_full_qbx = qbx_interior_eval(
+expansions = qbx_setup(surface, mult=5.0, direction=1.0, p=8)
+
+bie_eval_full_qbx = interior_matrix(
+    double_layer_matrix,
     surface,
-    quad_rule,
-    surface[1],
-    obsx,
-    obsy,
-    qbx_center_x,
-    qbx_center_y,
-    qbx_r,
-    qbx_coeffs,
-)
+    obs_pts,
+    expansions
+)[:,0,:].dot(surface.pts[:,1]).reshape((nobs, nobs))
 ```
 
 We'll also create a second solution where we use just a single QBX center with index 14. This is nice just for demonstrating the the effect of a single expansion!
 
 ```{code-cell} ipython3
-Qexpand14 = qbx_expand_matrix(
+bie_eval_qbx14 = interior_matrix(
+    double_layer_matrix,
     surface,
-    quad_rule,
-    qbx_center_x[14:15],
-    qbx_center_y[14:15],
-    qbx_r[14:15],
-    qbx_p=qbx_p,
-)
-qbx_coeffs14 = Qexpand14.dot(surface[1])
-bie_eval_qbx14 = qbx_interior_eval(
-    surface,
-    quad_rule,
-    surface[1],
-    obsx,
-    obsy,
-    qbx_center_x[14:15],
-    qbx_center_y[14:15],
-    qbx_r[14:15],
-    qbx_coeffs14,
-)
+    obs_pts,
+    QBXExpansions(
+        expansions.pts[14:15],
+        expansions.r[14:15],
+        expansions.p
+    )
+)[:,0,:].dot(surface.pts[:,1]).reshape((nobs, nobs))
 ```
 
 ```{code-cell} ipython3
@@ -793,7 +582,7 @@ fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(16, 6))
 plt.subplot(1, 3, 1)
 logerror = np.log10(np.abs(bie_eval_high - bie_eval))
 logerror[np.isinf(logerror)] = -17.0
-plt.plot(surface[0], surface[1], "k-", linewidth=1.5)
+plt.plot(surface.pts[:,0], surface.pts[:,1], "k-", linewidth=1.5)
 error_levels = np.linspace(-9, 1, 11)
 cntf = plt.contourf(xs, ys, logerror, levels=error_levels, extend="both")
 plt.contour(
@@ -812,7 +601,7 @@ plt.ylim(zoomy)
 plt.subplot(1, 3, 2)
 logerror = np.log10(np.abs(bie_eval_high - bie_eval_qbx14))
 logerror[np.isinf(logerror)] = -17.0
-plt.plot(surface[0], surface[1], "k-", linewidth=1.5)
+plt.plot(surface.pts[:,0], surface.pts[:,1], "k-", linewidth=1.5)
 cntf = plt.contourf(xs, ys, logerror, levels=error_levels, extend="both")
 plt.contour(
     xs,
@@ -832,7 +621,7 @@ plt.gca().axes.yaxis.set_ticklabels([])
 plt.subplot(1, 3, 3)
 logerror = np.log10(np.abs(bie_eval_high - bie_eval_full_qbx))
 logerror[np.isinf(logerror)] = -17.0
-plt.plot(surface[0], surface[1], "k-", linewidth=1.5)
+plt.plot(surface.pts[:,0], surface.pts[:,1], "k-", linewidth=1.5)
 cntf = plt.contourf(xs, ys, logerror, levels=error_levels, extend="both")
 plt.contour(
     xs,
@@ -875,7 +664,7 @@ logerror[np.isinf(logerror)] = -17.0
 start_idx = 1
 end_idx = 50
 plt.figure(figsize=(6, 6))
-plt.plot(surface[0][1:50], surface[1][1:50], "k-", linewidth=1.5)
+plt.plot(surface.pts[1:50,0], surface.pts[1:50,1], "k-", linewidth=1.5)
 cntf = plt.contourf(xs, ys, logerror, levels=error_levels, extend="both")
 plt.contour(
     xs,

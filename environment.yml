@@ -25,6 +25,8 @@ dependencies:
   - ipdb
   - jupyterlab_code_formatter
   - quadpy
+  - jupyterlab-lsp
+  - python-lsp-server
   - pip:
     - jupyter-book >= 0.11
     - cutde #might want a development version!

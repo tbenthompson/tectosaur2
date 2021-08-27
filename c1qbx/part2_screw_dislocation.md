@@ -13,8 +13,10 @@ kernelspec:
 ---
 
 ```{code-cell} ipython3
-%load_ext autoreload
-%autoreload 2
+:tags: [remove-cell]
+
+from config import setup, import_and_display_fnc
+setup()
 ```
 
 # More quadrature by expansion (QBX) examples for the Laplace equation: fun with screw dislocations
@@ -43,15 +45,6 @@ Below, we're going to use QBX to compute the displacements and stresses resultin
 import warnings
 import numpy as np
 import matplotlib.pyplot as plt
-
-%matplotlib inline
-%config InlineBackend.figure_format='retina'
-```
-
-I've moved the functions we wrote in the previous part into `common.py`. We'll import them!
-
-```{code-cell} ipython3
-import common
 ```
 
 ## Barycentric Lagrange interpolation
@@ -64,17 +57,21 @@ To separate the two components, we'll interpolate points from a low order surfac
 
 To do this, it's going to be helpful to have some functions for polynomial interpolation! We'll use the `scipy.interpolate.BarycentricInterpolator` implementation of [barycentric Lagrange interpolation](https://people.maths.ox.ac.uk/trefethen/barycentric.pdf){cite:p}`Berrut2004`. I strongly recommend that paper if you've never run into barycentric Lagrange interpolation before!
 
-+++
-
-Below is a little check to make sure our interpolation snippet is working correctly. We interpolate $sin(5x)$ (plotted with a solid black line) on a grid of 7 points (blue dots) and plot the resulting approximate function (red dashes line). This isn't a rigorous check, but it seems like it's working! Convergence is very fast if we increase the interpolation order, but I've left out a demonstration of that.
+Since we're going to be integrating and interpolating functions on a finite interval, we'll use a Gaussian quadrature rule for doing the quadrature. As a result, we will be interpolating at the Gauss-Legendre points.
 
 ```{code-cell} ipython3
-from scipy.interpolate import BarycentricInterpolator
+import_and_display_fnc('common', 'gauss_rule')
+```
+
+Below is a little check to make sure our interpolation snippet is working correctly. We interpolate $sin(5x)$ (plotted with a solid black line) on a grid of 7 points (blue dots) and plot the resulting approximate function (red dashes line). This isn't a rigorous check, but it is working! Convergence is very fast if we increase the interpolation order, but I've left out a demonstration of that.
+
+```{code-cell} ipython3
+import scipy.interpolate
 
 # First, form the interpolating polynomial
-qx, _ = common.gauss_rule(7)
+qx, qw = gauss_rule(7)
 fqx = np.sin(5 * qx)
-I = BarycentricInterpolator(qx, fqx)
+I = scipy.interpolate.BarycentricInterpolator(qx, fqx)
 
 # Then, evaluate the polynomial at a bunch of points for plotting.
 xs = np.linspace(-1, 1, 200)
@@ -86,21 +83,11 @@ plt.plot(xs, np.sin(5 * xs), "k-")
 plt.show()
 ```
 
-Let's move this into a couple helper functions for interpolating functions and surface.
+Let's move this into a couple helper functions for interpolating functions and surfaces.
 
 ```{code-cell} ipython3
-def interp_fnc(f, in_xhat, out_xhat):
-    I = BarycentricInterpolator(in_xhat, f)
-    return I(out_xhat)
-
-
-def interp_surface(in_surf, in_xhat, out_xhat):
-    out = []
-    # So far, we've defined surfaces as five element tuples consisting of:
-    # (x, y, normal_x, normal_y, jacobian)
-    for f in in_surf[:5]:
-        out.append(interp_fnc(f, in_xhat, out_xhat))
-    return out
+import_and_display_fnc('common', 'interp_fnc')
+import_and_display_fnc('common', 'interp_surface')
 ```
 
 ## Hypersingular stress integrals
@@ -121,154 +108,133 @@ The hypersingular integral will computes $\sigma_{xz}$ for us given the source s
 As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section. 
 ```
 
-Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. (Add a foot note on weakly singular vs strongly singular vs hypersingular.). This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
+Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface. 
+
+```{note}
+A quick summary of the common types of singular integrand behavior:
+- **Weakly singular**: the integrand behaves like $O(log(r))$ in 2D. When we integrate a weakly singular integral over a surface, the integral is well-defined in the normal sense. 
+- **Strongly singular**: The double layer potential is strongly singular. The integrand behaves like $O(\frac{1}{r})$ in 2D. When we integrate a strongly singular integral over a surface, the integral must be defined in the Cauchy principal value sense. Otherwise, the integral is divergent (more or less equal to infinity). However, when the integral is computed as an interior limit, the value is well defined because no integral along the limiting path is ever actually singular. 
+- **Hypersingular**: The integrand behaves like $O(\frac{1}{r^2})$. The integral is so divergent that it's not even well-defined in the Cauchy principal value sense. Like strongly singular integrals, computing as an interior limit works out well.
+```
 
 ```{code-cell} ipython3
-def hypersingular_matrix(surface, quad_rule, obsx, obsy):
-    srcx, srcy, srcnx, srcny, curve_jacobian = surface
-
-    dx = obsx[:, None] - srcx[None, :]
-    dy = obsy[:, None] - srcy[None, :]
-    r2 = dx ** 2 + dy ** 2
-
-    A = 2 * (dx * srcnx[None, :] + dy * srcny[None, :]) / r2
-    C = 1.0 / (2 * np.pi * r2)
-    out = np.empty((obsx.shape[0], 2, surface[0].shape[0]))
-
-    # The definition of the hypersingular kernel.
-    # unscaled sigma_xz component
-    out[:, 0, :] = srcnx[None, :] - A * dx
-    # unscaled sigma_xz component
-    out[:, 1, :] = srcny[None, :] - A * dy
-
-    # multiply by the scaling factor, jacobian and quadrature weights
-    return out * (C * (curve_jacobian * quad_rule[1][None, :]))[:, None, :]
+import_and_display_fnc('common', 'hypersingular_matrix')
 ```
 
 ```{margin}
-By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You can just imagine that we're solving a nondimensionalized version of the problem. This is quite common because scaling the displacement and stress to lie in a similar range of values can improve the numerical condition of some problems. 
+By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You can just imagine that we're solving a nondimensionalized version of the problem. This is quite common because scaling the displacement and stress to lie in a similar range of values can improve the numerical conditioning of some problems. 
 ```
 
-Finally, I'll write a pretty big function that is going to produce nice figures for comparing QBX against a naive computation. The function is written to be independent of the surface and kernel function. It also accepts QBX parameters. As a reminder, `offset_mult` is a multiplier for how far off the surface the QBX expansion centers are placed. `kappa` is the upsampling rate in case we want to use a higher order quadrature for computing QBX coefficients than for representing the surface. And `qbx_p` is the order of the power series expansion. Please look through the function! Very little is new compared to section 1.
++++
+
+## Symbolic surfaces
+
++++
+
+For testing purposes, it's nice to have some tools for creating a range of interesting surface. Here, I'll put together a `symbolic_surface` function that allows defining a surface via a symbolic, parameterized form. Then, the discretized points, normals and jacobians are automatically computed. 
 
 ```{code-cell} ipython3
-def interior_eval(
-    kernel,
-    src_surface,
-    src_quad_rule,
-    src_slip,
-    obsx,
-    obsy,
-    offset_mult,
-    kappa,
-    qbx_p,
-    visualize_centers=False,
-):
-    n_qbx = src_surface[0].shape[0] * kappa
-    quad_rule_qbx = common.gauss_rule(n_qbx)
-    surface_qbx = common.interp_surface(src_surface, src_quad_rule[0], quad_rule_qbx[0])
-    slip_qbx = common.interp_fnc(src_slip, src_quad_rule[0], quad_rule_qbx[0])
+import_and_display_fnc('common', 'discretize_symbolic_surface')
+import_and_display_fnc('common', 'symbolic_eval')
+```
 
-    # This is new! We'll have two sets of QBX expansion centers on each side
-    # of the surface. The direction parameter simply multiplies the surface
-    # offset. So, -1 put the expansion the same distance on the other side
-    # of the surface.
-    qbx_center_x1, qbx_center_y1, qbx_r1 = common.qbx_choose_centers(
-        src_surface, src_quad_rule, mult=offset_mult, direction=1.0
-    )
-    qbx_center_x2, qbx_center_y2, qbx_r2 = common.qbx_choose_centers(
-        src_surface, src_quad_rule, mult=offset_mult, direction=-1.0
-    )
-    qbx_center_x = np.concatenate([qbx_center_x1, qbx_center_x2])
-    qbx_center_y = np.concatenate([qbx_center_y1, qbx_center_y2])
-    qbx_r = np.concatenate([qbx_r1, qbx_r2])
+Let's try this out with a simple curve:
+\begin{align}
+x &= t\\
+y &= \cos(t)
+\end{align}
+Below, I will call our `discretize_symbolic_surface` function and then plot the surface along with the normal vectors. The normal vectors will be colored to show the determinant of the Jacobian. We can see that the Jacobian is slightly larger at the ends of the surface than the middle.
 
-    if visualize_centers:
-        plt.plot(surface_qbx[0], surface_qbx[1], "k-")
-        plt.plot(qbx_center_x, qbx_center_y, "r.")
-        plt.show()
+```{code-cell} ipython3
+import sympy as sp
+plt.figure(figsize=(6, 2))
+qx, qw = gauss_rule(8)
+sp_t = sp.var('t')
 
-    Qexpand = common.qbx_expand_matrix(
-        kernel,
-        surface_qbx,
-        quad_rule_qbx,
-        qbx_center_x,
-        qbx_center_y,
-        qbx_r,
-        qbx_p=qbx_p,
-    )
-    qbx_coeffs = Qexpand.dot(slip_qbx)
-    out = common.qbx_interior_eval(
-        kernel,
-        src_surface,
-        src_quad_rule,
-        src_slip,
-        obsx,
-        obsy,
-        qbx_center_x,
-        qbx_center_y,
-        qbx_r,
-        qbx_coeffs,
-    )
-    return out
+# The definition of the parameterized surface.
+x = sp_t
+y = sp.cos(sp_t)
 
+# Convert into a discretized surface. 
+S = discretize_symbolic_surface(qx, qw, sp_t, x, y)
 
+plt.plot(S.pts[:,0], S.pts[:,1])
+plt.quiver(S.pts[:,0], S.pts[:,1], S.normals[:,0], S.normals[:,1], S.jacobians, scale=20, cmap='coolwarm')
+plt.axis('equal')
+plt.colorbar()
+plt.show()
+```
+
+## General purpose interior evaluation
+
++++
+
+Next, I'm going to combine the ideas of the last section into a single function that will calculate a surface integral for an arbitrary set of observation points. To be precise, we will compute:
+
+\begin{equation}
+f(x) = \int_{S} K(x, y) \phi(y) 
+\end{equation}
+
+where $x$ corresponds to `obs_pts`, $S$ corresponds to `surface`, $K(x,y)$ corresponds to `kernel`, and $\phi(y)$ corresponds to `density`.
+
++++
+
+Finally, I'll write a pretty big function that is going to produce nice figures for comparing QBX against a naive computation. The function is written to be independent of the surface and kernel function. It also accepts QBX parameters. As a reminder, `offset_mult` is a multiplier for how far off the surface the QBX expansion centers are placed. `kappa` is the upsampling rate in case we want to use a higher order quadrature for computing QBX coefficients than for representing the surface. And `qbx_p` is the order of the power series expansion. Please look through the function! Very little is new compared to the previous section. We're just applying the tools we've already built.
+
+```{code-cell} ipython3
+from common import double_layer_matrix, pts_grid, qbx_setup, interior_matrix
+```
+
+```{code-cell} ipython3
 def qbx_example(
     kernel, surface_fnc, n, offset_mult, kappa, qbx_p, vmin=None, vmax=None
 ):
     def slip_fnc(xhat):
-        # This must be zero at the endpoints!
+        # This must be zero at the endpoints for potential gradient to be finite.
         return np.cos(xhat * np.pi) + 1.0
 
-    quad_rule_low = common.gauss_rule(n)
-    surface_low = surface_fnc(quad_rule_low[0])
-    slip_low = slip_fnc(surface_low[0])
+    surface_low = surface_fnc(n)
+    slip_low = slip_fnc(surface_low.quad_pts)
 
     nobs = 400
     zoomx = [-1.5, 1.5]
     zoomy = [-1.5, 1.5]
     xs = np.linspace(*zoomx, nobs)
     ys = np.linspace(*zoomy, nobs)
-    obsx, obsy = np.meshgrid(xs, ys)
+    obs_pts = pts_grid(xs, ys)
 
     low_vals = (
-        kernel(
-            surface=surface_low,
-            obsx=obsx.flatten(),
-            obsy=obsy.flatten(),
-            quad_rule=quad_rule_low,
-        )
+        kernel(surface_low, obs_pts)
         .dot(slip_low)[:, 0]
-        .reshape(obsx.shape)
+        .reshape((nobs, nobs))
     )
 
-    n = 2000
-    quad_rule_high = common.gauss_rule(n)
-    surface_high = interp_surface(surface_low, quad_rule_low[0], quad_rule_high[0])
-    slip_high = interp_fnc(slip_low, quad_rule_low[0], quad_rule_high[0])
+    quad_rule_high = gauss_rule(2000)
+    surface_high = interp_surface(surface_low, *quad_rule_high)
+    slip_high = interp_fnc(slip_low, surface_low.quad_pts, quad_rule_high[0])
     high_vals = (
-        kernel(
-            surface=surface_high,
-            obsx=obsx.flatten(),
-            obsy=obsy.flatten(),
-            quad_rule=quad_rule_high,
-        )
+        kernel(surface_high, obs_pts)
         .dot(slip_high)[:, 0]
-        .reshape(obsx.shape)
+        .reshape((nobs, nobs))
     )
 
-    qbx_vals = interior_eval(
+    expansions = qbx_setup(surface_low, mult=offset_mult, p=qbx_p)
+    
+    qbx_quad_pts, qbx_quad_wts = gauss_rule(n * kappa)
+    surface_qbx = interp_surface(surface_low, qbx_quad_pts, qbx_quad_wts)
+    slip_qbx = interp_fnc(slip_low, surface_low.quad_pts, qbx_quad_pts)
+    
+    plt.figure()
+    plt.plot(surface_qbx.pts[:,0], surface_qbx.pts[:,1], "k-")
+    plt.plot(expansions.pts[:,0], expansions.pts[:,1], "r.")
+    plt.show()
+    
+    qbx_vals = interior_matrix(
         kernel,
-        surface_low,
-        quad_rule_low,
-        slip_low,
-        obsx,
-        obsy,
-        offset_mult,
-        kappa,
-        qbx_p,
-        visualize_centers=True,
-    )[:, :, 0]
+        surface_qbx,
+        obs_pts,
+        expansions
+    ).dot(slip_qbx)[:,0].reshape((nobs, nobs))
 
     if vmin is None:
         vmin = -1.0
@@ -276,6 +242,9 @@ def qbx_example(
         vmax = 1.0
     levels = np.linspace(vmin, vmax, 16)
 
+    obsx = obs_pts[:,0].reshape((nobs, nobs))
+    obsy = obs_pts[:,1].reshape((nobs, nobs))
+    
     plt.figure(figsize=(16, 12))
     plt.subplot(2, 3, 1)
     plt.title("Naive solution")
@@ -290,7 +259,7 @@ def qbx_example(
         levels=levels,
         extend="both",
     )
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
@@ -308,7 +277,7 @@ def qbx_example(
         extend="both",
     )
     plt.colorbar(cntf)
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
@@ -332,8 +301,8 @@ def qbx_example(
         extend="both",
     )
     cb = plt.colorbar(cntf)
-    cb.set_label("$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{naive}}|)$", fontsize=14)
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    cb.set_label(r"$\log_{10}(|\hat{u} - \hat{u}_{\textrm{naive}}|)$", fontsize=14)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
     plt.tight_layout()
@@ -351,7 +320,7 @@ def qbx_example(
         levels=levels,
         extend="both",
     )
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
@@ -369,7 +338,7 @@ def qbx_example(
         extend="both",
     )
     plt.colorbar(cntf)
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
 
@@ -393,8 +362,8 @@ def qbx_example(
         extend="both",
     )
     cb = plt.colorbar(cntf)
-    cb.set_label("$\log_{10}(|\hat{u} - \hat{u}_{\\textrm{QBX}}|)$", fontsize=14)
-    plt.plot(surface_high[0], surface_high[1], "k-", linewidth=1.5)
+    cb.set_label(r"$\log_{10}(|\hat{u} - \hat{u}_{\textrm{QBX}}|)$", fontsize=14)
+    plt.plot(surface_high.pts[:,0], surface_high.pts[:,1], "k-", linewidth=1.5)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
     plt.tight_layout()
@@ -410,14 +379,13 @@ For each plot, there will be a geometry summary that's just a black line showing
 Then, we'll plot three solutions: the naive solution, a high accuracy naive solution (from 2000 points) and a QBX solution. We'll also plot the $\log_{10}$ error for both the naive and QBX solutions.
 
 ```{code-cell} ipython3
-def line(q):
-    # Remember the surface tuple format is:
-    # (coord_x, coord_y, normal_x, normal_y, jacobian)
-    return q, 0 * q, 0 * q, np.ones_like(q), np.ones_like(q)
-
+def line(n):
+    qx, qw = gauss_rule(n)
+    sp_t = sp.var('t')
+    return discretize_symbolic_surface(qx, qw, sp_t, sp_t, 0 * sp_t)
 
 qbx_example(
-    common.double_layer_matrix, surface_fnc=line, n=16, offset_mult=5, kappa=3, qbx_p=15
+    double_layer_matrix, surface_fnc=line, n=16, offset_mult=8, kappa=3, qbx_p=15
 )
 ```
 
@@ -425,25 +393,23 @@ qbx_example(
 
 ```{code-cell} ipython3
 qbx_example(
-    hypersingular_matrix, surface_fnc=line, n=32, offset_mult=5, kappa=5, qbx_p=15
+    hypersingular_matrix, surface_fnc=line, n=32, offset_mult=8, kappa=5, qbx_p=15
 )
 ```
 
 ## Displacement from an arc source
 
 ```{code-cell} ipython3
-def arc(q):
-    t = 0.5 * np.pi * q + 0.5 * np.pi
-    x = np.cos(t)
-    y = np.sin(t)
-    nx = x.copy()
-    ny = y.copy()
-    y -= np.mean(y)
-    return x, y, nx, ny, np.full_like(x, 0.5 * np.pi)
-
+def arc(n):
+    qx, qw = gauss_rule(n)
+    sp_t = sp.var('t')
+    theta = 0.5 * sp_t * sp.pi + 0.5 * sp.pi
+    x = sp.cos(theta)
+    y = sp.sin(theta) - 0.5
+    return discretize_symbolic_surface(qx, qw, sp_t, x, y)
 
 qbx_example(
-    common.double_layer_matrix, surface_fnc=arc, n=16, offset_mult=4, kappa=3, qbx_p=20
+    double_layer_matrix, surface_fnc=arc, n=16, offset_mult=8, kappa=3, qbx_p=20
 )
 ```
 
@@ -451,30 +417,26 @@ qbx_example(
 
 ```{code-cell} ipython3
 qbx_example(
-    hypersingular_matrix, surface_fnc=arc, n=32, offset_mult=4, kappa=5, qbx_p=20
+    hypersingular_matrix, surface_fnc=arc, n=32, offset_mult=8, kappa=5, qbx_p=20
 )
 ```
 
 ## Displacement from a challenging wavy source
 
 ```{code-cell} ipython3
-def wavy(q):
-    t = (q + 1) * 2 * np.pi
-    x, y = q, np.sin(t)
-
-    dxdt = 1.0
-    dydt = np.cos(t)
-    ddt_norm = np.sqrt(dxdt ** 2 + dydt ** 2)
-    dxdt /= ddt_norm
-    dydt /= ddt_norm
-    return x, y, dydt, -dxdt, 2 * np.pi * ddt_norm
-
+def wavy(n):
+    qx, qw = gauss_rule(n)
+    
+    sp_t = sp.var('t')
+    x, y = sp_t, sp.sin((sp_t + 1) * 2 * sp.pi)
+    
+    return discretize_symbolic_surface(qx, qw, sp_t, x, y)
 
 qbx_example(
-    common.double_layer_matrix,
+    double_layer_matrix,
     surface_fnc=wavy,
     n=256,
-    offset_mult=2.5,
+    offset_mult=5.0,
     kappa=5,
     qbx_p=15,
 )
@@ -484,6 +446,6 @@ qbx_example(
 
 ```{code-cell} ipython3
 qbx_example(
-    hypersingular_matrix, surface_fnc=wavy, n=256, offset_mult=2.5, kappa=5, qbx_p=15
+    hypersingular_matrix, surface_fnc=wavy, n=256, offset_mult=5, kappa=5, qbx_p=15
 )
 ```
