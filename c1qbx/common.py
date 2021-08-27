@@ -90,7 +90,7 @@ def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
     return (kernel.dot(fnc_vals)) / np.sum(kernel, axis=1)
 
 
-def interp_fnc(f, in_xhat, out_xhat):
+def build_interpolator(in_xhat):
     """
     Interpolate the function f(in_xhat) at the values f(out_xhat).
 
@@ -101,28 +101,60 @@ def interp_fnc(f, in_xhat, out_xhat):
     Note that the in_xhat ordering is randomly permuted. This is a simple trick
     to improve numerical stability. A PR has been merged to scipy to implement
     this permutation within scipy.interpolate.BarycentricInterpolator but the new
-    functionality has not yet been released.
+    functionality has not yet been released. The Cinv scaling is also included
+    in the PR.
     """
     permutation = np.random.permutation(in_xhat.shape[0])
     permuted_in_xhat = in_xhat[permutation]
     C = (np.max(permuted_in_xhat) - np.min(permuted_in_xhat)) / 4.0
     Cinv = 1.0 / C
     I = scipy.interpolate.BarycentricInterpolator(
-        Cinv * permuted_in_xhat, f[permutation]
+        Cinv * permuted_in_xhat, np.zeros_like(in_xhat)
     )
-    return I(Cinv * out_xhat)
+    I.Cinv = Cinv
+    I.permutation = permutation
+    return I
+
+def interp_fnc(interpolator, f, out_xhat):
+    interpolator.set_yi(f[interpolator.permutation])
+    return interpolator(interpolator.Cinv * out_xhat)
+
+def interp_matrix(interpolator, out_xhat):
+    # This code is based on the code in
+    # scipy.interpolate.BarycentricInterpolator._evaluate but modified to
+    # construct a matrix.
+    dist = (interpolator.Cinv * out_xhat[:,None]) - interpolator.xi
+
+    # Remove zeros so we don't divide by zero.
+    z = (dist == 0)
+    dist[z] = 1
+
+    # The barycentric interpolation formula
+    dist = interpolator.wi / dist
+    interp_matrix = dist / np.sum(dist, axis=-1)[:,None]
+
+    # Handle points where out_xhat is in an entry in interpolator.xi
+    r = np.nonzero(z)
+    interp_matrix[r[:-1]] = 0
+    interp_matrix[r[:-1], r[-1]] = 1.0
+
+    # Invert the permutation so that the matrix can be used without extra knowledge
+    inv_permutation = np.empty_like(interpolator.permutation)
+    inv_permutation[interpolator.permutation] = np.arange(inv_permutation.shape[0])
+    return interp_matrix[:, inv_permutation]
 
 
 def interp_surface(in_surf, out_quad_pts, out_quad_wts):
     """
     Interpolate each component of a surface: the pts, normals and jacobians
     """
+    interpolator = build_interpolator(in_surf.quad_pts)
     return Surface(
         out_quad_pts,
         out_quad_wts,
-        interp_fnc(in_surf.pts, in_surf.quad_pts, out_quad_pts),
-        interp_fnc(in_surf.normals, in_surf.quad_pts, out_quad_pts),
-        interp_fnc(in_surf.jacobians, in_surf.quad_pts, out_quad_pts),
+        interp_fnc(interpolator, in_surf.pts, out_quad_pts),
+        interp_fnc(interpolator, in_surf.normals, out_quad_pts),
+        interp_fnc(interpolator, in_surf.jacobians, out_quad_pts),
     )
 
 
@@ -214,7 +246,7 @@ def adjoint_double_layer_matrix(source, obs_pts):
     C = -1.0 / (2 * np.pi * r2)
 
     # multiply by the scaling factor, jacobian and quadrature weights
-    return out * (C * (curve_jacobian * quad_rule[1][None, :]))[:, None, :]
+    return out * (C * (source.jacobians * source.quad_wts[None, :]))[:, None, :]
 
 
 def hypersingular_matrix(source, obs_pts):
@@ -296,10 +328,17 @@ def qbx_setup(source, mult=5.0, direction=0, p=5):
 
     `p`: The order of QBX expansion.
     """
+
     # We want the expansion to be further away when the surface points are far
     # from each other and closer when the surface points are close to each
-    # other. Scaling by the local jacobian achieves this.
-    r = mult * source.jacobians / source.n_pts
+    # other. Scaling by the local jacobian divided by the number of points
+    # achieves this. The factor of 0.5 comes in because the quadrature domain
+    # is [-1, 1] which has a total length of 2.0 and our goal is essentially to
+    # determine how much of that domain each point consumes.
+    #
+    # NOTE: This is just a heuristic and more complex ways of choosing r might
+    # be justified in more complex situations.
+    r = mult * source.jacobians / (source.n_pts / 2.0)
 
     if direction == 0:
         centers1 = source.pts + r[:, None] * source.normals
@@ -494,8 +533,8 @@ def interior_matrix(kernel, source, obs_pts, expansions):
     return out
 
 
-def self_interaction_matrix(kernel, surface, expansions):
-    expand_mat = qbx_expand_matrix(kernel, surface, expansions)
-    eval_mat = qbx_eval_matrix(surface.pts[None,:], expansions)[0]
+def self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
+    expand_mat = qbx_expand_matrix(kernel, src_surface, expansions)
+    eval_mat = qbx_eval_matrix(obs_surface.pts[None,:], expansions)[0]
     I = np.real(np.sum(eval_mat[:, None, :, None] * expand_mat, axis=2))
     return I, expand_mat, eval_mat

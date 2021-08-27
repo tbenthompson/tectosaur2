@@ -93,9 +93,8 @@ from common import (
     pts_grid
 )
 
-fault_depth = 0.5
 def fault_fnc(n):
-    return line(n, (0, -0.5), (0, -2.5))
+    return line(n, (0, -0.0), (0, -2.5))
 
 
 surf_L = 25
@@ -111,12 +110,121 @@ import_and_display_fnc('common', 'interp_matrix')
 ```
 
 ```{code-cell} ipython3
-flat = flat_fnc(1000)
-flat_interp = interp_surface(flat, *gauss_rule(2 * flat.n_pts))
+from common import Surface
+```
 
+```{code-cell} ipython3
+n_segments = 1
+segment_start = 0
+segments = []
+for i in range(n_segments):
+    segment_end = segment_start + 5.0 * (1.3 ** i)
+    segments.append((segment_start, segment_end))
+    segment_start = segment_end
+
+raw_quad_pts = []
+raw_quad_wts = []
+qx, qw = gauss_rule(250)
+for i in range(len(segments)):
+    width = segments[i][1] - segments[i][0]
+    qx_transformed = segments[i][0] + ((qx + 1) * 0.5) * width
+    qw_transformed = qw / 2.0 * width
+    raw_quad_pts.append(qx_transformed)
+    raw_quad_wts.append(qw_transformed)
+
+half_quad_pts = np.concatenate(raw_quad_pts) / segments[-1][1]
+half_quad_wts = np.concatenate(raw_quad_wts) / segments[-1][1]
+
+quad_pts = np.concatenate((-half_quad_pts[::-1], half_quad_pts))
+quad_wts = np.concatenate((half_quad_wts[::-1], half_quad_wts))
+```
+
+```{code-cell} ipython3
+plt.plot(quad_pts * segments[-1][1])
+plt.show()
+```
+
+```{code-cell} ipython3
+import sympy as sp
+t = sp.var('t')
+widths = []
+surfs = []
+for i in range(n_segments):
+    width = (segments[i][1] - segments[i][0])
+    widths.insert(0, width)
+    widths.append(width)
+    
+    x = segments[i][1] - (t + 1) * 0.5 * width
+    surfs.insert(0, discretize_symbolic_surface(qx, qw, t, x, 0 * t))
+    
+    x = -segments[i][0] - (t + 1) * 0.5 * width
+    surfs.append(discretize_symbolic_surface(qx, qw, t, x, 0 * t))
+
+interp_surfs = []
+interp_mats = []
+for s in surfs:
+    kappa = 2
+    if np.any(s.pts[:,0] < 0.1):
+        kappa = 10
+    si = interp_surface(s, *gauss_rule(kappa * s.n_pts))
+    Im = interp_matrix(build_interpolator(s.quad_pts), si.quad_pts)
+    interp_surfs.append(si)
+    interp_mats.append(Im)
+```
+
+```{code-cell} ipython3
+flat = Surface(
+    np.concatenate([s.pts[:,0] for s in surfs]),
+    np.concatenate([s.quad_wts * w * 0.5 for w, s in zip(widths, surfs)]) / segments[-1][1],
+    np.concatenate([s.pts for s in surfs]),
+    np.concatenate([s.normals for s in surfs]),
+    np.concatenate([s.jacobians * 2 / w for w,s in zip(widths, surfs)]) * segments[-1][1]
+)
+
+flat_interp = Surface(
+    np.concatenate([s.pts[:,0] for s in interp_surfs]),
+    np.concatenate([s.quad_wts * w * 0.5 for w, s in zip(widths, interp_surfs)]) / segments[-1][1],
+    np.concatenate([s.pts for s in interp_surfs]),
+    np.concatenate([s.normals for s in interp_surfs]),
+    np.concatenate([s.jacobians * 2 / w for w,s in zip(widths, interp_surfs)]) * segments[-1][1]
+)
+
+np.sum(flat.quad_wts), np.sum(flat_interp.quad_wts)
+```
+
+```{code-cell} ipython3
+plt.plot(flat.pts[:,0])
+plt.show()
+plt.plot(flat_interp.pts[:,0])
+plt.show()
+```
+
+```{code-cell} ipython3
+Im = np.zeros((flat_interp.n_pts, flat.n_pts))
+```
+
+```{code-cell} ipython3
+for i in range(len(surfs)):
+    Im[i * interp_surfs[0].n_pts:(i+1)*interp_surfs[0].n_pts,i*surfs[0].n_pts:(i+1)*surfs[0].n_pts] = interp_mats[i]
+```
+
+```{code-cell} ipython3
 flat_expansions = qbx_setup(flat, mult=5.0, direction=1, p=6)
+
+#bad = np.abs(flat_expansions.pts[:,0]) < 0.1
+#flat_expansions.pts[bad,0] += np.sign(flat_expansions.pts[bad,0]) * 0.05
+# xv = flat_expansions.pts[bad,0].copy()
+# flat_expansions.pts[bad,0] += 10 * xv
+# flat_expansions.pts[bad,1] = -0.02 - 10 * np.abs(xv)
+
+plt.plot(flat_expansions.pts[bad,0], flat_expansions.pts[bad,1], '.')
+plt.xlim([-0.1,0.1])
+plt.ylim([-0.2,0.0])
+plt.show()
+```
+
+```{code-cell} ipython3
 A_raw = self_interaction_matrix(double_layer_matrix, flat, flat_interp, flat_expansions)[0][:,0,:]
-Im = interp_matrix(build_interpolator(flat.quad_pts), flat_interp.quad_pts)
 A = A_raw.dot(Im)
 ```
 
@@ -125,8 +233,18 @@ For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directl
 For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points.
 
 ```{code-cell} ipython3
-fault = fault_fnc(25)
+fault = fault_fnc(500)
 B = -double_layer_matrix(fault, flat.pts)[:, 0, :]
+```
+
+```{code-cell} ipython3
+fault_expansions = qbx_setup(fault, mult=5.0)
+B = -interior_matrix(
+    double_layer_matrix,
+    fault,
+    flat.pts,
+    flat_expansions
+)[:,0,:]
 ```
 
 And remembering the identity matrix term, we form the full left hand side as $\mathbf{I} + \mathbf{A}$.
@@ -154,6 +272,10 @@ And let's compare with the analytical solution in the figures below. The match i
 3. The error is also higher near the fault, but we're still seeing almost 5 digits of accuracy. The discretization error is likely to be highest where the gradients in the solution are largest. The gradients are largest near the fault. This could be remedied by having a denser boundary grid near the fault.
 
 ```{code-cell} ipython3
+surf_disp.shape
+```
+
+```{code-cell} ipython3
 s = 1.0
 analytical = (
     -s
@@ -161,18 +283,18 @@ analytical = (
     * (
         np.arctan(flat.pts[:,0] / (flat.pts[:,1] + 2.5))
         - np.arctan(flat.pts[:,0] / (flat.pts[:,1] - 2.5))
-        - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + 0.5))
-        + np.arctan(flat.pts[:,0] / (flat.pts[:,1] - 0.5))
+        - np.pi * np.sign(flat.pts[:,0])
     )
 )
 
 plt.figure(figsize=(8, 4))
 plt.subplot(1, 2, 1)
-plt.plot(flat.pts[:,0], surf_disp, 'k-')
+plt.plot(flat.pts[:,0], surf_disp, 'k-o')
 plt.plot(flat.pts[:,0], analytical, 'b-')
 plt.xlabel("$x$")
 plt.ylabel("$u_z$")
 plt.title("Displacement")
+plt.xlim([-0.5,0.5])
 
 plt.subplot(1, 2, 2)
 plt.plot(flat.pts[:,0], np.log10(np.abs(surf_disp - analytical)))
@@ -180,6 +302,7 @@ plt.xlabel("$x$")
 plt.ylabel("$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
 plt.title("Error")
 plt.tight_layout()
+plt.xlim([-0.5, 0.5])
 plt.show()
 ```
 
