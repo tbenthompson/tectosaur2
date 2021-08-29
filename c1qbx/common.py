@@ -309,7 +309,7 @@ class QBXExpansions:
         return self.pts.shape[0]
 
 
-def qbx_setup(source, mult=5.0, direction=0, p=5):
+def qbx_setup(source, mult=5.0, direction=0, p=5, r = None):
     """
     Set up the expansion centers for a source surface. The centers will be
     offset by a distance proportional to the local jacobian of the surface.
@@ -338,7 +338,8 @@ def qbx_setup(source, mult=5.0, direction=0, p=5):
     #
     # NOTE: This is just a heuristic and more complex ways of choosing r might
     # be justified in more complex situations.
-    r = mult * source.jacobians / (source.n_pts / 2.0)
+    if r is None:
+        r = mult * source.jacobians / (source.n_pts / 2.0)
 
     if direction == 0:
         centers1 = source.pts + r[:, None] * source.normals
@@ -460,11 +461,21 @@ def qbx_interior_eval_matrix(
     dist_to_expansion, closest_expansion = centers_tree.query(obs_pts)
     dist_to_source, _ = source_tree.query(obs_pts)
 
-    # Only use QBX if point is close enough to the surface and the point is
+    # Only use QBX if point is close enough to the surface or the point is
     # close enough to its respective QBX expansion center To measure "close
     # enough", we use r, which is the distance from the surface.
-    use_qbx = (dist_to_expansion < expansions.r[closest_expansion]) & (
-        dist_to_source < expansions.r[closest_expansion]
+    # Why do we use "OR" here?
+    # 1) If a point is near an expansion, we should use the expansion
+    # regardless of the source surface. This maintains the "global QBX"
+    # property.
+    # 2) If a point is near a surface, we cannot use a naive
+    # integration so we must use the closest expansion point available.
+    # TODO: Another task here is to decide which side of a surface the
+    # observation point and the expansion are on. It's important to only use
+    # expansions on the same side as the observation point. On the other hand,
+    # I'm not sure how important or relevant this issue is.
+    use_qbx = (dist_to_expansion <= expansions.r[closest_expansion]) | (
+        dist_to_source <= expansions.r[closest_expansion]
     )
 
     # And we identify which expansion centers are ever used, and how many times.

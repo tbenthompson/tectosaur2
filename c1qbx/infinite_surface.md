@@ -93,11 +93,13 @@ from common import (
     pts_grid
 )
 
+fault_top = -0.0
+fault_bottom = -2.5
 def fault_fnc(n):
-    return line(n, (0, -0.0), (0, -2.5))
+    return line(n, (0, fault_top), (0, fault_bottom))
 
 
-surf_L = 25
+surf_L = 10
 def flat_fnc(n):
     return line(n, (surf_L, 0), (-surf_L, 0))
 ```
@@ -111,20 +113,27 @@ import_and_display_fnc('common', 'interp_matrix')
 
 ```{code-cell} ipython3
 from common import Surface
-```
 
-```{code-cell} ipython3
-n_segments = 1
-segment_start = 0
+n_segments = 8
+segment_start = 0.0
 segments = []
-for i in range(n_segments):
-    segment_end = segment_start + 5.0 * (1.3 ** i)
+for i in range(n_segments - len(segments)):
+    segment_end = segment_start + 0.01 * (2.0 ** i)
+    segments.append((segment_start, segment_end))
+    segment_start = segment_end
+    if segment_start > 2.0:
+        break
+
+starting_length = segments[-1][1] - segments[-1][0]
+for i in range(n_segments - len(segments)):
+    segment_end = segment_start + starting_length * (1.3 ** i)
     segments.append((segment_start, segment_end))
     segment_start = segment_end
 
+    
 raw_quad_pts = []
 raw_quad_wts = []
-qx, qw = gauss_rule(250)
+qx, qw = gauss_rule(16)
 for i in range(len(segments)):
     width = segments[i][1] - segments[i][0]
     qx_transformed = segments[i][0] + ((qx + 1) * 0.5) * width
@@ -137,11 +146,13 @@ half_quad_wts = np.concatenate(raw_quad_wts) / segments[-1][1]
 
 quad_pts = np.concatenate((-half_quad_pts[::-1], half_quad_pts))
 quad_wts = np.concatenate((half_quad_wts[::-1], half_quad_wts))
+
+plt.plot(quad_pts * segments[-1][1])
+plt.show()
 ```
 
 ```{code-cell} ipython3
-plt.plot(quad_pts * segments[-1][1])
-plt.show()
+segments
 ```
 
 ```{code-cell} ipython3
@@ -163,16 +174,12 @@ for i in range(n_segments):
 interp_surfs = []
 interp_mats = []
 for s in surfs:
-    kappa = 2
-    if np.any(s.pts[:,0] < 0.1):
-        kappa = 10
+    kappa = 6
     si = interp_surface(s, *gauss_rule(kappa * s.n_pts))
     Im = interp_matrix(build_interpolator(s.quad_pts), si.quad_pts)
     interp_surfs.append(si)
     interp_mats.append(Im)
-```
 
-```{code-cell} ipython3
 flat = Surface(
     np.concatenate([s.pts[:,0] for s in surfs]),
     np.concatenate([s.quad_wts * w * 0.5 for w, s in zip(widths, surfs)]) / segments[-1][1],
@@ -190,111 +197,99 @@ flat_interp = Surface(
 )
 
 np.sum(flat.quad_wts), np.sum(flat_interp.quad_wts)
-```
 
-```{code-cell} ipython3
 plt.plot(flat.pts[:,0])
 plt.show()
-plt.plot(flat_interp.pts[:,0])
-plt.show()
-```
 
-```{code-cell} ipython3
-Im = np.zeros((flat_interp.n_pts, flat.n_pts))
-```
+Im_flat = np.zeros((flat_interp.n_pts, flat.n_pts))
 
-```{code-cell} ipython3
 for i in range(len(surfs)):
-    Im[i * interp_surfs[0].n_pts:(i+1)*interp_surfs[0].n_pts,i*surfs[0].n_pts:(i+1)*surfs[0].n_pts] = interp_mats[i]
+    Im_flat[i * interp_surfs[0].n_pts:(i+1)*interp_surfs[0].n_pts,i*surfs[0].n_pts:(i+1)*surfs[0].n_pts] = interp_mats[i]
 ```
 
 ```{code-cell} ipython3
-flat_expansions = qbx_setup(flat, mult=5.0, direction=1, p=6)
+from common import QBXExpansions
+fault_kappa = 6
+fault = fault_fnc(400)
 
-#bad = np.abs(flat_expansions.pts[:,0]) < 0.1
-#flat_expansions.pts[bad,0] += np.sign(flat_expansions.pts[bad,0]) * 0.05
-# xv = flat_expansions.pts[bad,0].copy()
-# flat_expansions.pts[bad,0] += 10 * xv
-# flat_expansions.pts[bad,1] = -0.02 - 10 * np.abs(xv)
+r = np.repeat(np.array(widths), flat.n_pts // len(widths)) / 2
 
-plt.plot(flat_expansions.pts[bad,0], flat_expansions.pts[bad,1], '.')
-plt.xlim([-0.1,0.1])
-plt.ylim([-0.2,0.0])
+flat_expansions = qbx_setup(flat, direction=1, r=r)
+# corner = np.concatenate((np.abs(fault_expansions.pts[:,1]) < 0.1, np.abs(flat_expansions.pts[:,0]) < 0.01))
+# corner = np.full(exp_pts.shape[0], False)
+exp_r = np.concatenate((fault_expansions.r, flat_expansions.r))
+expansions = QBXExpansions(
+    exp_pts[~corner],
+    exp_r[~corner],
+    5
+)
+print(expansions.N)
+
+
+plt.plot(exp_pts[corner,0], exp_pts[corner,1], '.')
+plt.plot(flat.pts[:,0], flat.pts[:,1], 'k-')
+plt.plot(fault.pts[:,0], fault.pts[:,1], 'k-')
+plt.axis('equal')
+plt.xlim([-0.15,0.15])
+plt.ylim([-0.2,0.1])
 plt.show()
 ```
 
 ```{code-cell} ipython3
-A_raw = self_interaction_matrix(double_layer_matrix, flat, flat_interp, flat_expansions)[0][:,0,:]
-A = A_raw.dot(Im)
-```
-
-For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directly perform the boundary integrals. This is because the observation points are sufficiently far away from the source fault surface that there are no nearly-singular or singular integrals. Note that we apply unit slip along the entire fault. In many models, this would be problematic because the fault tip displacement discontinuities introduce stress singularities into the model. However, for the sake of comparing with the analytical solution, we can accept the stress singularities for now. And because we are not evaluating stress near the fault, we don't need to worry about the issue. 
-
-For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points.
-
-```{code-cell} ipython3
-fault = fault_fnc(500)
-B = -double_layer_matrix(fault, flat.pts)[:, 0, :]
+A_raw = interior_matrix(double_layer_matrix, flat_interp, flat.pts, expansions)[:,0,:]
+A = A_raw.dot(Im_flat)
 ```
 
 ```{code-cell} ipython3
-fault_expansions = qbx_setup(fault, mult=5.0)
 B = -interior_matrix(
     double_layer_matrix,
-    fault,
+    fault_interp,
     flat.pts,
-    flat_expansions
-)[:,0,:]
+    expansions
+)[:,0,:].dot(Im_fault)
 ```
-
-And remembering the identity matrix term, we form the full left hand side as $\mathbf{I} + \mathbf{A}$.
 
 ```{code-cell} ipython3
 lhs = np.eye(A.shape[0]) + A
-```
 
-Then, apply unit slip along the entire fault to compute the right hand side.
-
-```{code-cell} ipython3
 slip = np.ones(fault.n_pts)
 rhs = B.dot(slip)
-```
 
-And finally solve the linear system for the unknown displacements!
-
-```{code-cell} ipython3
 surf_disp = np.linalg.solve(lhs, rhs)
-```
 
-And let's compare with the analytical solution in the figures below. The match is quite good. Looking at the error figure, a couple things stand out:
-1. The tips of the free surface has comparatively high errors. This is simply due to the difference between a finite free surface and the infinite free surface in the analytical solution.
-2. The error is extremely low everywhere else. We are seeing 6 to 13 digits of accuracy!
-3. The error is also higher near the fault, but we're still seeing almost 5 digits of accuracy. The discretization error is likely to be highest where the gradients in the solution are largest. The gradients are largest near the fault. This could be remedied by having a denser boundary grid near the fault.
-
-```{code-cell} ipython3
-surf_disp.shape
-```
-
-```{code-cell} ipython3
 s = 1.0
-analytical = (
-    -s
-    / (2 * np.pi)
-    * (
-        np.arctan(flat.pts[:,0] / (flat.pts[:,1] + 2.5))
-        - np.arctan(flat.pts[:,0] / (flat.pts[:,1] - 2.5))
-        - np.pi * np.sign(flat.pts[:,0])
+if fault_top == 0.0:
+    analytical = (
+        -s
+        / (2 * np.pi)
+        * (
+            np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_bottom))
+            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_bottom))
+            - np.pi * np.sign(flat.pts[:,0])
+        )
     )
-)
+else:
+    analytical = (
+        -s
+        / (2 * np.pi)
+        * (
+            np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_bottom))
+            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_bottom))
+            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_top))
+            + np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_top))
+        )
+    )
 
-plt.figure(figsize=(8, 4))
+XV = 1.0
+plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
 plt.plot(flat.pts[:,0], surf_disp, 'k-o')
 plt.plot(flat.pts[:,0], analytical, 'b-')
 plt.xlabel("$x$")
 plt.ylabel("$u_z$")
 plt.title("Displacement")
-plt.xlim([-0.5,0.5])
+plt.xlim([-XV,XV])
+plt.ylim([-0.6, 0.6])
 
 plt.subplot(1, 2, 2)
 plt.plot(flat.pts[:,0], np.log10(np.abs(surf_disp - analytical)))
@@ -302,7 +297,7 @@ plt.xlabel("$x$")
 plt.ylabel("$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
 plt.title("Error")
 plt.tight_layout()
-plt.xlim([-0.5, 0.5])
+plt.xlim([-XV, XV])
 plt.show()
 ```
 
