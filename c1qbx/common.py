@@ -53,6 +53,44 @@ def circle(n):
     jacobians = np.full(pts.shape[0], np.pi)
     return Surface(quad_pts, quad_wts, pts, normals, jacobians)
 
+def discretize_symbolic_surface(quad_pts, quad_wts, t, x, y):
+    """
+    Given a sympy parameteric expression for the x and y coordinates of a surface, we construct the points and normals and jacobians of that surface.
+    `quad_pts`: A 1D array of the quadrature points in the domain [-1, 1].
+    `quad_wts`: The weights of the quadrature rule.
+    `t`: The parameter of the `x` and `y` expression. Expected to vary in [-1, 1]
+    `x` and `y`: The parametric definition of the surface.
+    """
+
+    # Both the normal and jacobian will depend on the surface derivatives
+    dxdt = sp.diff(x, t)
+    dydt = sp.diff(y, t)
+
+    jacobian = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
+
+    # The normal vector is the normalized derivative vector.
+    nx = -dydt / jacobian
+    ny = dxdt / jacobian
+
+    # At this point we have the points and normals and jacobians.  But they are
+    # all still symbolic! So, we need to evaluate the expressions at the
+    # specified quadrature points.
+    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian]]
+
+    # And create the surface object.
+    pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
+    normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
+    jacobians = surf_vals[4]
+
+    return Surface(quad_pts, quad_wts, pts, normals, jacobians)
+
+def line(n, xy1, xy2):
+    q = gauss_rule(n)
+    t = sp.var('t')
+    x = xy1[0] + 0.5 * (t + 1) * (xy2[0] - xy1[0])
+    y = xy1[1] + 0.5 * (t + 1) * (xy2[1] - xy1[1])
+    return discretize_symbolic_surface(*q, t, x, y)
+
 
 def pts_grid(xs, ys):
     """
@@ -115,11 +153,11 @@ def build_interpolator(in_xhat):
     I.permutation = permutation
     return I
 
-def interp_fnc(interpolator, f, out_xhat):
+def interpolate_fnc(interpolator, f, out_xhat):
     interpolator.set_yi(f[interpolator.permutation])
     return interpolator(interpolator.Cinv * out_xhat)
 
-def interp_matrix(interpolator, out_xhat):
+def build_interpolation_matrix(interpolator, out_xhat):
     # This code is based on the code in
     # scipy.interpolate.BarycentricInterpolator._evaluate but modified to
     # construct a matrix.
@@ -144,7 +182,7 @@ def interp_matrix(interpolator, out_xhat):
     return interp_matrix[:, inv_permutation]
 
 
-def interp_surface(in_surf, out_quad_pts, out_quad_wts):
+def interpolate_surface(in_surf, out_quad_pts, out_quad_wts):
     """
     Interpolate each component of a surface: the pts, normals and jacobians
     """
@@ -156,45 +194,6 @@ def interp_surface(in_surf, out_quad_pts, out_quad_wts):
         interp_fnc(interpolator, in_surf.normals, out_quad_pts),
         interp_fnc(interpolator, in_surf.jacobians, out_quad_pts),
     )
-
-
-def discretize_symbolic_surface(quad_pts, quad_wts, t, x, y):
-    """
-    Given a sympy parameteric expression for the x and y coordinates of a surface, we construct the points and normals and jacobians of that surface.
-    `quad_pts`: A 1D array of the quadrature points in the domain [-1, 1].
-    `quad_wts`: The weights of the quadrature rule.
-    `t`: The parameter of the `x` and `y` expression. Expected to vary in [-1, 1]
-    `x` and `y`: The parametric definition of the surface.
-    """
-
-    # Both the normal and jacobian will depend on the surface derivatives
-    dxdt = sp.diff(x, t)
-    dydt = sp.diff(y, t)
-
-    jacobian = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
-
-    # The normal vector is the normalized derivative vector.
-    nx = -dydt / jacobian
-    ny = dxdt / jacobian
-
-    # At this point we have the points and normals and jacobians.  But they are
-    # all still symbolic! So, we need to evaluate the expressions at the
-    # specified quadrature points.
-    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian]]
-
-    # And create the surface object.
-    pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
-    normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
-    jacobians = surf_vals[4]
-
-    return Surface(quad_pts, quad_wts, pts, normals, jacobians)
-
-def line(n, xy1, xy2):
-    q = gauss_rule(n)
-    t = sp.var('t')
-    x = xy1[0] + 0.5 * (t + 1) * (xy2[0] - xy1[0])
-    y = xy1[1] + 0.5 * (t + 1) * (xy2[1] - xy1[1])
-    return discretize_symbolic_surface(*q, t, x, y)
 
 
 def symbolic_eval(t, tvals, e):

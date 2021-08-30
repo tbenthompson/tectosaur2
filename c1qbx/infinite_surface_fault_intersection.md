@@ -19,64 +19,17 @@ from config import setup, import_and_display_fnc
 setup()
 ```
 
-# A strike slip fault underneath topography.
+# Fault-surface intersection
 
-## Mathematical background
-Note that much of the discussion here parallels the discussion in [the section on solving topographic problems with TDEs](../tdes/sa_tdes.md).
+In the last section, we constructed a method for solving for surface displacement on a free surface given antiplane slip on a fault beneath the free surface. However, the fault was not allowed to intersect the surface of the Earth. In fact, as we will demonstrate here, if the fault had intersected the surface, the surface displacement solution would have been very wrong! In this section, we will fix this problem!
 
-Last time we solved for the displacement and stress given slip on an infinitely long strike slip fault. This time, we'll make the problem more interesting (and a bit harder!) by adding in a free surface. First, we'll replicate classical solutions for the surface displacement on a half-space given slip on a fault. Then, we'll add in a topographic free surface and have some fun!
+In addition, the last section compared against an analytical solution that assumes an infinite free surface. Unfortunately, we weren't able to match the analytical solution exactly because it's hard to approximate an infinite free surface. It would be easy to stop there and make a compelling argument that the numerical method is working just fine since the error was quite low away from the tips of the free surface. But that didn't leave me satisfied. I want to fit the arctan solution as exactly as possible!
 
-Note that mathematicians may be uncomfortable with the precision of some of the statements here. If you feel that way, I'd recommend taking a look at an [integral equations textbook like Kress](https://www.springer.com/us/book/9781461495925).
+So, our goals in this section are to:
+1. Model a fault that intersects the surface of the Earth.
+2. Model an infinite free surface to the best of our ability.
 
-Let's start with the integral equation for displacement resulting from slip on a crack/fault and displacement and traction on another arbitrary surface:
-
-\begin{equation}
-u(\mathbf{p}) = \int_{H} G(\mathbf{p}, \mathbf{q}) t(\mathbf{q}) d\mathbf{q} - \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
-\end{equation}
-
-where $H$ is the surface, $F$ is the fault, $t$ is traction, $u$ is displacement and $s$ is slip. Immediately, we can see that, for a free surface, the first term is zero because the traction is zero, so we are left with:
-
-\begin{equation}
-u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
-\end{equation}
-
-So, this equation says that we can calculate displacement anywhere if we know displacement on $H$ and slip on $F$. But, we don't know the displacement on $H$! So, step one is going to be solving for the unknown displacement on the surface $H$. 
-
-To solve for surface displacement, intuitively, we need to reduce from two unknowns to one unknown in this equation. Currently we have both the unknown displacement on $H$ and the unknown displacement at an arbitrary point in the volume, $u(\mathbf{p})$. To remedy this situation, we will simply choose to only enforce the integral equation at boundary points $\mathbf{p} \in H$. This can be proven sufficient for the equation to hold everywhere and is the fundamental basis of boundary value problems in potential theory and elastostatics. Because $u$ is now only evaluated on the boundary, this equation is solvable for $u(\mathbf{p})$ given $s$. 
-
-```{note}
-**Uniqueness**: In informal terms, the uniqueness theorems state that for a linear elastic boundary value problem, if we know displacement and traction on the boundary of the domain, then we can calculate displacement and traction everywhere in the volume. 
-```
-
-Re-arranging to put the unknown displacement on the left hand side: 
-\begin{equation}
-u(\mathbf{p}) + \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} = -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}  ~~~~~~ \forall \mathbf{p} \in H
-\end{equation}
-
-Note that the integrals are now being evaluated in their singular limits. Previously, we have only evaluated nearly singular integrals that arise when the observation point is very close to the source surface. Fortunately, QBX works just as well in the limit to the boundary and as a result, nothing about our integration procedures will need to change. 
-
-Once discretized using our QBX-based quadrature tools from the previous sections, this will look like:
-\begin{equation}
-\mathbf{Iu} + \mathbf{Au} = \mathbf{Bs}
-\end{equation}
-
-where $\mathbf{A}$ and $\mathbf{B}$ are matrices representing the action of the integral terms on surface displacement and fault slip respectively. $\mathbf{I}$ is the identity matrix.
-
-+++
-
-## Solving for surface displacement
-
-+++
-
-For the first section, we're going to reproduce analytical solutions for the displacement due to slip on a buried fault under a half space. That solution {cite:p}`segallEarthquakeVolcanoDeformation2010` is:
-
-\begin{equation}
-u_z = \frac{-s}{2\pi}\bigg[\tan^{-1}(\frac{x}{y + d_1}) - \tan^{-1}(\frac{x}{y - d_1}) - \tan^{-1}(\frac{x}{y + d_2}) + \tan^{-1}(\frac{x}{y - d_2}) \bigg]
-\end{equation}
-
-To start with the numerical implementation, we'll define two surfaces. The `fault_fnc` function will define a fault extending from 0.5 units depth to 1.5 units depth and the `flat_fnc` function will define a free surface extending from -25 to 25 units along the x axis. 
-
-Note that while we're trying to approximate a free surface, we won't attempt to actually have an infinite surface here. It will turn out that 25 units in both directions is enough to get a very good match with the analytical solution. If we truly wanted to model an infinite surface numerically, I could imagine achieving that via an adaptive quadrature method combined with something like [Gauss-Laguerre quadrature](https://en.wikipedia.org/wiki/Gauss%E2%80%93Laguerre_quadrature). I would enjoy trying that out some day! However, the goal here isn't to actually model an infinite domain. The Earth is not infinite! Instead, the goal is simply to demonstrate that our numerical methods work on an analytically tractable problem before moving on to problems that are not analytically intractable.
+Both of these goals will lead to more general methods that are useful for a wide range of problems. In particular, modeling an infinite free surface will force us to implement some **adaptive meshing** tools that will be very useful for other problems where the spatial scale of interest varies widely through the domain. 
 
 ```{code-cell} ipython3
 import numpy as np
@@ -90,73 +43,62 @@ from common import (
     build_interpolator,
     interp_surface,
     line,
-    pts_grid
+    pts_grid,
+    self_interaction_matrix,
+    interp_matrix
 )
 
 fault_top = -0.0
-fault_bottom = -2.5
+fault_bottom = -1.0
 def fault_fnc(n):
     return line(n, (0, fault_top), (0, fault_bottom))
-
-
-surf_L = 10
-def flat_fnc(n):
-    return line(n, (surf_L, 0), (-surf_L, 0))
 ```
 
-Conceptually, the $\mathbf{A}$ matrix is the interaction of the flat free surface with itself. Let's build that matrix first using the QBX tools from the last two sections. As mentioned, we won't need to do anything fundamentally different for evaluating these integrals in the limit of the observation point being on the boundary. In fact, because the observation surface and the source surface are the same, we can avoid a lot of the complexity in the `qbx_interior_eval_matrix` and `interior_matrix` functions. We'll create a new `self_interaction_matrix` function:
-
 ```{code-cell} ipython3
-import_and_display_fnc('common', 'self_interaction_matrix')
-import_and_display_fnc('common', 'interp_matrix')
+from dataclasses import dataclass
+
+# Hierarchy: Boundary -> Segment -> Panel -> Point
+# A boundary consists of several segments.
+# A segments consists of a single parametrized curve that might be composed of several panels.
+# A panel consists of a quadrature rule defined over a subset of a parametrized curve.
+@dataclass()
+class PanelSurface:
+    quad_pts: np.ndarray
+    quad_wts: np.ndarray
+    pts: np.ndarray
+    normals: np.ndarray
+    jacobians: np.ndarray
+    panel_starts: np.ndarray
+    panel_sizes: np.ndarray
+        
+    @property
+    def n_pts(
+        self,
+    ):
+        return self.pts.shape[0]
+    
+def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
+    
 ```
 
 ```{code-cell} ipython3
 from common import Surface
-
-n_segments = 8
-segment_start = 0.0
-segments = []
-for i in range(n_segments - len(segments)):
-    segment_end = segment_start + 0.01 * (2.0 ** i)
-    segments.append((segment_start, segment_end))
-    segment_start = segment_end
-    if segment_start > 2.0:
-        break
-
-starting_length = segments[-1][1] - segments[-1][0]
-for i in range(n_segments - len(segments)):
-    segment_end = segment_start + starting_length * (1.3 ** i)
-    segments.append((segment_start, segment_end))
-    segment_start = segment_end
-
-    
-raw_quad_pts = []
-raw_quad_wts = []
-qx, qw = gauss_rule(16)
-for i in range(len(segments)):
-    width = segments[i][1] - segments[i][0]
-    qx_transformed = segments[i][0] + ((qx + 1) * 0.5) * width
-    qw_transformed = qw / 2.0 * width
-    raw_quad_pts.append(qx_transformed)
-    raw_quad_wts.append(qw_transformed)
-
-half_quad_pts = np.concatenate(raw_quad_pts) / segments[-1][1]
-half_quad_wts = np.concatenate(raw_quad_wts) / segments[-1][1]
-
-quad_pts = np.concatenate((-half_quad_pts[::-1], half_quad_pts))
-quad_wts = np.concatenate((half_quad_wts[::-1], half_quad_wts))
-
-plt.plot(quad_pts * segments[-1][1])
-plt.show()
-```
-
-```{code-cell} ipython3
-segments
-```
-
-```{code-cell} ipython3
 import sympy as sp
+
+CR = 0.5
+n_segments = 30
+
+# It seems that we need several "small" segments right near the fault-surface intersection!
+segments = [(0, CR),(CR, 2*CR),(2*CR, 3*CR)]
+for i in range(n_segments - len(segments)):
+    segment_start = segments[-1][1]
+    segment_end = segment_start + CR * (2 ** i)
+    segments.insert(0, (-segment_end, -segment_start))
+    segments.append((segment_start, segment_end))
+```
+
+```{code-cell} ipython3
+qx, qw = gauss_rule(16)
 t = sp.var('t')
 widths = []
 surfs = []
@@ -205,33 +147,68 @@ Im_flat = np.zeros((flat_interp.n_pts, flat.n_pts))
 
 for i in range(len(surfs)):
     Im_flat[i * interp_surfs[0].n_pts:(i+1)*interp_surfs[0].n_pts,i*surfs[0].n_pts:(i+1)*surfs[0].n_pts] = interp_mats[i]
+    
+segments
+```
+
+```{code-cell} ipython3
+def build_fault():
+    segment_start = 0.0
+    segments = []
+    for i in range(100):
+        segment_end = segment_start + 2 * CR * (2 ** i)
+        if segment_end > fault_bottom * 0.75:
+            segment_end = -fault_bottom
+        segments.append((segment_start, segment_end))
+        segment_start = segment_end
+        if segment_end == -fault_bottom:
+            break
+
+    widths = []
+    surfs = []
+    for i in range(len(segments)):
+        qx, qw = gauss_rule(max(128 // (2 ** i), 16))
+        width = (segments[i][1] - segments[i][0])
+        widths.insert(0, width)
+        widths.append(width)
+
+        y = -(segments[i][0] + (t + 1) * 0.5 * width)
+        surfs.append(discretize_symbolic_surface(qx, qw, t, 0 * t, y))
+
+    return Surface(
+        np.concatenate([s.pts[:,0] for s in surfs]),
+        np.concatenate([s.quad_wts * w * 0.5 for w, s in zip(widths, surfs)]) / segments[-1][1],
+        np.concatenate([s.pts for s in surfs]),
+        np.concatenate([s.normals for s in surfs]),
+        np.concatenate([s.jacobians * 2 / w for w,s in zip(widths, surfs)]) * segments[-1][1]
+    )
+fault = build_fault()
+plt.plot(fault.pts[:,0], fault.pts[:,1], '-o')
+plt.show()
+```
+
+```{code-cell} ipython3
+flat.n_pts, fault.n_pts
 ```
 
 ```{code-cell} ipython3
 from common import QBXExpansions
-fault_kappa = 6
-fault = fault_fnc(400)
 
 r = np.repeat(np.array(widths), flat.n_pts // len(widths)) / 2
-
-flat_expansions = qbx_setup(flat, direction=1, r=r)
-# corner = np.concatenate((np.abs(fault_expansions.pts[:,1]) < 0.1, np.abs(flat_expansions.pts[:,0]) < 0.01))
-# corner = np.full(exp_pts.shape[0], False)
-exp_r = np.concatenate((fault_expansions.r, flat_expansions.r))
+orig_expansions = qbx_setup(flat, direction=1, r=r, p=10)
+good = np.abs(orig_expansions.pts[:,0]) > 0.30 * CR
 expansions = QBXExpansions(
-    exp_pts[~corner],
-    exp_r[~corner],
-    5
+    orig_expansions.pts[good,:],
+    orig_expansions.r[good],
+    orig_expansions.p
 )
-print(expansions.N)
 
-
-plt.plot(exp_pts[corner,0], exp_pts[corner,1], '.')
-plt.plot(flat.pts[:,0], flat.pts[:,1], 'k-')
-plt.plot(fault.pts[:,0], fault.pts[:,1], 'k-')
+plt.plot(expansions.pts[:,0], expansions.pts[:,1], '.')
+plt.plot(flat.pts[:,0], flat.pts[:,1], 'k-o', linewidth = 0.5)
+plt.plot(fault.pts[:,0], fault.pts[:,1], 'k-o')
 plt.axis('equal')
-plt.xlim([-0.15,0.15])
-plt.ylim([-0.2,0.1])
+plt.xlim([-CR,CR])
+plt.ylim([-3 * CR, CR])
 plt.show()
 ```
 
@@ -243,48 +220,32 @@ A = A_raw.dot(Im_flat)
 ```{code-cell} ipython3
 B = -interior_matrix(
     double_layer_matrix,
-    fault_interp,
+    fault,
     flat.pts,
     expansions
-)[:,0,:].dot(Im_fault)
+)[:,0,:]
 ```
 
 ```{code-cell} ipython3
-lhs = np.eye(A.shape[0]) + A
-
-slip = np.ones(fault.n_pts)
-rhs = B.dot(slip)
-
-surf_disp = np.linalg.solve(lhs, rhs)
+surf_disp = np.linalg.solve(np.eye(A.shape[0]) + A, B.dot(np.ones(fault.n_pts)))
 
 s = 1.0
-if fault_top == 0.0:
-    analytical = (
-        -s
-        / (2 * np.pi)
-        * (
-            np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_bottom))
-            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_bottom))
-            - np.pi * np.sign(flat.pts[:,0])
-        )
+analytical = (
+    -s
+    / (2 * np.pi)
+    * (
+        np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_bottom))
+        - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_bottom))
+        - np.pi * np.sign(flat.pts[:,0])
     )
-else:
-    analytical = (
-        -s
-        / (2 * np.pi)
-        * (
-            np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_bottom))
-            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_bottom))
-            - np.arctan(flat.pts[:,0] / (flat.pts[:,1] - fault_top))
-            + np.arctan(flat.pts[:,0] / (flat.pts[:,1] + fault_top))
-        )
-    )
+)
 
-XV = 1.0
+XV = 10.0
+#XV = 5 * CR
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
-plt.plot(flat.pts[:,0], surf_disp, 'k-o')
-plt.plot(flat.pts[:,0], analytical, 'b-')
+plt.plot(flat.pts[:,0], surf_disp, 'ko')
+plt.plot(flat.pts[:,0], analytical, 'bo')
 plt.xlabel("$x$")
 plt.ylabel("$u_z$")
 plt.title("Displacement")
@@ -292,9 +253,9 @@ plt.xlim([-XV,XV])
 plt.ylim([-0.6, 0.6])
 
 plt.subplot(1, 2, 2)
-plt.plot(flat.pts[:,0], np.log10(np.abs(surf_disp - analytical)))
+plt.plot(flat.pts[:,0], np.log10(np.abs(surf_disp - analytical) / np.abs(analytical)))
 plt.xlabel("$x$")
-plt.ylabel("$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
+plt.ylabel(r"$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
 plt.title("Error")
 plt.tight_layout()
 plt.xlim([-XV, XV])
