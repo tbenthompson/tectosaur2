@@ -157,7 +157,7 @@ def interpolate_fnc(interpolator, f, out_xhat):
     interpolator.set_yi(f[interpolator.permutation])
     return interpolator(interpolator.Cinv * out_xhat)
 
-def build_interpolation_matrix(interpolator, out_xhat):
+def build_interp_matrix(interpolator, out_xhat):
     # This code is based on the code in
     # scipy.interpolate.BarycentricInterpolator._evaluate but modified to
     # construct a matrix.
@@ -514,7 +514,7 @@ def qbx_interior_eval_matrix(
     return QBXInteriorEval(Q, centers_used, obs_pt_idxs)
 
 
-def interior_matrix(kernel, source, obs_pts, expansions):
+def qbx_matrix(kernel, source, obs_pts, expansions):
     expand = qbx_expand_matrix(kernel, source, expansions)
     interior = qbx_interior_eval_matrix(kernel, source, obs_pts, expansions)
 
@@ -543,7 +543,7 @@ def interior_matrix(kernel, source, obs_pts, expansions):
     return out
 
 
-def self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
+def qbx_self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
     expand_mat = qbx_expand_matrix(kernel, src_surface, expansions)
     eval_mat = qbx_eval_matrix(obs_surface.pts[None,:], expansions)[0]
     I = np.real(np.sum(eval_mat[:, None, :, None] * expand_mat, axis=2))
