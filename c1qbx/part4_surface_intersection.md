@@ -20,7 +20,7 @@ from config import setup, import_and_display_fnc
 setup()
 ```
 
-# Fault-surface intersection
+# Fault-surface intersection and infinite free surfaces.
 
 **This is a very rough draft**
 
@@ -162,7 +162,7 @@ from common import Surface
 import sympy as sp
 
 corner_resolution = 0.5
-n_panels = 24
+n_panels = 20
 
 # It seems that we need several "small" panels right near the fault-surface intersection!
 panels = [
@@ -230,7 +230,9 @@ fault = panelize_symbolic_surface(
 )
 ```
 
-Next, we need to carefully remove some of the QBX expansion centers. Because the expansion centers are offset towards the interior of the domain in the direction of the normal vector, a few of the
+Next, we need to carefully remove some of the QBX expansion centers. Because the expansion centers are offset towards the interior of the domain in the direction of the normal vector of the free surface, a few of them will be too close to the fault surface. We remove those. As a result, any evaluations in the corner will use the slightly farther away QBX expansion points. 
+
+In the figure below, the QBX expansion centers are indicated in blue, while the expansion centers that we remove are indicated in red. 
 
 ```{code-cell} ipython3
 from common import QBXExpansions
@@ -246,18 +248,23 @@ expansions = QBXExpansions(
     orig_expansions.pts[good, :], orig_expansions.r[good], orig_expansions.p
 )
 
-plt.plot(expansions.pts[:, 0], expansions.pts[:, 1], ".")
+plt.plot(expansions.pts[:, 0], expansions.pts[:, 1], "b.")
 plt.plot(orig_expansions.pts[~good, 0], orig_expansions.pts[~good, 1], "r.")
-plt.plot(flat.pts[:, 0], flat.pts[:, 1], "k-o", linewidth=0.5)
-plt.plot(fault.pts[:, 0], fault.pts[:, 1], "k-o")
+plt.plot(flat.pts[:, 0], flat.pts[:, 1], "k-")
+plt.plot(fault.pts[:, 0], fault.pts[:, 1], "k-")
 plt.axis("equal")
 plt.xlim([-corner_resolution, corner_resolution])
 plt.ylim([-3 * corner_resolution, corner_resolution])
+plt.xlabel(r'$x$')
+plt.ylabel(r'$y$')
 plt.show()
 ```
 
+Note that despite extending out to 1000 fault lengths away from the fault trace, we are only using 672 points to describe the free surface solution. 
+
 ```{code-cell} ipython3
-flat.n_pts, fault.n_pts
+print('number of points in the free surface discretization:', flat.n_pts)
+print('       number of points in the fault discretization:', fault.n_pts)
 ```
 
 ```{code-cell} ipython3
@@ -272,6 +279,9 @@ B = -qbx_matrix(double_layer_matrix, fault, flat.pts, expansions)[:, 0, :]
 ```{code-cell} ipython3
 surf_disp = np.linalg.solve(np.eye(A.shape[0]) + A, B.dot(np.ones(fault.n_pts)))
 
+# Note that the analytical solution is slightly different than in the buried 
+# fault setting because we need to take the limit of an arctan as the 
+# denominator of the argument  goes to zero.
 s = 1.0
 analytical = (
     -s
@@ -282,9 +292,12 @@ analytical = (
         - np.pi * np.sign(flat.pts[:, 0])
     )
 )
+```
 
+In the first row of graphs below, I show the solution extending to 10 fault lengths. In the second row, the solution extends to 1000 fault lengths. You can see that the solution matches to about 6 digits in the nearfield and 7-9 digits in the very farfield!
 
-for XV in [10.0, 10000]:
+```{code-cell} ipython3
+for XV in [10.0, 1000.0]:
     # XV = 5 * corner_resolution
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
@@ -297,10 +310,10 @@ for XV in [10.0, 10000]:
     plt.ylim([-0.6, 0.6])
 
     plt.subplot(1, 2, 2)
-    plt.plot(flat.pts[:, 0], np.log10(np.abs(surf_disp - analytical) / np.abs(analytical)))
+    plt.plot(flat.pts[:, 0], np.log10(np.abs(surf_disp - analytical)))
     plt.xlabel("$x$")
     plt.ylabel(r"$\log_{10}|u_{\textrm{BIE}} - u_{\textrm{analytic}}|$")
-    plt.title("Error")
+    plt.title("Error (number of digits of accuracy)")
     plt.tight_layout()
     plt.xlim([-XV, XV])
     plt.show()
