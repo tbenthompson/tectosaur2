@@ -20,8 +20,19 @@ from config import setup, import_and_display_fnc
 setup()
 ```
 
+Plan
+
+- Build a spherical surface, refined towards the fault-surface intersection. 
+- Implement a rigid body motion constraint!
+- Run a VE model on that. 
+- Implement newton for solving the rate-state equations
+- Solve for fault stress.
+- Implement time stepping
+- Run QD!
+
 ```{code-cell} ipython3
 import numpy as np
+import sympy as sp
 import matplotlib.pyplot as plt
 from common import (
     gauss_rule,
@@ -29,7 +40,9 @@ from common import (
     build_interp_matrix,
     build_interpolator,
     qbx_setup,
+    single_layer_matrix,
     double_layer_matrix,
+    adjoint_double_layer_matrix,
     hypersingular_matrix,
     PanelSurface,
     panelize_symbolic_surface,
@@ -38,20 +51,17 @@ from common import (
 )
 ```
 
-This next section will construct the free surface panelized surface `free`. The `corner_resolution` specifies how large the panels will be near the fault-surface intersection. Away from that intersection, the panels will each be double the length of the prior panel, thus enabling the full surface to efficiently represent an effectively infinite free surface.
-
 ```{code-cell} ipython3
-from common import Surface
-import sympy as sp
-
 corner_resolution = 5000
-n_panels = 16
+n_panels = 40
 
+earth_radius = 6378 * 1000
 visco_depth = 20000
 viscosity = 1e18
 shear_modulus = 3e9
+```
 
-# It seems that we need several "small" panels right near the fault-surface intersection!
+```{code-cell} ipython3
 panels = [
     (-3 * corner_resolution, -2 * corner_resolution),
     (-2 * corner_resolution, -corner_resolution),
@@ -60,31 +70,41 @@ panels = [
     (corner_resolution, 2 * corner_resolution),
     (2 * corner_resolution, 3 * corner_resolution),
 ]
+
 for i in range(n_panels - len(panels)):
     panel_start = panels[-1][1]
-    panel_end = panel_start + corner_resolution * (2 ** i)
+    panel_end = panel_start + min(corner_resolution * (2 ** i), 2.5e6)
     panels.append((panel_start, panel_end))
     panels.insert(0, (-panel_end, -panel_start))
 panels = np.array(panels)
 scaled_panels = panels / panels[-1][1]
+```
 
+```{code-cell} ipython3
+40960000 / 1e6
+```
+
+```{code-cell} ipython3
 qx, qw = gauss_rule(16)
-qinterp = gauss_rule(9 * 16)
+qinterp = gauss_rule(96)
 t = sp.var("t")
-
-free = panelize_symbolic_surface(t, -panels[-1][1] * t, 0 * t, scaled_panels, qx, qw)
-free_interp = panelize_symbolic_surface(
-    t, panels[-1][1] * t, 0 * t, scaled_panels, *qinterp
-)
+x = earth_radius * sp.cos(sp.pi/2 + sp.pi*t)
+y = earth_radius * sp.sin(sp.pi/2 + sp.pi*t)
+free = panelize_symbolic_surface(t, x, y, scaled_panels, qx, qw)
+free_interp = panelize_symbolic_surface(t, x, y, scaled_panels, *qinterp)
 Im_free = build_panel_interp_matrix(free, free_interp)
 ```
 
 ```{code-cell} ipython3
-plt.plot(np.log10(np.abs(free.pts[:, 0])))
+free.pts[free.n_pts // 2 - 1, 0] - free.pts[free.n_pts // 2, 0]
 ```
 
 ```{code-cell} ipython3
-fault_top = -0.0
+free.n_pts
+```
+
+```{code-cell} ipython3
+fault_top = 0.0
 fault_bottom = -15000.0
 
 fault_panels = [
@@ -104,17 +124,10 @@ for i in range(100):
         break
 fault_panels = np.array(fault_panels)
 scaled_fault_panels = 2 * ((fault_panels / fault_panels[-1][1]) - 0.5)
-fault = panelize_symbolic_surface(
-    t, 0 * t, -fault_panels[-1][1] * (t + 1) * 0.5, scaled_fault_panels, qx, qw
-)
-fault_interp = panelize_symbolic_surface(
-    t, 0 * t, -fault_panels[-1][1] * (t + 1) * 0.5, scaled_fault_panels, *qinterp
-)
+fault_x = 0 * t
+fault_y = earth_radius + fault_top + (fault_bottom - fault_top) * (t + 1) * 0.5
+fault = panelize_symbolic_surface(t, fault_x, fault_y, scaled_fault_panels, qx, qw)
 ```
-
-Next, we need to carefully remove some of the QBX expansion centers. Because the expansion centers are offset towards the interior of the domain in the direction of the normal vector of the free surface, a few of them will be too close to the fault surface. We remove those. As a result, any evaluations in the corner will use the slightly farther away QBX expansion points. 
-
-In the figure below, the QBX expansion centers are indicated in blue, while the expansion centers that we remove are indicated in red.
 
 ```{code-cell} ipython3
 from common import QBXExpansions
@@ -137,14 +150,12 @@ plt.plot(fault.pts[:, 0], fault.pts[:, 1], "k-")
 plt.axis("equal")
 # plt.xlim([-corner_resolution, corner_resolution])
 # plt.ylim([-3 * corner_resolution, corner_resolution])
-plt.xlim([100000, -100000])
-plt.ylim([-30000, 0])
+plt.xlim(-50000, 50000)
+plt.ylim(earth_radius - 90000, earth_radius + 10000)
 plt.xlabel(r"$x$")
 plt.ylabel(r"$y$")
 plt.show()
 ```
-
-Note that despite extending out to 1000 fault lengths away from the fault trace, we are only using 672 points to describe the free surface solution.
 
 ```{code-cell} ipython3
 print("number of points in the free surface discretization:", free.n_pts)
@@ -163,28 +174,41 @@ fault_slip_to_free_disp = -qbx_matrix(double_layer_matrix, fault, free.pts, expa
 ```
 
 ```{code-cell} ipython3
-free_disp_solve_mat = np.eye(free_disp_to_free_disp.shape[0]) + free_disp_to_free_disp
+A = np.eye(free_disp_to_free_disp.shape[0]) + free_disp_to_free_disp
+```
+
+```{code-cell} ipython3
+constraint_row = free.jacobians * free.quad_wts
+free_disp_solve_mat = np.zeros((A.shape[0] + 1, A.shape[0] + 1))
+free_disp_solve_mat[:-1, :-1] = A
+free_disp_solve_mat[:-1, -1] = constraint_row
+free_disp_solve_mat[-1, :-1] = constraint_row
+```
+
+```{code-cell} ipython3
 free_disp_solve_mat_inv = np.linalg.inv(free_disp_solve_mat)
 
 slip = np.ones(fault.n_pts)
-free_disp = free_disp_solve_mat_inv.dot(fault_slip_to_free_disp.dot(slip))
+rhs = np.zeros(A.shape[1] + 1)
+rhs[:-1] = fault_slip_to_free_disp.dot(slip)
+soln = free_disp_solve_mat_inv.dot(rhs)
+free_disp = soln[:-1]
 
 # Note that the analytical solution is slightly different than in the buried
 # fault setting because we need to take the limit of an arctan as the
 # denominator of the argument  goes to zero.
 s = 1.0
+analytical_y = free.pts[:, 1] - earth_radius
 analytical = (
     -s
     / (2 * np.pi)
     * (
-        np.arctan(free.pts[:, 0] / (free.pts[:, 1] - fault_bottom))
-        - np.arctan(free.pts[:, 0] / (free.pts[:, 1] + fault_bottom))
+        np.arctan(free.pts[:, 0] / (analytical_y - fault_bottom))
+        - np.arctan(free.pts[:, 0] / (analytical_y + fault_bottom))
         - np.pi * np.sign(free.pts[:, 0])
     )
 )
 ```
-
-In the first row of graphs below, I show the solution extending to 10 fault lengths. In the second row, the solution extends to 1000 fault lengths. You can see that the solution matches to about 6 digits in the nearfield and 7-9 digits in the very farfield!
 
 ```{code-cell} ipython3
 for XV in [100000.0, 10000000.0]:
@@ -211,58 +235,28 @@ for XV in [100000.0, 10000000.0]:
 
 ```{code-cell} ipython3
 import copy
-
 VB = copy.deepcopy(free)
-VB.pts[:, 1] -= visco_depth
-stress_integral = np.zeros_like(VB.n_pts)
-```
-
-```{code-cell} ipython3
-free_disp_to_VB_syz = (
-    shear_modulus * qbx_matrix(hypersingular_matrix, free_interp, VB.pts, expansions)[:, 1, :]
-).dot(Im_free)
-
-fault_slip_to_VB_syz = shear_modulus * hypersingular_matrix(fault, VB.pts)[:, 1, :]
-
-syz_free = free_disp_to_VB_syz.dot(free_disp)
-syz_fault = fault_slip_to_VB_syz.dot(slip)
-syz_full = syz_free + syz_fault
-siay = 31556952
-```
-
-```{code-cell} ipython3
-stress_integral = 20 * siay * (shear_modulus / viscosity) * syz_full
-```
-
-```{code-cell} ipython3
-plt.plot(VB.pts[:, 0], np.log10(np.abs(syz_full)))
-plt.show()
-```
-
-```{code-cell} ipython3
-plt.plot(stress_integral)
-plt.show()
-```
-
-```{code-cell} ipython3
-import_and_display_fnc("common", "single_layer_matrix")
-import_and_display_fnc("common", "adjoint_double_layer_matrix")
+VB.pts *= (earth_radius - visco_depth) / earth_radius
+VB.jacobians *= (earth_radius - visco_depth) / earth_radius
+stress_integral = np.zeros(VB.n_pts)
 ```
 
 ```{code-cell} ipython3
 nobs = 100
 zoomx = [-15000, 15000]
-zoomy = [-31000, -1000]
+zoomy = [earth_radius - 31000, earth_radius - 1000]
 xs = np.linspace(*zoomx, nobs)
 ys = np.linspace(*zoomy, nobs)
 obs_pts = pts_grid(xs, ys)
 obsx = obs_pts[:, 0].reshape((nobs, nobs))
 obsy = obs_pts[:, 1].reshape((nobs, nobs))
 
-free_disp_to_volume_disp = double_layer_matrix(free, obs_pts)
-fault_slip_to_volume_disp = double_layer_matrix(fault, obs_pts)
-VB_S_to_volume_disp = (1.0 / shear_modulus) * single_layer_matrix(VB, obs_pts)
+free_disp_to_volume_disp = double_layer_matrix(free, obs_pts)[:, 0, :]
+fault_slip_to_volume_disp = double_layer_matrix(fault, obs_pts)[:, 0, :]
+VB_S_to_volume_disp = (1.0 / shear_modulus) * single_layer_matrix(VB, obs_pts)[:, 0, :]
+```
 
+```{code-cell} ipython3
 free_disp_to_volume_stress = shear_modulus * hypersingular_matrix(free, obs_pts)
 fault_slip_to_volume_stress = shear_modulus * hypersingular_matrix(fault, obs_pts)
 VB_S_to_volume_stress = adjoint_double_layer_matrix(VB, obs_pts)
@@ -304,8 +298,8 @@ def simple_plot(field, levels):
         plt.plot(free.pts[:, 0], free.pts[:, 1], "k-", linewidth=1.5)
         plt.plot(fault.pts[:, 0], fault.pts[:, 1], "k-", linewidth=1.5)
         plt.colorbar(cntf)
-        plt.xlim(zoomx)
-        plt.ylim(zoomy)
+        plt.xlim(*zoomx)
+        plt.ylim(*zoomy)
     plt.tight_layout()
     plt.show()
 ```
@@ -331,134 +325,101 @@ for terms in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
 r = (
     np.repeat((VB.panel_bounds[:, 1] - VB.panel_bounds[:, 0]), VB.panel_sizes)
     * VB.jacobians
-    * 0.5
+    * 0.5# / (2 * np.pi)
 )
-VB_expansions = qbx_setup(VB, r=r, p=12)
+VB_expansions = qbx_setup(VB, r=r, p=10)
 VB_interp = copy.deepcopy(free_interp)
-VB_interp.pts[:, 1] -= visco_depth
+VB_interp.pts *= (earth_radius - visco_depth) / earth_radius
+VB_interp.jacobians *= (earth_radius - visco_depth) / earth_radius
+```
 
+```{code-cell} ipython3
+plt.plot(VB.pts[:,0], VB.pts[:,1], 'b-')
+plt.plot(VB_expansions.pts[:,0], VB_expansions.pts[:,1], 'ko')
+plt.show()
+```
+
+```{code-cell} ipython3
+free_disp_to_VB_stress = (
+    shear_modulus * qbx_matrix(hypersingular_matrix, free_interp, VB.pts, expansions)
+).dot(Im_free)
+
+fault_slip_to_VB_stress = shear_modulus * hypersingular_matrix(fault, VB.pts)
+```
+
+```{code-cell} ipython3
 VB_S_to_free_disp = (1.0 / shear_modulus) * qbx_matrix(single_layer_matrix, VB_interp, free.pts, VB_expansions)[:,0,:].dot(Im_free)
 ```
 
 ```{code-cell} ipython3
-VB_S_to_VB_syz_raw = qbx_matrix(
+VB_S_to_VB_stress_raw = qbx_matrix(
     adjoint_double_layer_matrix, VB_interp, VB.pts, VB_expansions
-)[:, 1, :]
-VB_S_to_VB_syz = VB_S_to_VB_syz_raw.dot(Im_free)
+)
+VB_S_to_VB_stress = VB_S_to_VB_stress_raw.dot(Im_free)
 ```
 
 ```{code-cell} ipython3
-t_R_years = viscosity / shear_modulus / siay
-```
-
-```{code-cell} ipython3
-from math import factorial
-
-
-def Fn(n, x, D, H):
-    return np.arctan(2 * x * D / (x ** 2 + (2 * n * H) ** 2 - D ** 2))
-
-
-def analytic_to_surface(slip, D, H, x, t):
-    t_R = viscosity / shear_modulus
-    C = slip / np.pi
-    T1 = np.arctan(D / x)
-    T2 = 0
-    for n in range(1, 50):
-        m_factor = 0
-        for m in range(1, n + 1):
-            m_factor += ((t / t_R) ** (n - m)) / factorial(n - m)
-        n_factor = 1 - np.exp(-t / t_R) * m_factor
-        T2 += n_factor * Fn(n, x, D, H)
-    return C * (T1 + T2)
-
-
-def analytic(x, t):
-    return analytic_to_surface(1.0, 15000, 20000, x, t)
-
-
-for t in [0, 10.0 * siay, 20.0 * siay, 100.0 * siay]:
-    plt.plot(free.pts[:, 0] / 1000.0, analytic(free.pts[:, 0], t), label=f"{t/siay:.0f} years")
-plt.xlim([-1000, 1000])
-plt.legend()
-plt.show()
+free_disp_to_VB_traction = np.sum(VB.normals[:, :, None] * free_disp_to_VB_stress, axis=1)
+fault_slip_to_VB_traction = np.sum(VB.normals[:, :, None] * fault_slip_to_VB_stress, axis=1)
+VB_S_to_VB_traction = np.sum(VB.normals[:, :, None] * VB_S_to_VB_stress, axis=1)
 ```
 
 ```{code-cell} ipython3
 %%time
 # The slip does not change so these two integral terms can remain
 # outside the time stepping loop.
-syz_fault = fault_slip_to_VB_syz.dot(slip)
+VB_traction_fault = fault_slip_to_VB_traction.dot(slip)
 rhs_slip = fault_slip_to_free_disp.dot(slip)
 
-step_mult = 1
-dt = 0.1 * siay / step_mult
+siay = 31556952
+dt = 0.1 * siay
 stress_integral = np.zeros(VB.n_pts)
 t = 0
 disp_history = []
-S_history = []
-for i in range(1201 * step_mult):
+rhs = np.zeros(free_disp_solve_mat_inv.shape[1])
+for i in range(105):
     # Step 1) Solve for free surface displacement.
-    rhs = rhs_slip + VB_S_to_free_disp.dot(stress_integral)
-    free_disp = free_disp_solve_mat_inv.dot(rhs)
-    if i % step_mult == 0:
-        disp_history.append((t, free_disp))
-        S_history.append((t, stress_integral.copy()))
-
+    rhs[:-1] = rhs_slip + VB_S_to_free_disp.dot(stress_integral)
+    soln = free_disp_solve_mat_inv.dot(rhs)
+    free_disp = soln[:-1]
+    disp_history.append((t, free_disp))
+    
     # Step 2): Calculate viscoelastic boundary stress yz component and then d[S]/dt
-    syz_free = free_disp_to_VB_syz.dot(free_disp)
-    syz_VB = VB_S_to_VB_syz.dot(stress_integral)
-    syz_full = syz_free + syz_fault + syz_VB
-    dSdt = (shear_modulus / viscosity) * syz_full
+    VB_traction_free = free_disp_to_VB_traction.dot(free_disp)
+    VB_traction_VB = VB_S_to_VB_traction.dot(stress_integral)
+    VB_traction_full = VB_traction_free + VB_traction_fault + VB_traction_VB
+    dSdt = (shear_modulus / viscosity) * VB_traction_full
 
     # Step 3): Update S, simple forward Euler time step.
-    stress_integral += 2 * dSdt * dt
+    stress_integral -= 2 * dSdt * dt
     t += dt
+
+plt.figure(figsize=(8,4))
+plt.subplot(1,2,1)
+plt.plot(stress_integral)
+plt.subplot(1,2,2)
+plt.plot(free_disp)
+plt.show()
 ```
 
 ```{code-cell} ipython3
-plt.figure(figsize=(14, 7))
+# The constraint is working.
+np.sum(free_disp * free.jacobians * free.quad_wts)
+```
+
+```{code-cell} ipython3
+plt.figure(figsize=(7, 7))
 X = free.pts[:, 0] / 1000
-plt.subplot(1, 2, 1)
 plt.plot(X, disp_history[0][1], "k-", linewidth=3, label="elastic")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[0][0]), "k-.", linewidth=3)
+# plt.plot(X, disp_history[1][1], "b-", linewidth=3, label="elastic")
+# plt.plot(X, disp_history[2][1], "r-", linewidth=3, label="elastic")
+# plt.plot(X, disp_history[3][1], "m-", linewidth=3, label="elastic")
 plt.plot(X, disp_history[100][1], "m-", label="10 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[100][0]), "m-.")
-plt.plot(X, disp_history[200][1], "b-", label="20 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[200][0]), "b-.")
-plt.plot(X, disp_history[300][1], "r-", label="30 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[300][0]), "r-.")
-plt.plot([], [], " ", label="BIE = solid")
+# plt.plot(X, disp_history[200][1], "b-", label="20 yrs")
+# plt.plot(X, disp_history[300][1], "r-", label="30 yrs")
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$u ~ \mathrm{(m)}$")
 plt.legend()
-plt.subplot(1,2,2)
-
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[0][0]) - disp_history[0][1])), "k-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[100][0]) - disp_history[100][1])), "m-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[200][0]) - disp_history[200][1])), "b-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[300][0]) - disp_history[300][1])), "r-.")
-plt.xlim([-100, 100])
-plt.xlabel(r"$x ~ \mathrm{(km)}$")
-plt.ylabel(r"$\log_{10}{|u_{\textrm{analytic}} - u|} ~ \mathrm{(m)}$")
 plt.show()
-```
-
-```{code-cell} ipython3
-plt.figure(figsize = (14,7))
-plt.subplot(1,2,1)
-for i in range(0, len(disp_history), 100):
-    plt.plot(X, disp_history[i][1], "r-", linewidth = 0.5)
-plt.subplot(1,2,2)
-for i in range(0, len(S_history), 100):
-    plt.plot(X, np.log10(np.abs(S_history[i][1])), "b-", linewidth = 0.5)
-plt.show()
-```
-
-```{code-cell} ipython3
-VB_S_to_fault_stress = adjoint_double_layer_matrix(VB, fault.pts)
-free_disp_to_fault_stress = qbx_matrix(hypersingular_matrix, free_interp, fault.pts, fault_expansions)
-fault_expansions = qbx_setup(VB, r=r, p=10)
-fault_slip_to_fault_stress = qbx_matrix(hypersingular_matrix, fault_interp, fault.pts, fault_expansions)
 ```

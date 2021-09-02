@@ -232,13 +232,11 @@ def double_layer_matrix(source, obs_pts):
 
 
 def adjoint_double_layer_matrix(source, obs_pts):
-    srcx, srcy, srcnx, srcny, curve_jacobian = source
-
-    dx = obsx[:, None] - srcx[None, :]
-    dy = obsy[:, None] - srcy[None, :]
+    dx = obs_pts[:, None,0] - source.pts[None, :,0]
+    dy = obs_pts[:, None,1] - source.pts[None, :,1]
     r2 = dx ** 2 + dy ** 2
 
-    out = np.empty((obsx.shape[0], 2, source[0].shape[0]))
+    out = np.empty((obs_pts.shape[0], 2, source.n_pts))
     out[:, 0, :] = dx
     out[:, 1, :] = dy
 
@@ -548,3 +546,99 @@ def qbx_self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
     eval_mat = qbx_eval_matrix(obs_surface.pts[None,:], expansions)[0]
     I = np.real(np.sum(eval_mat[:, None, :, None] * expand_mat, axis=2))
     return I, expand_mat, eval_mat
+
+
+@dataclass()
+class PanelSurface:
+    # Hierarchy: Boundary -> Element -> Panel -> Point
+    # A boundary consists of several segments.
+    # An element consists of a single parametrized curve that might be composed of several panels.
+    # A panel consists of a quadrature rule defined over a subset of a parametrized curve.
+    quad_pts: np.ndarray
+    quad_wts: np.ndarray
+    pts: np.ndarray
+    normals: np.ndarray
+    jacobians: np.ndarray
+    panel_bounds: np.ndarray
+    panel_start_idxs: np.ndarray
+    panel_sizes: np.ndarray
+
+    @property
+    def n_pts(self):
+        return self.pts.shape[0]
+
+    @property
+    def n_panels(self):
+        return self.panel_bounds.shape[0]
+
+
+def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
+    """
+    Construct a surface out of a symbolic parametrized curve splitting the curve parameter at
+    `panel_bounds` into subcomponent. `panel_bounds` is expected to be a list of ranges of
+    the parameter `t` that spans from [-1, 1]. For example:
+    `panel_bounds = [(-1,-0.5),(-0.5,0),(0,1)]` would split the surface into three panels extending from
+    1. t = -1 to t = -0.5
+    2. t=-0.5 to t=0
+    3. t=0 to t=1.
+    """
+    dxdt = sp.diff(x, t)
+    dydt = sp.diff(y, t)
+
+    jacobian = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
+
+    nx = -dydt / jacobian
+    ny = dxdt / jacobian
+
+    quad_pts = []
+
+    panel_width = panel_bounds[:, 1] - panel_bounds[:, 0]
+
+    quad_pts = (
+        panel_bounds[:, 0, None] + panel_width[:, None] * (qx[None, :] + 1) * 0.5
+    ).flatten()
+    quad_wts = (panel_width[:, None] * qw[None, :] * 0.5).flatten()
+    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian]]
+
+    # And corner_resolutioneate the surface object.
+    pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
+    normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
+    jacobians = surf_vals[4]
+
+    panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
+    panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
+
+    return PanelSurface(
+        quad_pts,
+        quad_wts,
+        pts,
+        normals,
+        jacobians,
+        panel_bounds,
+        panel_start_idxs,
+        panel_sizes,
+    )
+
+
+def build_panel_interp_matrix(surface_in, surface_out):
+    """
+    Construct a matrix interpolating the values of some function from surface_in
+    to surface_out. The function assumes that underlying surface is the same
+    between both surfaces and that the number of panels is the same. The only
+    difference is the order of approximation on each panel.
+    """
+    out = np.zeros((surface_out.n_pts, surface_in.n_pts))
+    for i in range(surface_in.n_panels):
+        n_in = surface_in.panel_sizes[i]
+        start_in = surface_in.panel_start_idxs[i]
+        end_in = start_in + n_in
+
+        n_out = surface_out.panel_sizes[i]
+        start_out = surface_out.panel_start_idxs[i]
+        end_out = start_out + n_out
+
+        in_quad_pts = surface_in.quad_pts[start_in:end_in]
+        out_quad_pts = surface_out.quad_pts[start_out:end_out]
+        chunk = build_interp_matrix(build_interpolator(in_quad_pts), out_quad_pts)
+        out[start_out:end_out, start_in:end_in] = chunk
+    return out
