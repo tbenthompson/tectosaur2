@@ -52,11 +52,11 @@ from common import (
 ```
 
 ```{code-cell} ipython3
-corner_resolution = 50000
+corner_resolution = 250000
 n_panels = 20
 
 earth_radius = 6378 * 1000
-visco_depth = 200000
+visco_depth = 1000000
 viscosity = 1e18
 shear_modulus = 3e9
 ```
@@ -156,7 +156,7 @@ VB_r = (
     * VB.jacobians
     * 0.5
 )
-VB_expansions = qbx_setup(VB, direction = 1, r=VB_r, p=10)
+VB_expansions = qbx_setup(VB, direction = -1, r=VB_r, p=13)
 
 good = np.abs(orig_expansions.pts[:, 0]) > 0.30 * corner_resolution
 expansions = QBXExpansions(
@@ -178,8 +178,11 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
+plt.plot(free.pts[:,0], free.pts[:,1], 'k-')
+plt.plot(expansions.pts[:,0], expansions.pts[:,1], 'k*')
 plt.plot(VB.pts[:,0], VB.pts[:,1], 'b-')
-plt.plot(VB_expansions.pts[:,0], VB_expansions.pts[:,1], 'ko')
+plt.plot(VB_expansions.pts[:,0], VB_expansions.pts[:,1], 'b*')
+plt.plot(fault.pts[:,0], fault.pts[:,1], 'r-')
 plt.show()
 ```
 
@@ -237,7 +240,7 @@ analytical = (
 ```
 
 ```{code-cell} ipython3
-XV = 1000000.0
+XV = 4000000.0
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
 plt.plot(free.pts[:, 0], free_disp, "ko")
@@ -260,8 +263,8 @@ plt.show()
 
 ```{code-cell} ipython3
 nobs = 100
-zoomx = [-150000, 150000]
-zoomy = [earth_radius - 310000, earth_radius - 10000]
+zoomx = [-600000, 600000]
+zoomy = [earth_radius - 1240000, earth_radius - 10000]
 xs = np.linspace(*zoomx, nobs)
 ys = np.linspace(*zoomy, nobs)
 obs_pts = pts_grid(xs, ys)
@@ -359,9 +362,9 @@ VB_S_to_VB_stress = VB_S_to_VB_stress_raw.dot(Im_free)
 ```
 
 ```{code-cell} ipython3
-free_disp_to_VB_traction = np.sum(VB.normals[:, :, None] * free_disp_to_VB_stress, axis=1)
-fault_slip_to_VB_traction = np.sum(VB.normals[:, :, None] * fault_slip_to_VB_stress, axis=1)
-VB_S_to_VB_traction = np.sum(VB.normals[:, :, None] * VB_S_to_VB_stress, axis=1)
+free_disp_to_VB_traction = np.sum(-VB.normals[:, :, None] * free_disp_to_VB_stress, axis=1)
+fault_slip_to_VB_traction = np.sum(-VB.normals[:, :, None] * fault_slip_to_VB_stress, axis=1)
+VB_S_to_VB_traction = np.sum(-VB.normals[:, :, None] * VB_S_to_VB_stress, axis=1)
 ```
 
 ```{code-cell} ipython3
@@ -377,7 +380,7 @@ stress_integral = np.zeros(VB.n_pts)
 t = 0
 disp_history = []
 rhs = np.zeros(free_disp_solve_mat_inv.shape[1])
-for i in range(5):
+for i in range(305):
     # Step 1) Solve for free surface displacement.
     rhs[:-1] = rhs_slip + VB_S_to_free_disp.dot(stress_integral)
     soln = free_disp_solve_mat_inv.dot(rhs)
@@ -386,20 +389,21 @@ for i in range(5):
     
     # Step 2): Calculate viscoelastic boundary stress yz component and then d[S]/dt
     VB_traction_free = free_disp_to_VB_traction.dot(free_disp)
-    VB_traction_VB = VB_S_to_VB_traction.dot(stress_integral)
+    VB_traction_VB = -VB_S_to_VB_traction.dot(stress_integral)
     VB_traction_full = VB_traction_free + VB_traction_fault + VB_traction_VB
     dSdt = (shear_modulus / viscosity) * VB_traction_full
 
     # Step 3): Update S, simple forward Euler time step.
     stress_integral -= 2 * dSdt * dt
     t += dt
-
-plt.figure(figsize=(8,4))
-plt.subplot(1,2,1)
-plt.plot(stress_integral)
-plt.subplot(1,2,2)
-plt.plot(free_disp)
-plt.show()
+    
+    if i % 25 == 0:
+        plt.figure(figsize=(8,4))
+        plt.subplot(1,2,1)
+        plt.plot(stress_integral)
+        plt.subplot(1,2,2)
+        plt.plot(free_disp)
+        plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -415,8 +419,8 @@ plt.plot(X, disp_history[0][1], "k-", linewidth=3, label="elastic")
 # plt.plot(X, disp_history[2][1], "r-", linewidth=3, label="elastic")
 # plt.plot(X, disp_history[3][1], "m-", linewidth=3, label="elastic")
 plt.plot(X, disp_history[100][1], "m-", label="10 yrs")
-# plt.plot(X, disp_history[200][1], "b-", label="20 yrs")
-# plt.plot(X, disp_history[300][1], "r-", label="30 yrs")
+plt.plot(X, disp_history[200][1], "b-", label="20 yrs")
+plt.plot(X, disp_history[300][1], "r-", label="30 yrs")
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$u ~ \mathrm{(m)}$")
