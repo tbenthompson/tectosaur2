@@ -559,6 +559,7 @@ class PanelSurface:
     pts: np.ndarray
     normals: np.ndarray
     jacobians: np.ndarray
+    radius: np.ndarray
     panel_bounds: np.ndarray
     panel_start_idxs: np.ndarray
     panel_sizes: np.ndarray
@@ -585,7 +586,13 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     dxdt = sp.diff(x, t)
     dydt = sp.diff(y, t)
 
-    jacobian = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
+    jacobian = sp.sqrt(dxdt ** 2 + dydt ** 2)
+    
+    dx2dt2 = sp.diff(dxdt, t)
+    dy2dt2 = sp.diff(dydt, t)
+    # A small factor is added to the radius of curvature denominator 
+    # so that we don't divide by zero when a surface is flat.
+    radius = jacobian ** 3 / (dxdt * dy2dt2 - dydt * dx2dt2 + 1e-16)
 
     nx = -dydt / jacobian
     ny = dxdt / jacobian
@@ -598,12 +605,13 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         panel_bounds[:, 0, None] + panel_width[:, None] * (qx[None, :] + 1) * 0.5
     ).flatten()
     quad_wts = (panel_width[:, None] * qw[None, :] * 0.5).flatten()
-    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian]]
+    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]]
 
-    # And corner_resolutioneate the surface object.
+    # And create the surface object.
     pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
     normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
     jacobians = surf_vals[4]
+    radius_of_curvature = surf_vals[5]
 
     panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
     panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
@@ -614,6 +622,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         pts,
         normals,
         jacobians,
+        radius_of_curvature,
         panel_bounds,
         panel_start_idxs,
         panel_sizes,

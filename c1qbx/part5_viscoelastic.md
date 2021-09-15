@@ -62,7 +62,7 @@ panels = [
 ]
 for i in range(n_panels - len(panels)):
     panel_start = panels[-1][1]
-    panel_end = panel_start + min(20000, corner_resolution * (1.3 ** i))
+    panel_end = panel_start + corner_resolution * (2.0 ** i)
     panels.append((panel_start, panel_end))
     panels.insert(0, (-panel_end, -panel_start))
 panels = np.array(panels)
@@ -329,7 +329,7 @@ for terms in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
     stress = get_volumetric_stress(
         terms[0] * free_disp, terms[1] * slip, terms[2] * stress_integral
     )
-    levels = np.linspace(-2e4, 2e4, 21)
+    levels = np.linspace(-1e5, 1e5, 21)
     simple_plot(stress, levels)
 ```
 
@@ -354,10 +354,6 @@ VB_S_to_free_disp = (1.0 / shear_modulus) * qbx_matrix(single_layer_matrix, VB_i
 # plt.plot(VB_expansions.pts[:,0], VB_expansions.pts[:,1], 'b*')
 # plt.plot(fault.pts[:,0], fault.pts[:,1], 'r-')
 # plt.show()
-```
-
-```{code-cell} ipython3
-
 ```
 
 ```{code-cell} ipython3
@@ -399,13 +395,13 @@ def analytic_to_surface(slip, D, H, x, t):
     return C * (T1 + T2)
 
 
-def analytic(x, t):
+def analytic_soln(x, t):
     return analytic_to_surface(1.0, 15000, 20000, x, t)
 
-
+plt.figure(figsize=(6,6))
 for t in [0, 10.0 * siay, 20.0 * siay, 100.0 * siay]:
     plt.plot(free.pts[:, 0] / 1000.0, analytic(free.pts[:, 0], t), label=f"{t/siay:.0f} years")
-plt.xlim([-1000, 1000])
+plt.xlim([-100, 100])
 plt.legend()
 plt.show()
 ```
@@ -445,42 +441,31 @@ for i in range(1401 * step_mult):
 ```{code-cell} ipython3
 plt.figure(figsize=(14, 7))
 X = free.pts[:, 0] / 1000
+
 plt.subplot(1, 2, 1)
 plt.plot(X, disp_history[0][1], "k-", linewidth=3, label="elastic")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[0][0]), "k-.", linewidth=3)
-plt.plot(X, disp_history[100][1], "m-", label="10 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[100][0]), "m-.")
-plt.plot(X, disp_history[200][1], "b-", label="20 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[200][0]), "b-.")
-plt.plot(X, disp_history[300][1], "r-", label="30 yrs")
-plt.plot(X, analytic(free.pts[:, 0], disp_history[300][0]), "r-.")
+for color, i in [('m', 100), ('b', 200), ('r', 300)]:
+    plt.plot(X, disp_history[i][1], color + "-", label=str(i) + " yrs")
+    plt.plot(X, analytic_soln(free.pts[:, 0], disp_history[i][0]), color + "-.")
 plt.plot([], [], " ", label="BIE = solid")
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$u ~ \mathrm{(m)}$")
 plt.legend()
-plt.subplot(1,2,2)
 
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[0][0]) - disp_history[0][1])), "k-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[100][0]) - disp_history[100][1])), "m-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[200][0]) - disp_history[200][1])), "b-.")
-plt.plot(X, np.log10(np.abs(analytic(free.pts[:, 0], disp_history[300][0]) - disp_history[300][1])), "r-.")
+plt.subplot(1,2,2)
+for color, i in [('k', 0), ('m', 100), ('b', 200), ('r', 300)]:
+    analytic = analytic_soln(free.pts[:, 0], disp_history[i][0])
+    numerical = disp_history[i][1]
+    diff = analytic - numerical
+    plt.plot(X, np.log10(np.abs(diff)), color + "-.")
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$\log_{10}{|u_{\textrm{analytic}} - u|} ~ \mathrm{(m)}$")
 plt.show()
 ```
 
-```{code-cell} ipython3
-for i in range(len(free.panel_bounds)):
-    plt.plot([free.panel_bounds[i][0], free.panel_bounds[i][1]], [0, 0], 'k-*')
-    plt.plot()
-plt.show()
-```
-
-```{code-cell} ipython3
-disp_history = disp_history[:1400]
-```
+## MAJOR PROBLEMS REMAIN, SEE BELOW
 
 ```{code-cell} ipython3
 plt.figure(figsize = (14,7))

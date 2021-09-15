@@ -27,6 +27,7 @@ dependencies:
   - quadpy
   - jupyterlab-lsp
   - python-lsp-server
+  - ipympl
   - pip:
     - jupyter-book >= 0.11
     - cutde #might want a development version!

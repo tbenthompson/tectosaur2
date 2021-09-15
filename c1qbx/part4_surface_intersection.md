@@ -32,7 +32,7 @@ So, our goals in this section are to:
 1. Model a fault that intersects the surface of the Earth.
 2. Model an infinite free surface to the best of our ability.
 
-Both of these goals will lead to more general methods that are useful for a wide range of problems. In particular, modeling an infinite free surface will force us to implement some **adaptive meshing** tools that will be very useful for other problems where the spatial scale of interest varies widely through the domain. 
+Both of these goals will lead to more general methods that are useful for a wide range of problems. In particular, modeling an infinite free surface will force us to implement some **adaptive meshing** tools that will be very useful for other problems where the spatial scale of interest varies widely through the domain.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -54,108 +54,15 @@ The key to solving both these problem will be to separate the surface into many 
 1. A Gaussian quadrature rule implicitly assumes that the function being integrated is smooth. However, at a fault-surface intersection, the surface displacement will actually be discontinuous! 
 2. The resolution needed near the fault will be high. The resolution needed 100 fault lengths away from the fault trace is very low. So, we will need to have higher point density in some places than others. We will achieve this by refining some panels to be much smaller than others. 
 
-[draft note] Explain the code below more. 
+[draft note] Explain the code below more.
 
 ```{code-cell} ipython3
-from dataclasses import dataclass
-
-# Hierarchy: Boundary -> Element -> Panel -> Point
-# A boundary consists of several segments.
-# An element consists of a single parametrized curve that might be composed of several panels.
-# A panel consists of a quadrature rule defined over a subset of a parametrized curve.
-@dataclass()
-class PanelSurface:
-    quad_pts: np.ndarray
-    quad_wts: np.ndarray
-    pts: np.ndarray
-    normals: np.ndarray
-    jacobians: np.ndarray
-    panel_bounds: np.ndarray
-    panel_start_idxs: np.ndarray
-    panel_sizes: np.ndarray
-
-    @property
-    def n_pts(self):
-        return self.pts.shape[0]
-
-    @property
-    def n_panels(self):
-        return self.panel_bounds.shape[0]
-
-
-def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
-    """
-    Construct a surface out of a symbolic parametrized curve splitting the curve parameter at 
-    `panel_bounds` into subcomponent. `panel_bounds` is expected to be a list of ranges of 
-    the parameter `t` that spans from [-1, 1]. For example:
-    `panel_bounds = [(-1,-0.5),(-0.5,0),(0,1)]` would split the surface into three panels extending from
-    1. t = -1 to t = -0.5
-    2. t=-0.5 to t=0 
-    3. t=0 to t=1.
-    """
-    dxdt = sp.diff(x, t)
-    dydt = sp.diff(y, t)
-
-    jacobian = sp.simplify(sp.sqrt(dxdt ** 2 + dydt ** 2))
-
-    nx = -dydt / jacobian
-    ny = dxdt / jacobian
-
-    quad_pts = []
-
-    panel_width = panel_bounds[:, 1] - panel_bounds[:, 0]
-
-    quad_pts = (
-        panel_bounds[:, 0, None] + panel_width[:, None] * (qx[None, :] + 1) * 0.5
-    ).flatten()
-    quad_wts = (panel_width[:, None] * qw[None, :] * 0.5).flatten()
-    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian]]
-
-    # And corner_resolutioneate the surface object.
-    pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
-    normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
-    jacobians = surf_vals[4]
-
-    panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
-    panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
-
-    return PanelSurface(
-        quad_pts,
-        quad_wts,
-        pts,
-        normals,
-        jacobians,
-        panel_bounds,
-        panel_start_idxs,
-        panel_sizes,
-    )
-
-
-def build_panel_interp_matrix(surface_in, surface_out):
-    """
-    Construct a matrix interpolating the values of some function from surface_in 
-    to surface_out. The function assumes that underlying surface is the same 
-    between both surfaces and that the number of panels is the same. The only 
-    difference is the order of approximation on each panel.
-    """
-    out = np.zeros((surface_out.n_pts, surface_in.n_pts))
-    for i in range(surface_in.n_panels):
-        n_in = surface_in.panel_sizes[i]
-        start_in = surface_in.panel_start_idxs[i]
-        end_in = start_in + n_in
-
-        n_out = surface_out.panel_sizes[i]
-        start_out = surface_out.panel_start_idxs[i]
-        end_out = start_out + n_out
-
-        in_quad_pts = surface_in.quad_pts[start_in:end_in]
-        out_quad_pts = surface_out.quad_pts[start_out:end_out]
-        chunk = build_interp_matrix(build_interpolator(in_quad_pts), out_quad_pts)
-        out[start_out:end_out, start_in:end_in] = chunk
-    return out
+import_and_display_fnc('common', 'PanelSurface')
+import_and_display_fnc('common', 'panelize_symbolic_surface')
+import_and_display_fnc('common', 'build_panel_interp_matrix')
 ```
 
-This next section will construct the free surface panelized surface `flat`. The `corner_resolution` specifies how large the panels will be near the fault-surface intersection. Away from that intersection, the panels will each be double the length of the prior panel, thus enabling the full surface to efficiently represent an effectively infinite free surface. 
+This next section will construct the free surface panelized surface `flat`. The `corner_resolution` specifies how large the panels will be near the fault-surface intersection. Away from that intersection, the panels will each be double the length of the prior panel, thus enabling the full surface to efficiently represent an effectively infinite free surface.
 
 ```{code-cell} ipython3
 from common import Surface
@@ -232,7 +139,7 @@ fault = panelize_symbolic_surface(
 
 Next, we need to carefully remove some of the QBX expansion centers. Because the expansion centers are offset towards the interior of the domain in the direction of the normal vector of the free surface, a few of them will be too close to the fault surface. We remove those. As a result, any evaluations in the corner will use the slightly farther away QBX expansion points. 
 
-In the figure below, the QBX expansion centers are indicated in blue, while the expansion centers that we remove are indicated in red. 
+In the figure below, the QBX expansion centers are indicated in blue, while the expansion centers that we remove are indicated in red.
 
 ```{code-cell} ipython3
 from common import QBXExpansions
@@ -260,7 +167,7 @@ plt.ylabel(r'$y$')
 plt.show()
 ```
 
-Note that despite extending out to 1000 fault lengths away from the fault trace, we are only using 672 points to describe the free surface solution. 
+Note that despite extending out to 1000 fault lengths away from the fault trace, we are only using 672 points to describe the free surface solution.
 
 ```{code-cell} ipython3
 print('number of points in the free surface discretization:', flat.n_pts)
@@ -317,8 +224,4 @@ for XV in [10.0, 1000.0]:
     plt.tight_layout()
     plt.xlim([-XV, XV])
     plt.show()
-```
-
-```{code-cell} ipython3
-
 ```
