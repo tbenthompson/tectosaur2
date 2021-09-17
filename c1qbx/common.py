@@ -563,6 +563,8 @@ class PanelSurface:
     panel_bounds: np.ndarray
     panel_start_idxs: np.ndarray
     panel_sizes: np.ndarray
+    panel_centers: np.ndarray
+    panel_length: np.ndarray
 
     @property
     def n_pts(self):
@@ -615,7 +617,12 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
 
     panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
     panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
-
+    panel_centers = (1.0 / panel_parameter_domain[:, None]) * np.sum(
+        (s.quad_wts[:,None] * s.pts).reshape((-1, qx.shape[0], 2)), 
+        axis=1
+    )
+    panel_length = np.sum((s.quad_wts * s.jacobians).reshape((-1, qx.shape[0])), axis=1)
+    
     return PanelSurface(
         quad_pts,
         quad_wts,
@@ -626,6 +633,8 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         panel_bounds,
         panel_start_idxs,
         panel_sizes,
+        panel_centers,
+        panel_length
     )
 
 
@@ -651,3 +660,11 @@ def build_panel_interp_matrix(surface_in, surface_out):
         chunk = build_interp_matrix(build_interpolator(in_quad_pts), out_quad_pts)
         out[start_out:end_out, start_in:end_in] = chunk
     return out
+
+def qbx_panel_setup(source, mult=1.0, direction=0, p=5):
+    r = (
+        np.repeat((source.panel_bounds[:, 1] - source.panel_bounds[:, 0]), source.panel_sizes)
+        * source.jacobians
+        * (0.5 * mult)
+    )
+    return qbx_setup(source, direction=direction, r=r, p=p)

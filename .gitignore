@@ -5,3 +5,4 @@ _build
 # ignore ipynb, use MyST Markdown files instead!
 */*.ipynb
 .vscode
+.virtual_documents
