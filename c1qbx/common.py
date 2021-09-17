@@ -601,12 +601,12 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
 
     quad_pts = []
 
-    panel_width = panel_bounds[:, 1] - panel_bounds[:, 0]
+    panel_parameter_width = panel_bounds[:, 1] - panel_bounds[:, 0]
 
     quad_pts = (
-        panel_bounds[:, 0, None] + panel_width[:, None] * (qx[None, :] + 1) * 0.5
+        panel_bounds[:, 0, None] + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
     ).flatten()
-    quad_wts = (panel_width[:, None] * qw[None, :] * 0.5).flatten()
+    quad_wts = (panel_parameter_width[:, None] * qw[None, :] * 0.5).flatten()
     surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]]
 
     # And create the surface object.
@@ -617,11 +617,11 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
 
     panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
     panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
-    panel_centers = (1.0 / panel_parameter_domain[:, None]) * np.sum(
-        (s.quad_wts[:,None] * s.pts).reshape((-1, qx.shape[0], 2)), 
+    panel_centers = (1.0 / panel_parameter_width[:, None]) * np.sum(
+        (quad_wts[:,None] * pts).reshape((-1, qx.shape[0], 2)), 
         axis=1
     )
-    panel_length = np.sum((s.quad_wts * s.jacobians).reshape((-1, qx.shape[0])), axis=1)
+    panel_length = np.sum((quad_wts * jacobians).reshape((-1, qx.shape[0])), axis=1)
     
     return PanelSurface(
         quad_pts,
@@ -636,6 +636,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         panel_centers,
         panel_length
     )
+
 
 
 def build_panel_interp_matrix(surface_in, surface_out):
