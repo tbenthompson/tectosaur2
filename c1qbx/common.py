@@ -53,6 +53,7 @@ def circle(n):
     jacobians = np.full(pts.shape[0], np.pi)
     return Surface(quad_pts, quad_wts, pts, normals, jacobians)
 
+
 def discretize_symbolic_surface(quad_pts, quad_wts, t, x, y):
     """
     Given a sympy parameteric expression for the x and y coordinates of a surface, we construct the points and normals and jacobians of that surface.
@@ -84,9 +85,10 @@ def discretize_symbolic_surface(quad_pts, quad_wts, t, x, y):
 
     return Surface(quad_pts, quad_wts, pts, normals, jacobians)
 
+
 def line(n, xy1, xy2):
     q = gauss_rule(n)
-    t = sp.var('t')
+    t = sp.var("t")
     x = xy1[0] + 0.5 * (t + 1) * (xy2[0] - xy1[0])
     y = xy1[1] + 0.5 * (t + 1) * (xy2[1] - xy1[1])
     return discretize_symbolic_surface(*q, t, x, y)
@@ -153,23 +155,25 @@ def build_interpolator(in_xhat):
     I.permutation = permutation
     return I
 
+
 def interpolate_fnc(interpolator, f, out_xhat):
     interpolator.set_yi(f[interpolator.permutation])
     return interpolator(interpolator.Cinv * out_xhat)
+
 
 def build_interp_matrix(interpolator, out_xhat):
     # This code is based on the code in
     # scipy.interpolate.BarycentricInterpolator._evaluate but modified to
     # construct a matrix.
-    dist = (interpolator.Cinv * out_xhat[:,None]) - interpolator.xi
+    dist = (interpolator.Cinv * out_xhat[:, None]) - interpolator.xi
 
     # Remove zeros so we don't divide by zero.
-    z = (dist == 0)
+    z = dist == 0
     dist[z] = 1
 
     # The barycentric interpolation formula
     dist = interpolator.wi / dist
-    interp_matrix = dist / np.sum(dist, axis=-1)[:,None]
+    interp_matrix = dist / np.sum(dist, axis=-1)[:, None]
 
     # Handle points where out_xhat is in an entry in interpolator.xi
     r = np.nonzero(z)
@@ -232,8 +236,8 @@ def double_layer_matrix(source, obs_pts):
 
 
 def adjoint_double_layer_matrix(source, obs_pts):
-    dx = obs_pts[:, None,0] - source.pts[None, :,0]
-    dy = obs_pts[:, None,1] - source.pts[None, :,1]
+    dx = obs_pts[:, None, 0] - source.pts[None, :, 0]
+    dy = obs_pts[:, None, 1] - source.pts[None, :, 1]
     r2 = dx ** 2 + dy ** 2
 
     out = np.empty((obs_pts.shape[0], 2, source.n_pts))
@@ -306,7 +310,7 @@ class QBXExpansions:
         return self.pts.shape[0]
 
 
-def qbx_setup(source, mult=5.0, direction=0, p=5, r = None):
+def qbx_setup(source, mult=5.0, direction=0, p=5, r=None):
     """
     Set up the expansion centers for a source surface. The centers will be
     offset by a distance proportional to the local jacobian of the surface.
@@ -526,7 +530,6 @@ def qbx_matrix(kernel, source, obs_pts, expansions):
 
     entries_used = interior.obs_pt_idxs >= 0
 
-
     out = np.empty((obs_pts.shape[0], expand.shape[1], source.n_pts))
 
     # Which observation points used QBX? Use the QBX results for those!
@@ -543,7 +546,7 @@ def qbx_matrix(kernel, source, obs_pts, expansions):
 
 def qbx_self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
     expand_mat = qbx_expand_matrix(kernel, src_surface, expansions)
-    eval_mat = qbx_eval_matrix(obs_surface.pts[None,:], expansions)[0]
+    eval_mat = qbx_eval_matrix(obs_surface.pts[None, :], expansions)[0]
     I = np.real(np.sum(eval_mat[:, None, :, None] * expand_mat, axis=2))
     return I, expand_mat, eval_mat
 
@@ -554,6 +557,10 @@ class PanelSurface:
     # A boundary consists of several segments.
     # An element consists of a single parametrized curve that might be composed of several panels.
     # A panel consists of a quadrature rule defined over a subset of a parametrized curve.
+
+    qx: np.ndarray
+    qw: np.ndarray
+
     quad_pts: np.ndarray
     quad_wts: np.ndarray
     pts: np.ndarray
@@ -565,6 +572,35 @@ class PanelSurface:
     panel_sizes: np.ndarray
     panel_centers: np.ndarray
     panel_length: np.ndarray
+    interp_mat: scipy.sparse.spmatrix = None
+
+    def __init__(
+        self, qx, qw, quad_pts, quad_wts, pts, normals, jacobians, radius, panel_bounds
+    ):
+        self.qx = qx
+        self.qw = qw
+        self.quad_pts = quad_pts
+        self.quad_wts = quad_wts
+        self.pts = pts
+        self.normals = normals
+        self.jacobians = jacobians
+        self.radius = radius
+        self.panel_bounds = panel_bounds
+
+        panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
+        self.panel_sizes = np.full(self.panel_bounds.shape[0], self.panel_order)
+        self.panel_start_idxs = np.cumsum(self.panel_sizes) - self.panel_order
+        self.panel_centers = (1.0 / panel_parameter_width[:, None]) * np.sum(
+            (self.quad_wts[:, None] * self.pts).reshape((-1, self.panel_order, 2)),
+            axis=1,
+        )
+        self.panel_length = np.sum(
+            (self.quad_wts * self.jacobians).reshape((-1, self.panel_order)), axis=1
+        )
+
+    @property
+    def panel_order(self):
+        return self.qx.shape[0]
 
     @property
     def n_pts(self):
@@ -589,10 +625,10 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     dydt = sp.diff(y, t)
 
     jacobian = sp.sqrt(dxdt ** 2 + dydt ** 2)
-    
+
     dx2dt2 = sp.diff(dxdt, t)
     dy2dt2 = sp.diff(dydt, t)
-    # A small factor is added to the radius of curvature denominator 
+    # A small factor is added to the radius of curvature denominator
     # so that we don't divide by zero when a surface is flat.
     radius = jacobian ** 3 / (dxdt * dy2dt2 - dydt * dx2dt2 + 1e-16)
 
@@ -604,26 +640,22 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     panel_parameter_width = panel_bounds[:, 1] - panel_bounds[:, 0]
 
     quad_pts = (
-        panel_bounds[:, 0, None] + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
+        panel_bounds[:, 0, None]
+        + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
     ).flatten()
     quad_wts = (panel_parameter_width[:, None] * qw[None, :] * 0.5).flatten()
-    surf_vals = [symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]]
+    surf_vals = [
+        symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]
+    ]
 
-    # And create the surface object.
     pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
     normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
     jacobians = surf_vals[4]
     radius_of_curvature = surf_vals[5]
 
-    panel_sizes = np.full(panel_bounds.shape[0], qx.shape[0])
-    panel_start_idxs = np.cumsum(panel_sizes) - qx.shape[0]
-    panel_centers = (1.0 / panel_parameter_width[:, None]) * np.sum(
-        (quad_wts[:,None] * pts).reshape((-1, qx.shape[0], 2)), 
-        axis=1
-    )
-    panel_length = np.sum((quad_wts * jacobians).reshape((-1, qx.shape[0])), axis=1)
-    
     return PanelSurface(
+        qx,
+        qw,
         quad_pts,
         quad_wts,
         pts,
@@ -631,40 +663,238 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         jacobians,
         radius_of_curvature,
         panel_bounds,
-        panel_start_idxs,
-        panel_sizes,
-        panel_centers,
-        panel_length
     )
 
 
-def build_panel_interp_matrix(surface_in, surface_out):
-    """
-    Construct a matrix interpolating the values of some function from surface_in
-    to surface_out. The function assumes that underlying surface is the same
-    between both surfaces and that the number of panels is the same. The only
-    difference is the order of approximation on each panel.
-    """
-    out = np.zeros((surface_out.n_pts, surface_in.n_pts))
-    for i in range(surface_in.n_panels):
-        n_in = surface_in.panel_sizes[i]
-        start_in = surface_in.panel_start_idxs[i]
-        end_in = start_in + n_in
+def qbx_panel_setup(source, mult=0.5, direction=0, p=5):
+    r = mult * np.repeat(source.panel_length, source.panel_order)
+    return qbx_setup(source, direction=direction, r=r, p=p)
 
-        n_out = surface_out.panel_sizes[i]
-        start_out = surface_out.panel_start_idxs[i]
-        end_out = start_out + n_out
 
-        in_quad_pts = surface_in.quad_pts[start_in:end_in]
-        out_quad_pts = surface_out.quad_pts[start_out:end_out]
-        chunk = build_interp_matrix(build_interpolator(in_quad_pts), out_quad_pts)
-        out[start_out:end_out, start_in:end_in] = chunk
+def refine_panels(panels, which):
+    new_panels = []
+    for i in range(panels.shape[0]):
+        if which[i]:
+            left, right = panels[i]
+            midpt = 0.5 * (left + right)
+            new_panels.append([left, midpt])
+            new_panels.append([midpt, right])
+        else:
+            new_panels.append(panels[i])
+    new_panels = np.array(new_panels)
+    return new_panels
+
+
+def stage1_refine(
+    sym_surf,
+    quad_rule,
+    other_surfaces=[],
+    initial_panels=np.array([[-1, 1]]),
+    max_radius_ratio=0.25,
+    control_points=None,
+    max_iter=30,
+):
+    cur_panels = initial_panels.copy()
+
+    other_surf_trees = []
+    for other_surf in other_surfaces:
+        other_surf_trees.append(scipy.spatial.KDTree(other_surf.panel_centers))
+
+    if control_points is not None:
+        control_points = np.asarray(control_points)
+        control_tree = scipy.spatial.KDTree(control_points[:, :2])
+
+    for i in range(max_iter):
+        # Step 0) Create a PanelSurface from the current set of panels.
+        # note that this step would need to look different if the surface were
+        # defined from an input segment geometry rather than from a symbolic
+        # curve specification.
+        cur_surf = panelize_symbolic_surface(
+            sym_surf[0], sym_surf[1], sym_surf[2], cur_panels, *quad_rule
+        )
+
+        # Step 1) Refine based on radius of curvature
+        panel_radius = np.min(
+            cur_surf.radius.reshape((-1, quad_rule[0].shape[0])), axis=1
+        )
+        refine_from_radius = cur_surf.panel_length > max_radius_ratio * panel_radius
+
+        # Step 2) Refine based on a nearby user-specified control points.
+        if control_points is not None:
+            nearby_controls = control_tree.query(cur_surf.panel_centers)
+            nearest_control_pt = control_points[nearby_controls[1], :]
+            refine_from_control = (
+                nearby_controls[0]
+                < 0.5 * cur_surf.panel_length + nearest_control_pt[:, 2]
+            ) & (cur_surf.panel_length > nearest_control_pt[:, 3])
+        else:
+            refine_from_control = np.zeros(cur_surf.n_panels, dtype=bool)
+
+        # Step 3) Refine based on the length scale imposed by other nearby surfaces
+        refine_from_nearby = np.zeros(cur_surf.n_panels, dtype=bool)
+        for j, other_surf in enumerate(other_surfaces):
+            nearby_surf_panels = other_surf_trees[j].query(cur_surf.panel_centers)
+            nearby_dist = nearby_surf_panels[0]
+            nearby_panel_length = other_surf.panel_length[nearby_surf_panels[1]]
+            refine_from_nearby |= (
+                0.5 * nearby_panel_length + nearby_dist < cur_surf.panel_length
+            )
+
+        # Step 4) Ensure that panel length scale doesn't change too rapidly. This
+        # essentially imposes that a panel will be no more than twice the length
+        # of any adjacent panel.
+        if cur_surf.n_panels > 1:
+            panel_tree = scipy.spatial.KDTree(cur_surf.panel_centers)
+            # Use k=2 because the closest panel will be the query panel itself.
+            nearby_panels = panel_tree.query(cur_surf.panel_centers, k=2)
+            nearby_dist = nearby_panels[0][:, 1]
+            nearby_idx = nearby_panels[1][:, 1]
+            nearby_panel_length = cur_surf.panel_length[nearby_idx]
+            # The criterion will be: self_panel_length + sep < 0.5 * panel_length
+            # but since sep = self_dist - 0.5 * panel_length - 0.5 * self_panel_length
+            # we can simplify the criterion to:
+            # Since the self distance metric is symmetric, we only need to check
+            # if the panel is too large.
+            fudge_factor = 0.01
+            refine_from_self = (
+                0.5 * nearby_panel_length + nearby_dist
+                < (1 - fudge_factor) * cur_surf.panel_length
+            )
+        else:
+            refine_from_self = np.zeros(cur_surf.n_panels, dtype=bool)
+
+        refine = (
+            refine_from_control
+            | refine_from_radius
+            | refine_from_self
+            | refine_from_nearby
+        )
+        new_panels = refine_panels(cur_panels, refine)
+
+        # TODO: add a callback for debugging? or some logging?
+        #     plt.plot(s.pts[s.panel_start_idxs,0], s.pts[s.panel_start_idxs,1], 'k-*')
+        #     plt.show()
+        #     print('nearby_controls: ', nearby_controls, 0.5*panel_length, control_points[nearby_controls[1], 2])
+        #     print('panel centers', panel_centers)
+        #     print('panel length', panel_length)
+        #         print('control', refine_from_control)
+        #         print('radius', refine_from_radius)
+        #         print('self', refine_from_self)
+        #         print('nearby', refine_from_nearby)
+        #         print('overall', refine)
+        #         print('')
+        #         print('')
+
+        if new_panels.shape[0] == cur_panels.shape[0]:
+            if np.any(refine):
+                print("WTF")
+            print(f"done after n_iterations={i} with n_panels={cur_panels.shape[0]}")
+            break
+        cur_panels = new_panels
+    return cur_surf
+
+
+def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
+    n_out_panels = out_qx.shape[0]
+    shape = (n_out_panels * out_qx.shape[1], in_n_panels * in_qx.shape[0])
+    indptr = np.arange(n_out_panels + 1)
+    indices = panel_idxs
+    interp_mat_data = []
+    for i in range(n_out_panels):
+        single_panel_interp = build_interp_matrix(build_interpolator(in_qx), out_qx[i])
+        interp_mat_data.append(single_panel_interp)
+    return scipy.sparse.bsr_matrix((interp_mat_data, indices, indptr), shape)
+
+
+def build_stage2_panel_surf(surf, stage2_panels):
+    in_panel_idx = stage2_panels[:, 0].astype(int)
+    left_param = stage2_panels[:, 1][:, None]
+    right_param = stage2_panels[:, 2][:, None]
+
+    out_relative_nodes = (
+        left_param + (right_param - left_param) * (surf.qx[None, :] + 1) * 0.5
+    )
+
+    in_panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
+
+    interp_mat = build_panel_interp_matrix(
+        surf.n_panels, surf.qx, stage2_panels[:, 0].astype(int), out_relative_nodes
+    )
+
+    quad_pts = (
+        surf.panel_bounds[in_panel_idx, 0, None]
+        + in_panel_parameter_width[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
+    ).ravel()
+    quad_wts = (
+        (surf.qw[None, :] * 0.25 * (right_param - left_param))
+        * in_panel_parameter_width[in_panel_idx, None]
+    ).ravel()
+
+    pts = interp_mat.dot(surf.pts)
+    normals = interp_mat.dot(surf.normals)
+    jacobians = interp_mat.dot(surf.jacobians)
+    radius = interp_mat.dot(surf.radius)
+
+    panel_bounds = (
+        surf.panel_bounds[in_panel_idx, 0, None]
+        + (stage2_panels[:, 1:] + 1)
+        * 0.5
+        * in_panel_parameter_width[in_panel_idx, None]
+    )
+
+    out = PanelSurface(
+        surf.qx,
+        surf.qw,
+        quad_pts,
+        quad_wts,
+        pts,
+        normals,
+        jacobians,
+        radius,
+        panel_bounds,
+    )
+    out.interp_mat = interp_mat
     return out
 
-def qbx_panel_setup(source, mult=1.0, direction=0, p=5):
-    r = (
-        np.repeat((source.panel_bounds[:, 1] - source.panel_bounds[:, 0]), source.panel_sizes)
-        * source.jacobians
-        * (0.5 * mult)
+
+def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49):
+    stage2_panels = np.array(
+        [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
+    ).T
+    panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
+    expansion_tree = scipy.spatial.KDTree(expansions.pts)
+
+    for i in range(max_iter):
+        stage2_surf = build_stage2_panel_surf(surf, stage2_panels)
+
+        min_panel_expansion_dist = np.min(
+            expansion_tree.query(stage2_surf.pts)[0].reshape((-1, surf.panel_order)),
+            axis=1,
+        )
+        refine = min_panel_expansion_dist < distance_limit * stage2_surf.panel_length
+
+        new_quad_panel_domains = refine_panels(stage2_panels[:, 1:], refine)
+        new_in_panel_idx = np.repeat(stage2_panels[:, 0], refine + 1)
+        new_quad_panels = np.hstack((new_in_panel_idx[:, None], new_quad_panel_domains))
+
+        if stage2_panels.shape[0] == new_quad_panels.shape[0]:
+            break
+        stage2_panels = new_quad_panels
+
+    return stage2_surf
+
+
+def build_stage2_interp_mat(stage2_panels, kappa=3):
+    out_order = qx.shape[0] * kappa
+    upsampled_gauss = gauss_rule(out_order)
+    left = stage2_panels[:, 1][:, None]
+    right = stage2_panels[:, 2][:, None]
+    upsampled_relative_nodes = (
+        left + (right - left) * (upsampled_gauss[0][None, :] + 1) * 0.5
     )
-    return qbx_setup(source, direction=direction, r=r, p=p)
+    return build_panel_interp_matrix(
+        stage2_panels[:, 0].astype(int).max() + 1,
+        qx,
+        stage2_panels[:, 0].astype(int),
+        upsampled_relative_nodes,
+    )
