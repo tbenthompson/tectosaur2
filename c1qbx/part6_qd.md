@@ -114,7 +114,9 @@ def stage1_refine(
         )
 
         # Step 1) Refine based on radius of curvature
-        panel_radius = np.min(cur_surf.radius.reshape((-1, quad_rule[0].shape[0])), axis=1)
+        panel_radius = np.min(
+            cur_surf.radius.reshape((-1, quad_rule[0].shape[0])), axis=1
+        )
         refine_from_radius = cur_surf.panel_length > 0.25 * panel_radius
 
         # Step 2) Refine based on a nearby user-specified control points.
@@ -122,7 +124,8 @@ def stage1_refine(
             nearby_controls = control_tree.query(cur_surf.panel_centers)
             nearest_control_pt = control_points[nearby_controls[1], :]
             refine_from_control = (
-                nearby_controls[0] < 0.5 * cur_surf.panel_length + nearest_control_pt[:, 2]
+                nearby_controls[0]
+                < 0.5 * cur_surf.panel_length + nearest_control_pt[:, 2]
             ) & (cur_surf.panel_length > nearest_control_pt[:, 3])
         else:
             refine_from_control = np.zeros(cur_surf.n_panels, dtype=bool)
@@ -136,10 +139,9 @@ def stage1_refine(
             refine_from_nearby |= (
                 0.5 * nearby_panel_length + nearby_dist < cur_surf.panel_length
             )
-            
 
-        # Step 4) Ensure that panel length scale doesn't change too rapidly. This 
-        # essentially imposes that a panel will be no more than twice the length 
+        # Step 4) Ensure that panel length scale doesn't change too rapidly. This
+        # essentially imposes that a panel will be no more than twice the length
         # of any adjacent panel.
         if cur_surf.n_panels > 1:
             panel_tree = scipy.spatial.KDTree(cur_surf.panel_centers)
@@ -155,7 +157,8 @@ def stage1_refine(
             # if the panel is too large.
             fudge_factor = 0.01
             refine_from_self = (
-                0.5 * nearby_panel_length + nearby_dist < (1 - fudge_factor) * cur_surf.panel_length
+                0.5 * nearby_panel_length + nearby_dist
+                < (1 - fudge_factor) * cur_surf.panel_length
             )
         else:
             refine_from_self = np.zeros(cur_surf.n_panels, dtype=bool)
@@ -173,14 +176,13 @@ def stage1_refine(
         #     print('nearby_controls: ', nearby_controls, 0.5*panel_length, control_points[nearby_controls[1], 2])
         #     print('panel centers', panel_centers)
         #     print('panel length', panel_length)
-#         print('control', refine_from_control)
-#         print('radius', refine_from_radius)
-#         print('self', refine_from_self)
-#         print('nearby', refine_from_nearby)
-#         print('overall', refine)
-#         print('')
-#         print('')
-
+        #         print('control', refine_from_control)
+        #         print('radius', refine_from_radius)
+        #         print('self', refine_from_self)
+        #         print('nearby', refine_from_nearby)
+        #         print('overall', refine)
+        #         print('')
+        #         print('')
 
         if new_panels.shape[0] == cur_panels.shape[0]:
             if np.any(refine):
@@ -202,7 +204,9 @@ src_surf = panelize_symbolic_surface(
 )
 
 control_points = np.array([(0, 0, 2, 0.5)])
-obs_surf = stage1_refine(sym_obs_surf, (qx, qw), other_surfaces=[src_surf], control_points=control_points)
+obs_surf = stage1_refine(
+    sym_obs_surf, (qx, qw), other_surfaces=[src_surf], control_points=control_points
+)
 ```
 
 ```{code-cell} ipython3
@@ -215,7 +219,7 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-from common import qbx_panel_setup
+from common import qbx_panel_setup, build_interp_matrix, build_interpolator
 
 expansions = qbx_panel_setup(obs_surf, direction=1, p=10)
 expansion_tree = scipy.spatial.KDTree(expansions.pts)
@@ -227,150 +231,101 @@ print(expansion_tree.query(src_surf.pts)[0])
 ```
 
 ```{code-cell} ipython3
-# from common import build_interp_matrix, build_interpolator
-# import scipy.sparse
-
-# n_out_panels = 10
-# in_order = 16
-# out_order = 48
-
-# indptr = np.arange(n_out_panels + 1)
-# indices = np.arange(n_out_panels)
-# in_nodes = gauss_rule(in_order)[0]
-# data = []
-# for i in range(n_panels):
-#     out_nodes = 0.5 * gauss_rule(out_order)[0]
-#     if i % 2 == 0:
-#         out_nodes -= 0.5
-#     else:
-#         out_nodes += 0.5
-#     single_panel_interp = build_interp_matrix(build_interpolator(in_nodes), out_nodes)
-#     data.append(single_panel_interp)
-# shape = (n_out_panels * out_order, n_panels * in_order)
-# interp_mat = scipy.sparse.bsr_matrix((data, indices, indptr), shape)
-
-# plt.figure(figsize=(8, 8))
-# plt.imshow(np.log10(np.abs(interp_mat.toarray())))
-# plt.show()
-```
-
-```{code-cell} ipython3
-surf = obs_surf
-stage2_panels = np.array([np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]).T
-```
-
-```{code-cell} ipython3
-# panel_outer_bounds = obs_surf.panel_bounds[stage2_panels[:,0].astype(int)]
-# to_domain = lambda x: panel_outer_bounds[:,0] + (x + 1) * 0.5 * (panel_outer_bounds[:,1] - panel_outer_bounds[:,0])
-# quad_panels = np.array([to_domain(stage2_panels[:,1]), to_domain(stage2_panels[:,2])]).T
-```
-
-```{code-cell} ipython3
-in_order = 16
-out_order = 16
-in_nodes = gauss_rule(in_order)[0]
-out_q = gauss_rule(out_order)
-
-in_panel_idx = stage2_panels[:, 0].astype(int)
-left = stage2_panels[:,1][:, None]
-right = stage2_panels[:,2][:, None]
-out_relative_nodes = (left + (right - left) * (out_q[0][None,:] + 1) * 0.5)
-panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
-out_nodes = surf.panel_bounds[in_panel_idx, 0, None] + panel_parameter_domain[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
-```
-
-```{code-cell} ipython3
-out_node_wts = ((out_q[1][None,:] * 0.25 * (right - left)) * panel_parameter_width[in_panel_idx, None]).ravel()
-```
-
-```{code-cell} ipython3
-n_out_panels = stage2_panels.shape[0]
-shape = (n_out_panels * out_order, surf.n_panels * in_order)
-indptr = np.arange(n_out_panels + 1)
-indices = stage2_panels[:, 0].astype(int)
-interp_mat_data = []
-for i in range(n_out_panels):
-    single_panel_interp = build_interp_matrix(build_interpolator(in_nodes), out_relative_nodes[i])
-    interp_mat_data.append(single_panel_interp)
-interp_mat = scipy.sparse.bsr_matrix((interp_mat_data, indices, indptr), shape)
-```
-
-```{code-cell} ipython3
-plt.figure(figsize=(8,8))
-plt.imshow(interp_mat.toarray()[:200,:200])
-plt.show()
-```
-
-```{code-cell} ipython3
-stage2_pts = interp_mat.dot(surf.pts)
-stage2_jacobians = interp_mat.dot(surf.jacobians)
-```
-
-```{code-cell} ipython3
-stage2_panel_lengths = np.sum((out_node_wts * stage2_jacobians).reshape((-1, qx.shape[0])), axis=1)
-```
-
-```{code-cell} ipython3
-# panel_parameter_domain = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
-# quad_pts = (
-#     panel_bounds[:, 0, None] + panel_parameter_domain[:, None] * (qx[None, :] + 1) * 0.5
-# ).flatten()
-# pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
-# quad_wts = (panel_parameter_domain[:, None] * qw[None, :] * 0.5).flatten()
-# panel_length = np.sum((quad_wts * jacobians).reshape((-1, qx.shape[0])), axis=1)
-```
-
-```{code-cell} ipython3
-# qx = 
-# 
-# quad_pts = (
-#     surf.panel_bounds[:, 0, None] + panel_parameter_domain[:, None] * (qx[None, :] + 1) * 0.5
-# ).flatten()
+def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
+    n_out_panels = out_qx.shape[0]
+    shape = (n_out_panels * out_qx.shape[1], in_n_panels * in_qx.shape[0])
+    indptr = np.arange(n_out_panels + 1)
+    indices = panel_idxs
+    interp_mat_data = []
+    for i in range(n_out_panels):
+        single_panel_interp = build_interp_matrix(build_interpolator(in_qx), out_qx[i])
+        interp_mat_data.append(single_panel_interp)
+    return scipy.sparse.bsr_matrix((interp_mat_data, indices, indptr), shape)
 
 
-min_panel_expansion_dist = np.min(
-    expansion_tree.query(stage2_pts)[0].reshape((-1, qx.shape[0])), axis=1
-)
-# list(zip(min_panel_expansion_dist, panel_length))
-fudge_factor = 0.01
-refine = min_panel_expansion_dist < (0.5 - fudge_factor) * stage2_panel_lengths
-print(refine)
-#list(zip(min_panel_expansion_dist, surf.panel_length))
-```
+def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49):
+    stage2_panels = np.array(
+        [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
+    ).T
+    panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
 
-```{code-cell} ipython3
-new_quad_panels = []
-for i in range(stage2_panels.shape[0]):
-    if refine[i]:
-        left = stage2_panels[i, 1]
-        right = stage2_panels[i, 2]
-        midpt = 0.5 * (left + right)
-        new_quad_panels.append((stage2_panels[i, 0], left, midpt))
-        new_quad_panels.append((stage2_panels[i, 0], midpt, right))
-    else:
-        new_quad_panels.append(stage2_panels[i])
-new_quad_panels = np.array(new_panels)
-stage2_panels = new_quad_panels
-```
+    for i in range(max_iter):
+        in_panel_idx = stage2_panels[:, 0].astype(int)
+        left_param = stage2_panels[:, 1][:, None]
+        right_param = stage2_panels[:, 2][:, None]
 
-```{code-cell} ipython3
-new_quad_panels
-```
+        out_relative_nodes = (
+            left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
+        )
+        out_nodes = (
+            surf.panel_bounds[in_panel_idx, 0, None]
+            + panel_parameter_width[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
+        )
+        out_node_wts = (
+            (qw[None, :] * 0.25 * (right_param - left_param))
+            * panel_parameter_width[in_panel_idx, None]
+        ).ravel()
 
-```{code-cell} ipython3
-midpt = 
-np.array([[stage2_panels[:,1], midpt],[midpt, stage2_panels[:,2]]]).reshape((4,-1)).T.reshape((-1, 2))[np.repeat(refine, 2)]
-```
+        interp_mat = build_panel_interp_matrix(
+            surf.n_panels, qx, stage2_panels[:,0].astype(int), out_relative_nodes
+        )
 
-```{code-cell} ipython3
-np.repeat(stage2_panels, refine.astype(int) + 1, axis=0)
-```
+        stage2_pts = interp_mat.dot(surf.pts)
+        stage2_jacobians = interp_mat.dot(surf.jacobians)
 
-```{code-cell} ipython3
-stage1_panel_idxs = np.arange()
-panel_parameter_ranges = []
-stage1_panel_length = surf.pan
-min_panel_expansion_dist < (0.5 - fudge_factor) * panel_length
+        stage2_panel_lengths = np.sum(
+            (out_node_wts * stage2_jacobians).reshape((-1, qx.shape[0])), axis=1
+        )
+
+        min_panel_expansion_dist = np.min(
+            expansion_tree.query(stage2_pts)[0].reshape((-1, qx.shape[0])), axis=1
+        )
+        refine = min_panel_expansion_dist < distance_limit * stage2_panel_lengths
+
+        #         plt.figure(figsize=(8, 8))
+        #         plt.imshow(interp_mat.toarray())
+        #         plt.show()
+        #         print(refine)
+
+        # TODO: use refine_panels
+        new_quad_panels = []
+        for i in range(stage2_panels.shape[0]):
+            if refine[i]:
+                midpt = 0.5 * (stage2_panels[i, 1] + stage2_panels[i, 2])
+                new_quad_panels.append(
+                    (stage2_panels[i, 0], stage2_panels[i, 1], midpt)
+                )
+                new_quad_panels.append(
+                    (stage2_panels[i, 0], midpt, stage2_panels[i, 2])
+                )
+            else:
+                new_quad_panels.append(stage2_panels[i])
+        new_quad_panels = np.array(new_quad_panels)
+
+        if stage2_panels.shape[0] == new_quad_panels.shape[0]:
+            break
+        stage2_panels = new_quad_panels
+
+    return stage2_panels
+
+def build_stage2_interp_mat(stage2_panels, kappa = 3):
+    out_order = qx.shape[0] * kappa
+    upsampled_gauss = gauss_rule(out_order)
+    left = stage2_panels[:, 1][:, None]
+    right = stage2_panels[:, 2][:, None]
+    upsampled_relative_nodes = (
+        left + (right - left) * (upsampled_gauss[0][None, :] + 1) * 0.5
+    )
+    return build_panel_interp_matrix(
+        stage2_panels[:,0].astype(int).max() + 1, 
+        qx, 
+        stage2_panels[:,0].astype(int), 
+        upsampled_relative_nodes
+    )
+
+stage2_panels = stage2_refine(src_surf, expansions, distance_limit=1.5)
+stage2_interp_mat = build_stage2_interp_mat(stage2_panels, kappa=1)
+stage2_panels, stage2_interp_mat
 ```
 
 ```{code-cell} ipython3
@@ -397,7 +352,11 @@ rounded_corner_box = stage1_refine((x, y), (qx, qw))
 
 ```{code-cell} ipython3
 plt.figure()
-plt.plot(rounded_corner_box.pts[rounded_corner_box.panel_start_idxs,0], rounded_corner_box.pts[rounded_corner_box.panel_start_idxs,1], 'k-*')
-plt.axis('equal')
+plt.plot(
+    rounded_corner_box.pts[rounded_corner_box.panel_start_idxs, 0],
+    rounded_corner_box.pts[rounded_corner_box.panel_start_idxs, 1],
+    "k-*",
+)
+plt.axis("equal")
 plt.show()
 ```

@@ -638,7 +638,6 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     )
 
 
-
 def build_panel_interp_matrix(surface_in, surface_out):
     """
     Construct a matrix interpolating the values of some function from surface_in
