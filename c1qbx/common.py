@@ -451,35 +451,45 @@ def qbx_interior_eval_matrix(
     construct a QBX evaluation matrix to perform the evaluation.
     """
 
-    # Build a KDTree for doing nearest neighbor searches amongst the QBX centers
-    centers_tree = scipy.spatial.cKDTree(expansions.pts)
+    # TODO: This is dead code, but I need to update the comments!
+#     # Build a KDTree for doing nearest neighbor searches amongst the QBX centers
+#     centers_tree = scipy.spatial.cKDTree(expansions.pts)
 
-    # And also for doing nearest neighbor searches on the source surface.
-    source_tree = scipy.spatial.cKDTree(source.pts)
+#     # And also for doing nearest neighbor searches on the source surface.
+#     source_tree = scipy.spatial.cKDTree(source.pts)
 
-    # Identify the distance to the closest expansion, which expansion that is,
-    # and the distance to the source surface.
-    dist_to_expansion, closest_expansion = centers_tree.query(obs_pts)
-    dist_to_source, _ = source_tree.query(obs_pts)
+#     # Identify the distance to the closest expansion, which expansion that is,
+#     # and the distance to the source surface.
+#     dist_to_expansion, closest_expansion = centers_tree.query(obs_pts)
+#     dist_to_source, _ = source_tree.query(obs_pts)
 
-    # Only use QBX if point is close enough to the surface or the point is
-    # close enough to its respective QBX expansion center To measure "close
-    # enough", we use r, which is the distance from the surface.
-    # Why do we use "OR" here?
-    # 1) If a point is near an expansion, we should use the expansion
-    # regardless of the source surface. This maintains the "global QBX"
-    # property.
-    # 2) If a point is near a surface, we cannot use a naive
-    # integration so we must use the closest expansion point available.
-    # TODO: Another task here is to decide which side of a surface the
-    # observation point and the expansion are on. It's important to only use
-    # expansions on the same side as the observation point. On the other hand,
-    # I'm not sure how important or relevant this issue is.
-    use_qbx = (dist_to_expansion <= expansions.r[closest_expansion]) | (
-        dist_to_source <= expansions.r[closest_expansion]
-    )
+#     # Only use QBX if point is close enough to the surface or the point is
+#     # close enough to its respective QBX expansion center To measure "close
+#     # enough", we use r, which is the distance from the surface.
+#     # Why do we use "OR" here?
+#     # 1) If a point is near an expansion, we should use the expansion
+#     # regardless of the source surface. This maintains the "global QBX"
+#     # property.
+#     # 2) If a point is near a surface, we cannot use a naive
+#     # integration so we must use the closest expansion point available.
+#     # TODO: Another task here is to decide which side of a surface the
+#     # observation point and the expansion are on. It's important to only use
+#     # expansions on the same side as the observation point. On the other hand,
+#     # I'm not sure how important or relevant this issue is.
+#     use_qbx = (dist_to_expansion <= expansions.r[closest_expansion]) | (
+#         dist_to_source <= expansions.r[closest_expansion]
+#     )
+    
+    obs_tree = scipy.spatial.KDTree(obs_pts)
+    use_exp_lists = obs_tree.query_ball_point(expansions.pts, 1.1 * expansions.r)
+    closest_expansion = np.zeros(obs_pts.shape[0], dtype=int)
+    for i in range(use_exp_lists.shape[0]):
+        dist = np.linalg.norm((obs_pts[use_exp_lists[i]] - expansions.pts[i]), axis=1)
+        closest_expansion[i] = use_exp_lists[i][np.argmin(dist)]
+    use_qbx = np.array([len(L) > 0 for L in use_exp_lists])
 
     # And we identify which expansion centers are ever used, and how many times.
+    centers_used = np.array([i for i in range(use_exp_lists.shape[0]) if len(use_exp_lists[i]) > 0])
     centers_used, center_counts = np.unique(
         closest_expansion[use_qbx], return_counts=True
     )
@@ -572,7 +582,6 @@ class PanelSurface:
     panel_sizes: np.ndarray
     panel_centers: np.ndarray
     panel_length: np.ndarray
-    interp_mat: scipy.sparse.spmatrix = None
 
     def __init__(
         self, qx, qw, quad_pts, quad_wts, pts, normals, jacobians, radius, panel_bounds
@@ -666,9 +675,32 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     )
 
 
-def qbx_panel_setup(source, mult=0.5, direction=0, p=5):
+def qbx_panel_setup(source, other_surfaces=[], mult=0.5, direction=0, p=5):
+    other_surf_trees = []
+    for other_surf in other_surfaces:
+        other_surf_trees.append(scipy.spatial.KDTree(other_surf.pts))
+
+    
     r = mult * np.repeat(source.panel_length, source.panel_order)
-    return qbx_setup(source, direction=direction, r=r, p=p)
+    if direction == 0:
+        offset = np.concatenate((r, -r))
+    else:
+        offset = direction * r
+    
+    
+    max_iter = 10
+    for i in range(max_iter):
+        centers = source.pts + offset[:, None] * source.normals
+        #break
+        which_violations = np.zeros(centers.shape[0], dtype=bool)
+        for t in other_surf_trees:
+            nearby_surf_panels = t.query(centers)
+            which_violations |= (nearby_surf_panels[0] < np.abs(offset))
+        if not which_violations.any():
+            break
+        offset[which_violations] /= 2
+
+    return QBXExpansions(centers, np.abs(offset), p)
 
 
 def refine_panels(panels, which):
@@ -743,6 +775,7 @@ def stage1_refine(
         # Step 4) Ensure that panel length scale doesn't change too rapidly. This
         # essentially imposes that a panel will be no more than twice the length
         # of any adjacent panel.
+        # TODO: I'm unsure if this is necessary!
         if cur_surf.n_panels > 1:
             panel_tree = scipy.spatial.KDTree(cur_surf.panel_centers)
             # Use k=2 because the closest panel will be the query panel itself.
@@ -806,13 +839,13 @@ def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
     return scipy.sparse.bsr_matrix((interp_mat_data, indices, indptr), shape)
 
 
-def build_stage2_panel_surf(surf, stage2_panels):
+def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
     in_panel_idx = stage2_panels[:, 0].astype(int)
     left_param = stage2_panels[:, 1][:, None]
     right_param = stage2_panels[:, 2][:, None]
 
     out_relative_nodes = (
-        left_param + (right_param - left_param) * (surf.qx[None, :] + 1) * 0.5
+        left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
     )
 
     in_panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
@@ -826,7 +859,7 @@ def build_stage2_panel_surf(surf, stage2_panels):
         + in_panel_parameter_width[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
     ).ravel()
     quad_wts = (
-        (surf.qw[None, :] * 0.25 * (right_param - left_param))
+        (qw[None, :] * 0.25 * (right_param - left_param))
         * in_panel_parameter_width[in_panel_idx, None]
     ).ravel()
 
@@ -842,9 +875,9 @@ def build_stage2_panel_surf(surf, stage2_panels):
         * in_panel_parameter_width[in_panel_idx, None]
     )
 
-    out = PanelSurface(
-        surf.qx,
-        surf.qw,
+    return PanelSurface(
+        qx,
+        qw,
         quad_pts,
         quad_wts,
         pts,
@@ -852,12 +885,10 @@ def build_stage2_panel_surf(surf, stage2_panels):
         jacobians,
         radius,
         panel_bounds,
-    )
-    out.interp_mat = interp_mat
-    return out
+    ), interp_mat
 
 
-def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49):
+def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49, kappa=3):
     stage2_panels = np.array(
         [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
     ).T
@@ -865,7 +896,7 @@ def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49):
     expansion_tree = scipy.spatial.KDTree(expansions.pts)
 
     for i in range(max_iter):
-        stage2_surf = build_stage2_panel_surf(surf, stage2_panels)
+        stage2_surf, _ = build_stage2_panel_surf(surf, stage2_panels, surf.qx, surf.qw)
 
         min_panel_expansion_dist = np.min(
             expansion_tree.query(stage2_surf.pts)[0].reshape((-1, surf.panel_order)),
@@ -881,20 +912,7 @@ def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49):
             break
         stage2_panels = new_quad_panels
 
-    return stage2_surf
-
-
-def build_stage2_interp_mat(stage2_panels, kappa=3):
-    out_order = qx.shape[0] * kappa
+    out_order = surf.panel_order * kappa
     upsampled_gauss = gauss_rule(out_order)
-    left = stage2_panels[:, 1][:, None]
-    right = stage2_panels[:, 2][:, None]
-    upsampled_relative_nodes = (
-        left + (right - left) * (upsampled_gauss[0][None, :] + 1) * 0.5
-    )
-    return build_panel_interp_matrix(
-        stage2_panels[:, 0].astype(int).max() + 1,
-        qx,
-        stage2_panels[:, 0].astype(int),
-        upsampled_relative_nodes,
-    )
+    final_surf, interp_mat = build_stage2_panel_surf(surf, stage2_panels, *upsampled_gauss)
+    return final_surf, interp_mat

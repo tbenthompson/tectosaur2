@@ -36,6 +36,7 @@ Both of these goals will lead to more general methods that are useful for a wide
 
 ```{code-cell} ipython3
 import numpy as np
+import sympy as sp
 import matplotlib.pyplot as plt
 from common import (
     gauss_rule,
@@ -59,44 +60,42 @@ The key to solving both these problem will be to separate the surface into many 
 ```{code-cell} ipython3
 import_and_display_fnc('common', 'PanelSurface')
 import_and_display_fnc('common', 'panelize_symbolic_surface')
-import_and_display_fnc('common', 'build_panel_interp_matrix')
+import_and_display_fnc('common', 'refine_panels')
+import_and_display_fnc('common', 'stage1_refine')
+import_and_display_fnc('common', 'qbx_panel_setup')
+import_and_display_fnc('common', 'stage2_refine')
 ```
 
-This next section will construct the free surface panelized surface `flat`. The `corner_resolution` specifies how large the panels will be near the fault-surface intersection. Away from that intersection, the panels will each be double the length of the prior panel, thus enabling the full surface to efficiently represent an effectively infinite free surface.
-
 ```{code-cell} ipython3
-from common import Surface
-import sympy as sp
-
 corner_resolution = 0.5
-n_panels = 20
+surf_half_L = 2000
 
-# It seems that we need several "small" panels right near the fault-surface intersection!
-panels = [
-    (-3 * corner_resolution, -2 * corner_resolution),
-    (-2 * corner_resolution, -corner_resolution),
-    (-corner_resolution, 0),
-    (0, corner_resolution),
-    (corner_resolution, 2 * corner_resolution),
-    (2 * corner_resolution, 3 * corner_resolution),
-]
-for i in range(n_panels - len(panels)):
-    panel_start = panels[-1][1]
-    panel_end = panel_start + corner_resolution * (2 ** i)
-    panels.append((panel_start, panel_end))
-    panels.insert(0, (-panel_end, -panel_start))
-panels = np.array(panels)
-scaled_panels = panels / panels[-1][1]
-
-qx, qw = gauss_rule(16)
-qinterp = gauss_rule(96)
+qx, qw = gauss_rule(6)
 t = sp.var("t")
 
-flat = panelize_symbolic_surface(t, -panels[-1][1] * t, 0 * t, scaled_panels, qx, qw)
-flat_interp = panelize_symbolic_surface(
-    t, panels[-1][1] * t, 0 * t, scaled_panels, *qinterp
+
+control_points = np.array([(0, 0, 2, corner_resolution)])
+fault = stage1_refine((t, t * 0, (t + 1) * -0.5), (qx, qw))
+flat = stage1_refine(
+    (t, -t * surf_half_L, 0 * t), (qx, qw), other_surfaces=[fault], control_points=control_points
 )
-Im_flat = build_panel_interp_matrix(flat, flat_interp)
+expansions = qbx_panel_setup(flat, other_surfaces=[fault], direction=1, p=10)
+fault_stage2, fault_interp_mat = stage2_refine(fault, expansions)
+flat_stage2, flat_interp_mat = stage2_refine(flat, expansions)
+```
+
+```{code-cell} ipython3
+%matplotlib inline
+plt.figure()
+plt.plot(fault.pts[:,0], fault.pts[:,1], 'r-o')
+plt.plot(fault_stage2.pts[:,0], fault_stage2.pts[:,1], 'r*')
+plt.plot(flat_stage2.pts[:,0], flat_stage2.pts[:,1], 'k-o')
+plt.plot(expansions.pts[:,0], expansions.pts[:,1], 'bo')
+for i in range(expansions.N):
+    plt.gca().add_patch(plt.Circle(expansions.pts[i], expansions.r[i], color='b', fill=False))
+plt.xlim([-0.5,0.5])
+plt.ylim([-1, 0.1])
+plt.show()
 ```
 
 In the figure below, I plot $log_{10}(x)$ against the point index. You can see that the spacing of points is much finer near the fault surface intersection and rapidly increases away from the fault surface intersection.
@@ -109,102 +108,45 @@ plt.ylabel(r'$\log_{10}(|x|)$')
 plt.show()
 ```
 
-We do a similar construction with the fault panels so that the density of quadrature points is much higher near the intersection.
-
-```{code-cell} ipython3
-fault_top = -0.0
-fault_bottom = -1.0
-
-fault_panels = [
-    (0, 0.5 * corner_resolution),
-    (0.5 * corner_resolution, 1.0 * corner_resolution),
-    (1.0 * corner_resolution, 1.5 * corner_resolution),
-    (1.5 * corner_resolution, 2 * corner_resolution),
-]
-for i in range(100):
-    panel_start = fault_panels[-1][1]
-    panel_end = panel_start + 2 * corner_resolution * (2 ** i)
-    if panel_end > fault_bottom * 0.75:
-        panel_end = -fault_bottom
-    fault_panels.append((panel_start, panel_end))
-    panel_start = panel_end
-    if panel_end == -fault_bottom:
-        break
-fault_panels = np.array(fault_panels)
-scaled_fault_panels = 2 * ((fault_panels / fault_panels[-1][1]) - 0.5)
-fault = panelize_symbolic_surface(
-    t, 0 * t, -fault_panels[-1][1] * (t + 1) * 0.5, scaled_fault_panels, qx, qw
-)
-```
-
-Next, we need to carefully remove some of the QBX expansion centers. Because the expansion centers are offset towards the interior of the domain in the direction of the normal vector of the free surface, a few of them will be too close to the fault surface. We remove those. As a result, any evaluations in the corner will use the slightly farther away QBX expansion points. 
-
-In the figure below, the QBX expansion centers are indicated in blue, while the expansion centers that we remove are indicated in red.
-
-```{code-cell} ipython3
-from common import QBXExpansions
-
-r = (
-    np.repeat((flat.panel_bounds[:, 1] - flat.panel_bounds[:, 0]), flat.panel_sizes)
-    * flat.jacobians
-    * 0.5
-)
-orig_expansions = qbx_setup(flat, direction=1, r=r, p=10)
-good = np.abs(orig_expansions.pts[:, 0]) > 0.30 * corner_resolution
-expansions = QBXExpansions(
-    orig_expansions.pts[good, :], orig_expansions.r[good], orig_expansions.p
-)
-
-plt.plot(expansions.pts[:, 0], expansions.pts[:, 1], "b.")
-plt.plot(orig_expansions.pts[~good, 0], orig_expansions.pts[~good, 1], "r.")
-plt.plot(flat.pts[:, 0], flat.pts[:, 1], "k-")
-plt.plot(fault.pts[:, 0], fault.pts[:, 1], "k-")
-plt.axis("equal")
-plt.xlim([-corner_resolution, corner_resolution])
-plt.ylim([-3 * corner_resolution, corner_resolution])
-plt.xlabel(r'$x$')
-plt.ylabel(r'$y$')
-plt.show()
-```
-
-Note that despite extending out to 1000 fault lengths away from the fault trace, we are only using 672 points to describe the free surface solution.
-
 ```{code-cell} ipython3
 print('number of points in the free surface discretization:', flat.n_pts)
-print('       number of points in the fault discretization:', fault.n_pts)
+print('                        fault        discretization:', fault.n_pts)
+print('                        free surface     quadrature:', flat_stage2.n_pts)
+print('                        fault            quadrature:', fault_stage2.n_pts)
 ```
 
 ```{code-cell} ipython3
-A_raw = qbx_matrix(double_layer_matrix, flat_interp, flat.pts, expansions)[:, 0, :]
-A = A_raw.dot(Im_flat)
+%%time
+A_raw = qbx_matrix(double_layer_matrix, flat_stage2, flat.pts, expansions)[:, 0, :]
 ```
 
 ```{code-cell} ipython3
-B = -qbx_matrix(double_layer_matrix, fault, flat.pts, expansions)[:, 0, :]
+%%time
+A = A_raw.dot(flat_interp_mat.toarray())
 ```
 
 ```{code-cell} ipython3
-surf_disp = np.linalg.solve(np.eye(A.shape[0]) + A, B.dot(np.ones(fault.n_pts)))
+B = -qbx_matrix(double_layer_matrix, fault_stage2, flat.pts, expansions)[:, 0, :]
+```
+
+```{code-cell} ipython3
+lhs = np.eye(A.shape[0]) + A
+rhs = B.dot(np.ones(fault_stage2.n_pts))
+surf_disp = np.linalg.solve(lhs, rhs)
 
 # Note that the analytical solution is slightly different than in the buried 
 # fault setting because we need to take the limit of an arctan as the 
 # denominator of the argument  goes to zero.
 s = 1.0
-analytical = (
-    -s
-    / (2 * np.pi)
-    * (
-        np.arctan(flat.pts[:, 0] / (flat.pts[:, 1] - fault_bottom))
-        - np.arctan(flat.pts[:, 0] / (flat.pts[:, 1] + fault_bottom))
-        - np.pi * np.sign(flat.pts[:, 0])
-    )
-)
+analytical_fnc = lambda x: -np.arctan(-1 / x) / np.pi
+analytical = analytical_fnc(flat.pts[:,0])
 ```
 
 In the first row of graphs below, I show the solution extending to 10 fault lengths. In the second row, the solution extends to 1000 fault lengths. You can see that the solution matches to about 6 digits in the nearfield and 7-9 digits in the very farfield!
 
 ```{code-cell} ipython3
-for XV in [10.0, 1000.0]:
+%matplotlib inline
+for XV in [1.0, 10.0, 1000.0]:
     # XV = 5 * corner_resolution
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 2, 1)
@@ -224,4 +166,51 @@ for XV in [10.0, 1000.0]:
     plt.tight_layout()
     plt.xlim([-XV, XV])
     plt.show()
+```
+
+remaining parameter list:
+- $\kappa$
+- qbx order $p$
+- qbx distance $r$ (or in the code `mult`), probably just leave this as $L/2$ (where $L$ is the panel length)
+- mesh refinement
+
+The two remaining parameters are $\kappa$ and $r$. I've decided on $r=0.5*L_{panel}$, so the only remaining issue is to set $\kappa$ based on the error tolerance $\epsilon$. The relationship will look like $\kappa = f(\epsilon, \textrm{panel shape}, \textrm{kernel})$ because the panel shape and the choice of kernel will also drive the error function. I can look at the Klinteberg paper to get a sense of what the error estimate should look like. Then I can just empirically fit the constants in that error estimate based.
+
+```{code-cell} ipython3
+surfs = []
+solns = []
+qx_ps = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+surf_half_L = 2000
+
+for qx_p in qx_ps:
+    qx, qw = gauss_rule(qx_p)
+    t = sp.var("t")
+    control_points = np.array([(0, 0, 2, corner_resolution)])
+    fault = stage1_refine((t, t * 0, (t + 1) * -0.5), (qx, qw))
+    flat = stage1_refine(
+        (t, -t * surf_half_L, 0 * t), (qx, qw), other_surfaces=[fault], control_points=control_points
+    )
+    expansions = qbx_panel_setup(flat, other_surfaces=[fault], direction=1, p=15)
+    fault_stage2, fault_interp_mat = stage2_refine(fault, expansions)
+    flat_stage2, flat_interp_mat = stage2_refine(flat, expansions)
+    A_raw = qbx_matrix(double_layer_matrix, flat_stage2, flat.pts, expansions)[:, 0, :]
+    A = A_raw.dot(flat_interp_mat.toarray())
+    B = -qbx_matrix(double_layer_matrix, fault_stage2, flat.pts, expansions)[:, 0, :]
+    lhs = np.eye(A.shape[0]) + A
+    rhs = B.dot(np.ones(fault_stage2.n_pts))
+    surf_disp = np.linalg.solve(lhs, rhs)
+    surfs.append(flat)
+    solns.append(surf_disp)
+```
+
+```{code-cell} ipython3
+for i in range(len(qx_ps)):
+    remove_end_idx = qx_ps[i] * 2
+#     plt.plot(np.log10(np.abs(solns[i] - analytical_fnc(surfs[i].pts[:,0]))))
+#     plt.show()
+    diff = solns[i][remove_end_idx:-remove_end_idx] - analytical_fnc(surfs[i].pts[remove_end_idx:-remove_end_idx,0])
+    l2_err = np.linalg.norm(diff)
+    linf_err = np.max(np.abs(diff))
+    print(qx_ps[i], l2_err, linf_err)
 ```
