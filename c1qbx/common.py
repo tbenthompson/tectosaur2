@@ -639,7 +639,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     dy2dt2 = sp.diff(dydt, t)
     # A small factor is added to the radius of curvature denominator
     # so that we don't divide by zero when a surface is flat.
-    radius = jacobian ** 3 / (dxdt * dy2dt2 - dydt * dx2dt2 + 1e-16)
+    radius = np.abs(jacobian ** 3 / (dxdt * dy2dt2 - dydt * dx2dt2 + 1e-16))
 
     nx = -dydt / jacobian
     ny = dxdt / jacobian
@@ -691,14 +691,14 @@ def qbx_panel_setup(source, other_surfaces=[], mult=0.5, direction=0, p=5):
     max_iter = 10
     for i in range(max_iter):
         centers = source.pts + offset[:, None] * source.normals
-        #break
         which_violations = np.zeros(centers.shape[0], dtype=bool)
         for t in other_surf_trees:
             nearby_surf_panels = t.query(centers)
             which_violations |= (nearby_surf_panels[0] < np.abs(offset))
+        
         if not which_violations.any():
             break
-        offset[which_violations] /= 2
+        offset[which_violations] *= 0.75
 
     return QBXExpansions(centers, np.abs(offset), p)
 
@@ -746,8 +746,10 @@ def stage1_refine(
         )
 
         # Step 1) Refine based on radius of curvature
+        # The absolute value
         panel_radius = np.min(
-            cur_surf.radius.reshape((-1, quad_rule[0].shape[0])), axis=1
+            cur_surf.radius.reshape((-1, quad_rule[0].shape[0])),
+            axis=1
         )
         refine_from_radius = cur_surf.panel_length > max_radius_ratio * panel_radius
 
@@ -805,18 +807,18 @@ def stage1_refine(
         new_panels = refine_panels(cur_panels, refine)
 
         # TODO: add a callback for debugging? or some logging?
-        #     plt.plot(s.pts[s.panel_start_idxs,0], s.pts[s.panel_start_idxs,1], 'k-*')
-        #     plt.show()
-        #     print('nearby_controls: ', nearby_controls, 0.5*panel_length, control_points[nearby_controls[1], 2])
-        #     print('panel centers', panel_centers)
-        #     print('panel length', panel_length)
-        #         print('control', refine_from_control)
-        #         print('radius', refine_from_radius)
-        #         print('self', refine_from_self)
-        #         print('nearby', refine_from_nearby)
-        #         print('overall', refine)
-        #         print('')
-        #         print('')
+#         plt.plot(cur_surf.pts[cur_surf.panel_start_idxs,0], cur_surf.pts[cur_surf.panel_start_idxs,1], 'k-*')
+#         plt.show()
+#         print('panel centers', cur_surf.panel_centers)
+#         print('panel length', cur_surf.panel_length)
+#         print('panel radius', panel_radius)
+#         print('control', refine_from_control)
+#         print('radius', refine_from_radius)
+#         print('self', refine_from_self)
+#         print('nearby', refine_from_nearby)
+#         print('overall', refine)
+#         print('')
+#         print('')
 
         if new_panels.shape[0] == cur_panels.shape[0]:
             if np.any(refine):
@@ -824,6 +826,7 @@ def stage1_refine(
             print(f"done after n_iterations={i} with n_panels={cur_panels.shape[0]}")
             break
         cur_panels = new_panels
+        
     return cur_surf
 
 
