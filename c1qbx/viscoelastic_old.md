@@ -43,16 +43,16 @@ And Newton's law with a body force:
 \nabla \cdot \vec{\sigma} = 0
 \end{equation}
 
-So, that for an elastic rheology, the result simplifies to the Laplace equation (or Poisson equation with zero right hand side). I'll carry the $\mu$ through despite it dropping out because it will help later to understand the implementation.
+So, that for an elastic rheology, the result simplifies to the Laplace equation (or Poisson equation with zero right hand side). I'll carry the $2\mu$ through despite it dropping out because it will help later to understand the implementation.
 \begin{align}
 \nabla \cdot (2\mu \vec{\epsilon}) &= 0 \\
-\mu \nabla^2 u &= 0
+2\mu \nabla^2 u &= 0
 \end{align}
 
 The result is a bit more complex for a Maxwell rheology. Ultimately though, we can still re-arrange the terms to make the result look like a Poisson equation with a funny looking right-hand-side. Inserting the Maxwell rheology equation into the time derivative of Newton's law:
 \begin{align}
 \nabla \cdot (2\mu\dot{\vec{\epsilon}} - \frac{\mu}{\eta}\vec{\sigma}) = 0\\
-\mu \nabla^2 \dot{u} = \nabla \cdot (\frac{\mu}{\eta}\vec{\sigma})
+2\mu \nabla^2 \dot{u} = \nabla \cdot (\frac{\mu}{\eta}\vec{\sigma})
 \end{align}
 
 Let's explore that right hand side a bit more because the stress divergence component is going to drop out because the divergence of stress is zero.
@@ -105,12 +105,12 @@ plt.show()
 
 So, the final equation we'd like to solve is:
 \begin{equation}
-\mu \nabla^2 \frac{\partial u}{\partial t} = -\delta(y=D) \frac{\mu}{\eta_V} \sigma_y 
+2\mu \nabla^2 \frac{\partial u}{\partial t} = -\delta(y=D) \frac{\mu}{\eta_V} \sigma_y 
 \end{equation}
 
 In some situations, it can be more convenient to consider the equation in terms of the displacement rather than the velocity:
 \begin{equation}
-\mu \nabla^2 u = -\delta(y=D) \frac{\mu}{\eta_V} \int_{0}^{T} \sigma_y dt
+2\mu \nabla^2 u = -\delta(y=D) \frac{\mu}{\eta_V} \int_{0}^{T} \sigma_y dt
 \end{equation}
 
 +++

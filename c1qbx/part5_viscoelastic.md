@@ -12,6 +12,17 @@ kernelspec:
   name: python3
 ---
 
+# TODO:
+
+- Why is the max velocity going back up after 30 years? It wasn't doing that before. What did I break?
+    - This was only happening when I had the longer VB surface or maybe the longer free surface.
+    - This might be due to some kind of QBX expansion center issue at the tips of the VB surface. There certainly
+- Why does using a subset of the expansions for any given boundary integral operator evaluation give me the wrong answer? 
+  - Here I don't have any ideas yet. 
+- Why is there a factor of two in the viscoelastic stress-equivalent update? 
+  - My current best guess here is that the equation for the stress on the VB boundary is $\frac{\sigma}{2} = \textrm{syz_full}$ - That would introduce the expected factor of two and would possibly result from a limit to the boundary process?
+- A handy debugging tool would be a function that returns the expansion center for each observation point. Is there a way to refactor so that this is easy?
+
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
@@ -34,7 +45,7 @@ from common import (
     qbx_panel_setup,
     stage2_refine,
     pts_grid,
-    apply_interp_mat
+    apply_interp_mat,
 )
 ```
 
@@ -42,7 +53,7 @@ This next section will construct the free surface panelized surface `free`. The 
 
 ```{code-cell} ipython3
 corner_resolution = 5000
-surf_half_L = 2000000
+surf_half_L = 1000000
 fault_bottom = 15000
 visco_half_L = 500000
 visco_depth = 20000
@@ -54,7 +65,7 @@ t = sp.var("t")
 
 control_points = [
     (0, 0, 0, corner_resolution),
-    (0, -visco_depth, 0, corner_resolution)
+    (0, -visco_depth, 0, corner_resolution),
 ]  # np.array([(0, 0, 2, corner_resolution)])
 # for i in range(15):
 #     control_points.append((0, -i * 1000, 0, 1000))# = np.array([(0, 0, 2, corner_resolution)])
@@ -122,19 +133,26 @@ print("number of                         expansion centers:", expansions.N)
 ```
 
 ```{code-cell} ipython3
-%matplotlib inline
-plt.figure()
 plt.plot(fault.pts[:, 0], fault.pts[:, 1], "r-o")
 plt.plot(fault_stage2.pts[:, 0], fault_stage2.pts[:, 1], "r*")
 plt.plot(free_stage2.pts[:, 0], free_stage2.pts[:, 1], "k-o")
 plt.plot(VB_stage2.pts[:, 0], VB_stage2.pts[:, 1], "k-o")
 plt.plot(expansions.pts[:, 0], expansions.pts[:, 1], "bo")
-for i in range(expansions.N):
+
+window = [(-500, 500), (-20500, -19500)]
+window_center = np.mean(window, axis=1)
+window_R = np.sqrt(np.sum(np.max(np.abs(window - window_center[:, None]), axis=1) ** 2))
+dist_from_window = np.sqrt(np.sum((expansions.pts - window_center) ** 2, axis=1))
+should_plot_expansion = dist_from_window < (expansions.r + window_R)
+plot_expansions_pts = expansions.pts[should_plot_expansion]
+plot_expansions_r = expansions.r[should_plot_expansion]
+for i in range(plot_expansions_pts.shape[0]):
     plt.gca().add_patch(
-        plt.Circle(expansions.pts[i], expansions.r[i], color="b", fill=False)
+        plt.Circle(plot_expansions_pts[i], plot_expansions_r[i], color="b", fill=False)
     )
-plt.xlim([-500, 500])
-plt.ylim([-20250, -19750])
+
+plt.xlim(window[0])
+plt.ylim(window[1])
 plt.show()
 ```
 
@@ -193,6 +211,7 @@ for XV in [50000.0]:
 ```{code-cell} ipython3
 from math import factorial
 
+
 def Fn(n, x, D, H):
     return np.arctan(2 * x * D / (x ** 2 + (2 * n * H) ** 2 - D ** 2))
 
@@ -214,6 +233,7 @@ def analytic_to_surface(slip, D, H, x, t):
 def analytic_soln(x, t):
     return analytic_to_surface(1.0, fault_bottom, visco_depth, x, t)
 
+
 siay = 31556952
 plt.figure(figsize=(6, 6))
 for t in [0, 10.0 * siay, 20.0 * siay, 100.0 * siay]:
@@ -234,8 +254,8 @@ import_and_display_fnc("common", "adjoint_double_layer_matrix")
 
 ```{code-cell} ipython3
 # TODO: I NEED TO ENSURE THAT ALL THE EXPANSIONS THAT GET USED ARE ON THE SAME SIDE OF THE SOURCE SURFACE
-free_expansions = expansions#qbx_panel_setup([free], directions=[1])
-VB_expansions = expansions#qbx_panel_setup([VB], directions=[1])
+free_expansions = expansions  # qbx_panel_setup([free], directions=[1])
+VB_expansions = expansions  # qbx_panel_setup([VB], directions=[1])
 ```
 
 ```{code-cell} ipython3
@@ -247,11 +267,24 @@ fault_slip_to_VB_syz = shear_modulus * apply_interp_mat(
     qbx_matrix(hypersingular_matrix, fault_stage2, VB.pts, VB_expansions)[:, 1, :],
     fault_interp_mat,
 )
+```
+
+```{code-cell} ipython3
 VB_S_to_VB_syz = apply_interp_mat(
     qbx_matrix(adjoint_double_layer_matrix, VB_stage2, VB.pts, VB_expansions)[:, 1, :],
     VB_interp_mat,
 )
+```
 
+```{code-cell} ipython3
+VB.panel_length
+```
+
+```{code-cell} ipython3
+qbx_panel_setup([VB], directions=[1])
+```
+
+```{code-cell} ipython3
 VB_S_to_free_disp = (1.0 / shear_modulus) * apply_interp_mat(
     qbx_matrix(single_layer_matrix, VB_stage2, free.pts, free_expansions)[:, 0, :],
     VB_interp_mat,
@@ -275,7 +308,7 @@ for i in range(5001):
     # Step 1) Solve for free surface displacement.
     rhs = rhs_slip + VB_S_to_free_disp.dot(stress_integral)
     free_disp = free_disp_solve_mat_inv.dot(rhs)
-    
+
     t_history.append(t)
     disp_history.append(free_disp)
     S_history.append(stress_integral.copy())
@@ -283,13 +316,46 @@ for i in range(5001):
     # Step 2): Calculate viscoelastic boundary stress yz component and then d[S]/dt
     syz_free = free_disp_to_VB_syz.dot(free_disp)
     syz_VB = VB_S_to_VB_syz.dot(stress_integral)
-    syz_full = syz_free + syz_fault + syz_VB
-    dSdt = (shear_modulus / viscosity) * syz_full
+    syz_full = 2 * (syz_free + syz_fault + syz_VB)
+    dSdt = -(shear_modulus / viscosity) * syz_full
 
     # Step 3): Update S, simple forward Euler time step.
-    stress_integral -= 2 * dSdt * dt
+    stress_integral += dSdt * dt
     t += dt
 t_history = np.array(t_history)
+```
+
+```{code-cell} ipython3
+A = apply_interp_mat(
+    qbx_matrix(
+        adjoint_double_layer_matrix,
+        VB_stage2,
+        VB.pts,
+        qbx_panel_setup([VB], directions=[1]),
+    )[:, 1, :],
+    VB_interp_mat,
+)
+B = apply_interp_mat(
+    qbx_matrix(
+        adjoint_double_layer_matrix,
+        VB_stage2,
+        VB.pts,
+        qbx_panel_setup([VB], directions=[-1]),
+    )[:, 1, :],
+    VB_interp_mat,
+)
+plt.plot(A.dot(stress_integral), 'r-')
+plt.plot(B.dot(stress_integral), 'b-')
+#plt.plot(VB_S_to_VB_syz.dot(stress_integral), 'k-')
+plt.plot(stress_integral, 'k-')
+plt.xlim([0, 5])
+plt.ylim([-2e5, 2e5])
+plt.show()
+
+plt.plot(np.log10(np.abs(2 * A.dot(stress_integral) + 2 * B.dot(stress_integral))), 'm-')
+plt.plot(np.log10(np.abs((A - B).dot(stress_integral) - 2 * A.dot(stress_integral))), 'r-')
+plt.plot(np.log10(np.abs(stress_integral - 2 * A.dot(stress_integral))), 'b-')
+plt.plot(np.log10(np.abs(stress_integral - 2 * VB_S_to_VB_syz.dot(stress_integral))), 'k-')
 ```
 
 ```{code-cell} ipython3
@@ -323,8 +389,15 @@ plt.show()
 ```{code-cell} ipython3
 velocity = siay * np.diff(np.array(disp_history), axis=0) / np.diff(t_history)[:, None]
 plt.plot(t_history[1:] / siay, np.log10(np.max(np.abs(velocity), axis=1)))
-plt.xlabel(r'$t ~ (\textrm{yr})$')
-plt.ylabel(r'$\log_{10}(\textrm{max velocity in m/yr})$')
+plt.xlabel(r"$t ~ (\textrm{yr})$")
+plt.ylabel(r"$\log_{10}(\textrm{max velocity in m/yr})$")
+plt.show()
+```
+
+```{code-cell} ipython3
+plt.figure(figsize=(6, 6))
+for i in range(0, len(disp_history), 300):
+    plt.plot(X, disp_history[i], "k-", linewidth=0.5)
 plt.show()
 ```
 
@@ -345,7 +418,9 @@ obsy = obs_pts[:, 1].reshape((nobs, nobs))
 free_disp_to_volume_disp = apply_interp_mat(
     qbx_matrix(double_layer_matrix, free_stage2, obs_pts, expansions), free_interp_mat
 )
-fault_slip_to_volume_disp = qbx_matrix(double_layer_matrix, fault_stage2, obs_pts, expansions)
+fault_slip_to_volume_disp = qbx_matrix(
+    double_layer_matrix, fault_stage2, obs_pts, expansions
+)
 VB_S_to_volume_disp = (1.0 / shear_modulus) * apply_interp_mat(
     qbx_matrix(single_layer_matrix, VB_stage2, obs_pts, expansions), VB_interp_mat
 )
@@ -353,7 +428,9 @@ VB_S_to_volume_disp = (1.0 / shear_modulus) * apply_interp_mat(
 free_disp_to_volume_stress = shear_modulus * apply_interp_mat(
     qbx_matrix(hypersingular_matrix, free_stage2, obs_pts, expansions), free_interp_mat
 )
-fault_slip_to_volume_stress = shear_modulus * qbx_matrix(hypersingular_matrix, fault_stage2, obs_pts, expansions)
+fault_slip_to_volume_stress = shear_modulus * qbx_matrix(
+    hypersingular_matrix, fault_stage2, obs_pts, expansions
+)
 VB_S_to_volume_stress = apply_interp_mat(
     qbx_matrix(adjoint_double_layer_matrix, VB_stage2, obs_pts, expansions),
     VB_interp_mat,
@@ -407,7 +484,7 @@ def simple_plot(field, levels):
 #     np.pi * (np.minimum(fault_stage2.pts[:, 1], -5000) + 5000) / 10000
 # )  # np.minimum(np.ones_like(slip), np.exp(0.01 * (fault.pts[:,1] + 10000)))
 slip_tapered = 1.0 / (1 + np.exp(-(fault_stage2.pts[:, 1] + 11000) / 1000.0))
-plt.plot(fault_stage2.pts[:, 1], slip_tapered, 'b-*')
+plt.plot(fault_stage2.pts[:, 1], slip_tapered, "b-*")
 plt.show()
 ```
 
