@@ -838,9 +838,11 @@ def stage1_refine(
             if control_points is not None:
                 nearby_controls = control_tree.query(cur_surfs[j].panel_centers)
                 nearest_control_pt = control_points[nearby_controls[1], :]
+                # A frequent situation is that a control point will lie exactly on the boundary between two panels. In this edge case, we *do* want to refine both the touching panels. But, floating point error can make this difficult. As a result, I've added a small fudge factor to expand the effect radius of the control point by a small amount.
+                fudge_factor = 1.001
                 refine_from_control = (
                     nearby_controls[0]
-                    < 0.5 * cur_surfs[j].panel_length + nearest_control_pt[:, 2]
+                    <= fudge_factor * (0.5 * cur_surfs[j].panel_length + nearest_control_pt[:, 2])
                 ) & (cur_surfs[j].panel_length > nearest_control_pt[:, 3])
             else:
                 refine_from_control = np.zeros(cur_surfs[j].n_panels, dtype=bool)
@@ -900,16 +902,16 @@ def stage1_refine(
             # TODO: add a callback for debugging? or some logging?
             #         plt.plot(cur_surf.pts[cur_surf.panel_start_idxs,0], cur_surf.pts[cur_surf.panel_start_idxs,1], 'k-*')
             #         plt.show()
-            #         print('panel centers', cur_surf.panel_centers)
-            #         print('panel length', cur_surf.panel_length)
-            #         print('panel radius', panel_radius)
-            #         print('control', refine_from_control)
-            #         print('radius', refine_from_radius)
-            #         print('self', refine_from_self)
-            #         print('nearby', refine_from_nearby)
-            #         print('overall', refine)
-            #         print('')
-            #         print('')
+#             print('panel centers', cur_surfs[j].panel_centers)
+#             print('panel length', cur_surfs[j].panel_length)
+#             print('panel radius', panel_radius)
+#             print('control', refine_from_control)
+#             print('radius', refine_from_radius)
+#             print('self', refine_from_self)
+#             print('nearby', refine_from_nearby)
+#             print('overall', refine)
+#             print('')
+#             print('')
 
             if new_panels.shape[0] == cur_panels[j].shape[0]:
                 continue

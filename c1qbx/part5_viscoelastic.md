@@ -16,12 +16,17 @@ kernelspec:
 
 - Why is the max velocity going back up after 30 years? It wasn't doing that before. What did I break?
     - This was only happening when I had the longer VB surface or maybe the longer free surface.
-    - This might be due to some kind of QBX expansion center issue at the tips of the VB surface. There certainly
+    - This might be due to some kind of QBX expansion center issue at the tips of the VB surface.
 - Why does using a subset of the expansions for any given boundary integral operator evaluation give me the wrong answer? 
-  - Here I don't have any ideas yet. 
+  - It doesn't!!! 
+  - Doing this correctly gives the best answer possible and solves the above problem with max velocity increasing after 30 years. Getting all the math right is always such a wonderful thing!!
+  - However, there's a really interesting lesson here. All the terms in a BIE seem to need to be evaluated at the *same* interior points. In other words, for every observation point, it's important to always use the same expansion center. 
+  - An interesting consequence of this might be that the observation points themselves should be assigned to expansion centers or otherwise somehow linked in the software design?
 - Why is there a factor of two in the viscoelastic stress-equivalent update? 
   - My current best guess here is that the equation for the stress on the VB boundary is $\frac{\sigma}{2} = \textrm{syz_full}$ - That would introduce the expected factor of two and would possibly result from a limit to the boundary process?
 - A handy debugging tool would be a function that returns the expansion center for each observation point. Is there a way to refactor so that this is easy?
+- There's **STILL** something broken when I increase the length of the VB surface to be equal to that of the free surface.
+  - Could it be that there are singularities created by the tips of the free surface and I should avoid having those interact with the VB surface? This seems to be corroborated by the fact that making the VB surface a bit shorter results in no problems.
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -55,7 +60,7 @@ This next section will construct the free surface panelized surface `free`. The 
 corner_resolution = 5000
 surf_half_L = 1000000
 fault_bottom = 15000
-visco_half_L = 500000
+visco_half_L = 800000
 visco_depth = 20000
 shear_modulus = 3e10
 viscosity = 5e18
@@ -82,6 +87,17 @@ fault, free, VB = stage1_refine(
 
 ```{code-cell} ipython3
 expansions = qbx_panel_setup([fault, fault, free, VB], directions=[-1, 1, 1, 1], p=10)
+```
+
+```{code-cell} ipython3
+NF = 2 * fault.pts.shape[0]
+NR = NF + free.pts.shape[0]
+
+from common import QBXExpansions
+
+fault_expansions = QBXExpansions(expansions.pts[:NF], expansions.r[:NF], p=10)
+free_expansions = QBXExpansions(expansions.pts[NF:NR], expansions.r[NF:NR], p=10)
+VB_expansions = QBXExpansions(expansions.pts[NR:], expansions.r[NR:], p=10)
 ```
 
 ```{code-cell} ipython3
@@ -158,14 +174,14 @@ plt.show()
 
 ```{code-cell} ipython3
 free_disp_to_free_disp = apply_interp_mat(
-    qbx_matrix(double_layer_matrix, free_stage2, free.pts, expansions)[:, 0, :],
+    qbx_matrix(double_layer_matrix, free_stage2, free.pts, free_expansions)[:, 0, :],
     free_interp_mat,
 )
 ```
 
 ```{code-cell} ipython3
 fault_slip_to_free_disp = -apply_interp_mat(
-    qbx_matrix(double_layer_matrix, fault_stage2, free.pts, expansions)[:, 0, :],
+    qbx_matrix(double_layer_matrix, fault_stage2, free.pts, free_expansions)[:, 0, :],
     fault_interp_mat,
 )
 ```
@@ -253,12 +269,6 @@ import_and_display_fnc("common", "adjoint_double_layer_matrix")
 ```
 
 ```{code-cell} ipython3
-# TODO: I NEED TO ENSURE THAT ALL THE EXPANSIONS THAT GET USED ARE ON THE SAME SIDE OF THE SOURCE SURFACE
-free_expansions = expansions  # qbx_panel_setup([free], directions=[1])
-VB_expansions = expansions  # qbx_panel_setup([VB], directions=[1])
-```
-
-```{code-cell} ipython3
 free_disp_to_VB_syz = shear_modulus * apply_interp_mat(
     qbx_matrix(hypersingular_matrix, free_stage2, VB.pts, VB_expansions)[:, 1, :],
     free_interp_mat,
@@ -274,14 +284,6 @@ VB_S_to_VB_syz = apply_interp_mat(
     qbx_matrix(adjoint_double_layer_matrix, VB_stage2, VB.pts, VB_expansions)[:, 1, :],
     VB_interp_mat,
 )
-```
-
-```{code-cell} ipython3
-VB.panel_length
-```
-
-```{code-cell} ipython3
-qbx_panel_setup([VB], directions=[1])
 ```
 
 ```{code-cell} ipython3
@@ -304,7 +306,7 @@ t = 0
 t_history = []
 disp_history = []
 S_history = []
-for i in range(5001):
+for i in range(10001):
     # Step 1) Solve for free surface displacement.
     rhs = rhs_slip + VB_S_to_free_disp.dot(stress_integral)
     free_disp = free_disp_solve_mat_inv.dot(rhs)
@@ -326,43 +328,14 @@ t_history = np.array(t_history)
 ```
 
 ```{code-cell} ipython3
-A = apply_interp_mat(
-    qbx_matrix(
-        adjoint_double_layer_matrix,
-        VB_stage2,
-        VB.pts,
-        qbx_panel_setup([VB], directions=[1]),
-    )[:, 1, :],
-    VB_interp_mat,
-)
-B = apply_interp_mat(
-    qbx_matrix(
-        adjoint_double_layer_matrix,
-        VB_stage2,
-        VB.pts,
-        qbx_panel_setup([VB], directions=[-1]),
-    )[:, 1, :],
-    VB_interp_mat,
-)
-plt.plot(A.dot(stress_integral), 'r-')
-plt.plot(B.dot(stress_integral), 'b-')
-#plt.plot(VB_S_to_VB_syz.dot(stress_integral), 'k-')
-plt.plot(stress_integral, 'k-')
-plt.xlim([0, 5])
-plt.ylim([-2e5, 2e5])
-plt.show()
-
-plt.plot(np.log10(np.abs(2 * A.dot(stress_integral) + 2 * B.dot(stress_integral))), 'm-')
-plt.plot(np.log10(np.abs((A - B).dot(stress_integral) - 2 * A.dot(stress_integral))), 'r-')
-plt.plot(np.log10(np.abs(stress_integral - 2 * A.dot(stress_integral))), 'b-')
-plt.plot(np.log10(np.abs(stress_integral - 2 * VB_S_to_VB_syz.dot(stress_integral))), 'k-')
+velocity = siay * np.diff(np.array(disp_history), axis=0) / np.diff(t_history)[:, None]
 ```
 
 ```{code-cell} ipython3
-plt.figure(figsize=(14, 7))
+plt.figure(figsize=(10, 10))
 X = free.pts[:, 0] / 1000
 
-plt.subplot(1, 2, 1)
+plt.subplot(2, 2, 1)
 plt.plot(X, disp_history[0], "k-", linewidth=3, label="elastic")
 steps_to_plt = [("m", 500, 5), ("b", 1000, 10), ("r", 2500, 25)]
 for color, i, yr in steps_to_plt:
@@ -372,9 +345,9 @@ plt.plot([], [], " ", label="BIE = solid")
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$u ~ \mathrm{(m)}$")
-plt.legend()
+plt.legend(loc='upper left', fontsize=12)
 
-plt.subplot(1, 2, 2)
+plt.subplot(2, 2, 2)
 for color, i, yr in [("k", 0, 0)] + steps_to_plt:
     analytic = analytic_soln(free.pts[:, 0], t_history[i])
     numerical = disp_history[i]
@@ -383,14 +356,21 @@ for color, i, yr in [("k", 0, 0)] + steps_to_plt:
 plt.xlim([-100, 100])
 plt.xlabel(r"$x ~ \mathrm{(km)}$")
 plt.ylabel(r"$\log_{10}{|u_{\textrm{analytic}} - u|} ~ \mathrm{(m)}$")
-plt.show()
-```
 
-```{code-cell} ipython3
-velocity = siay * np.diff(np.array(disp_history), axis=0) / np.diff(t_history)[:, None]
+plt.subplot(2, 2, 3)
+for color, i, yr in steps_to_plt:
+    plt.plot(X, velocity[i], color + "-", label=str(yr) + " yrs")
+plt.xlim([-100, 100])
+plt.xlabel(r"$x ~ \mathrm{(km)}$")
+plt.ylabel(r"$v ~ \mathrm{(m/s)}$")
+plt.legend(fontsize=12)
+
+plt.subplot(2,2, 4)
 plt.plot(t_history[1:] / siay, np.log10(np.max(np.abs(velocity), axis=1)))
 plt.xlabel(r"$t ~ (\textrm{yr})$")
 plt.ylabel(r"$\log_{10}(\textrm{max velocity in m/yr})$")
+
+plt.tight_layout()
 plt.show()
 ```
 
@@ -402,6 +382,10 @@ plt.show()
 ```
 
 # EXTRA
+
+```{code-cell} ipython3
+asd
+```
 
 ```{code-cell} ipython3
 nobs = 150
