@@ -57,6 +57,39 @@ The key to solving both these problem will be to separate the surface into many 
 
 [draft note] Explain the code below more.
 
++++
+
+What is necessary for refinement?
+1. The surfaces!
+2. The source functions.
+3. Ideally, the solution function. 
+
+The refinement necessary for solution and quadrature is distinct. 
+It would be nice to simply use separate meshes for the two.
+The solution mesh would be:
+- coarser than the quadrature mesh.
+- required to not vary by more than a factor of two from panel to panel
+ 
+The quadrature grid would:
+- have values calculated from an interpolation operation.
+- have no restrictions on the variation in panel length.
+- allow for either h or p adaptivity. does h adaptivity ever make sense since we're just going to be interpolating the existing solution? Yes, because there may be fine-scale features!
+
+So, the overall plan is:
+1. take input surfaces and refine them into a proto-solution mesh.
+   1. refine based on radius of curvature.
+   2. refine based on locally specified length scale.
+   3. refine based on other nearby surfaces.
+2. interpolate boundary condition functions on to the proto-solution mesh producing both a final solution mesh and the coefficients of the interpolated function. Often this step will be unnecessary because the boundary data is known only at certain nodes or is simple and constant. 
+3. form expansion centers and then construct the quadrature mesh via further refinement of solution meshes accounting for the necessary quadrature order for expansion center. 
+4. compute a solution and, if desired, refine again based on the solution and then re-solve. 
+
+In a fault-surface intersection problem, there are two operators that we want to compute:
+1. DLP, source = fault, target = free surf
+2. DLP, source = free surf, target = free surf
+
+In the Wala Stage 1 and Stage 2
+
 ```{code-cell} ipython3
 import_and_display_fnc('common', 'PanelSurface')
 import_and_display_fnc('common', 'panelize_symbolic_surface')

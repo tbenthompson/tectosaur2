@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import scipy.linalg
 import scipy.spatial
@@ -727,15 +728,27 @@ def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
     if directions is None:
         directions = [1.0 for i in range(len(src_surfs))]
 
+    proc_directions = []
+    proc_src_surfs = []
+    for i in range(len(src_surfs)):
+        s = src_surfs[i]
+        d = directions[i]
+        if d == 0:
+            proc_directions += [-1, 1]
+            proc_src_surfs += [s, s]
+        else:
+            proc_directions.append(d)
+            proc_src_surfs.append(s)
+        
     src_trees = []
-    for surf in src_surfs:
+    for surf in proc_src_surfs:
         src_trees.append(scipy.spatial.KDTree(surf.pts))
 
     all_centers = []
     all_rs = []
-    for i, surf in enumerate(src_surfs):
+    for i, surf in enumerate(proc_src_surfs):
         r = mult * np.repeat(surf.panel_length, surf.panel_order)
-        offset = directions[i] * r
+        offset = proc_directions[i] * r
 
         max_iter = 30
         for j in range(max_iter):
@@ -760,9 +773,27 @@ def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
                 offset[which_violations] *= 0.75
         all_centers.append(centers)
         all_rs.append(np.abs(offset))
+    
+    out = []
+    s_idx = 0
+    for i in range(len(src_surfs)):
+        if directions[i] == 0:
+            C = np.concatenate((all_centers[s_idx], all_centers[s_idx+1]))
+            R = np.concatenate((all_rs[s_idx], all_rs[s_idx+1]))
+            out.append(QBXExpansions(C, R, p))
+            s_idx += 2
+        else:
+            out.append(QBXExpansions(all_centers[s_idx], all_rs[s_idx], p))
+            s_idx += 1
+    
+    return out
 
-    return QBXExpansions(np.concatenate(all_centers), np.concatenate(all_rs), p)
-
+def qbx_matrix2(kernel, source, obs_pts, expansions):
+    source_refined, interp_mat = stage2_refine(source, expansions)
+    return apply_interp_mat(
+        qbx_matrix(kernel, source_refined, obs_pts, expansions),
+        interp_mat,
+    )
 
 def refine_panels(panels, which):
     new_panels = []
