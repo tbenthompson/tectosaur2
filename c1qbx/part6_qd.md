@@ -24,6 +24,10 @@ Initial conditions:
 - Is the creep initial condition somehow wrong?
 - Would a slip deficit formulation be easier to get right?
 - What about just using far-field plate rate BCs?
+- *The pre-stress formulation from the SEAS document!*
+
+Newton solver:
+- Is this just broken? It's a pretty shit solver.
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -87,7 +91,7 @@ qx, qw = gauss_rule(6)
 t = sp.var("t")
 
 control_points = [
-    (0, -fault_bottom / 2, fault_bottom / 2, 600),
+    (0, -fault_bottom / 2, fault_bottom / 2, 1200),
 ]
 fault = stage1_refine(
     [
@@ -155,7 +159,7 @@ a = np.where(
 fp = FrictionParams(
     a=a,  # direct velocity strengthening effect
     b=0.015,  # state-based velocity weakening effect
-    Dc=0.05,  # state evolution length scale (m)
+    Dc=0.008,  # state evolution length scale (m)
     f0=0.6,  # baseline coefficient of friction
     V0=1e-6,  # when V = V0, f = f0, V is (m/s)
 )
@@ -176,7 +180,7 @@ hstar = (
     (np.pi * shear_modulus * fp.Dc) /
     (sigma_n * (fp.b - fp.a))
 )
-mesh_L, Lb, hstar
+mesh_L, Lb, np.min(hstar[hstar > 0])
 ```
 
 ```{code-cell} ipython3
@@ -186,7 +190,7 @@ def aging_law(fp, V, state):
 
 ```{code-cell} ipython3
 def F(fp, V, state):
-    return fp.a * sigma_n * np.arcsinh(V / (2 * fp.V0) * np.exp(state / fp.a))
+    return sigma_n * fp.a * np.arcsinh(V / (2 * fp.V0) * np.exp(state / fp.a))
 
 
 def dFdV(fp, V, state):
@@ -213,6 +217,23 @@ init_traction = np.full(fault.n_pts, tau_amax)
 ```
 
 ```{code-cell} ipython3
+def sigmoid(x0, W):
+    return 1.0 / (1 + np.exp((fault.pts[:, 1] - x0) / W))
+
+central_pattern = sigmoid(-5000, 100) - sigmoid(-35000, 100)
+plt.plot(fault.pts[:, 1], central_pattern)
+plt.show()
+
+# differential_stress = fault_slip_to_fault_stress.dot(slip)
+
+# print("stress")
+# plt.plot(fault.pts[:, 1], differential_stress[:, 0], "b-", label="sxz")
+# plt.plot(fault.pts[:, 1], differential_stress[:, 1], "r-", label="syz")
+# plt.legend()
+# plt.show()
+```
+
+```{code-cell} ipython3
 def qd_equation(fp, shear_stress, V, state):
     return init_traction + shear_stress - eta * V - F(fp, V, state)
 
@@ -227,9 +248,10 @@ def rate_state_solve(fp, shear, V_old, state):
     def qd_dV(V):
         return qd_equation_dV(fp, V, state)
     
-    # TODO:
+    # TODO: This is really not a good newton solver.
     V = V_old
-    for i in range(150):
+    max_iter = 150
+    for i in range(max_iter):
         f = qd_equation(fp, shear, V, state)
         dfdv = qd_equation_dV(fp, V, state)
         Vn = V -  (0.1 if i < 50 else 1.0) * (f / dfdv)
@@ -237,6 +259,8 @@ def rate_state_solve(fp, shear, V_old, state):
             #print('solved after ', i)
             break
         V = Vn
+        if i == max_iter - 1:
+            raise Exception("Failed to converge.")
     
     return Vn
 ```
@@ -261,10 +285,9 @@ def calc_system_state(t, y, verbose=False):
     if np.any(state < 0) or np.any(state > 1.2):
         return False
 
-    slip_deficit = t * Vp - slip
+    slip_deficit = (t * Vp - slip) * central_pattern
     stress = fault_slip_to_fault_stress.dot(slip_deficit)
     shear = -np.sum(stress * fault.normals, axis=1)
-
 
     try:
         V = rate_state_solve(fp, shear, calc_system_state.V_old, state)
@@ -340,7 +363,7 @@ for i in range(n_steps):
         print("TIME STEPPING FAILED")
         break
     
-    if i % 500 == 0:# or i % 10 == 0:
+    if i % 200 == 0:# or i % 10 == 0:
         print(i, rk23.t / siay)
 #     if rk23.t > 1.4 * siay:
         plot_system_state(calc_derivatives.state)
@@ -348,6 +371,38 @@ for i in range(n_steps):
     
     t_history.append(rk23.t)
     y_history.append(rk23.y.copy())
+```
+
+```{code-cell} ipython3
+last_plt_t = -1000
+last_plt_slip = init_slip
+for i in range(len(y_history) - 1):
+    y = y_history[i]
+    t = t_history[i]
+    slip = y[: init_slip.shape[0]]
+    should_plot = False
+    if np.max(np.abs(slip - last_plt_slip)) > 0.3:
+        should_plot = True
+        color = 'r'
+    if t - last_plt_t > 5 * siay:
+        should_plot = True
+        color = 'b'
+    if should_plot:
+        plt.plot(slip, fy / 1000.0, color + '-', linewidth = 0.5)
+        last_plt_t = t
+        last_plt_slip = slip
+plt.xlim([0, np.max(last_plt_slip)])
+plt.ylim([-35, -5])
+plt.ylabel(r'$\textrm{z (km)}$')
+plt.xlabel(r'$\textrm{slip (m)}$')
+plt.show()
+```
+
+```{code-cell} ipython3
+derivs_history = np.diff(y_history, axis=0) / np.diff(t_history)[:, None]
+max_vel = np.max(np.abs(derivs_history), axis=1)
+plt.plot(t_history[1:], np.log10(max_vel))
+plt.show()
 ```
 
 ```{code-cell} ipython3
