@@ -87,7 +87,7 @@ qx, qw = gauss_rule(6)
 t = sp.var("t")
 
 control_points = [
-    (0, -fault_bottom / 2, fault_bottom / 2, 1200),
+    (0, -fault_bottom / 2, fault_bottom / 2, 600),
 ]
 fault = stage1_refine(
     [
@@ -107,33 +107,13 @@ fault_slip_to_fault_stress = shear_modulus * qbx_matrix2(
 ```
 
 ```{code-cell} ipython3
-def sigmoid(x0, W):
-    return 1.0 / (1 + np.exp((fault.pts[:, 1] - x0) / W))
-
-central_pattern = sigmoid(-3000, 200) - sigmoid(-17000, 200)
-
-slip = central_pattern
-print("slip")
-plt.plot(fault.pts[:, 1], slip)
-plt.show()
-
-differential_stress = fault_slip_to_fault_stress.dot(slip)
-
-print("stress")
-plt.plot(fault.pts[:, 1], differential_stress[:, 0], "b-", label="sxz")
-plt.plot(fault.pts[:, 1], differential_stress[:, 1], "r-", label="syz")
-plt.legend()
-plt.show()
-```
-
-```{code-cell} ipython3
 from dataclasses import dataclass
 ```
 
 ```{code-cell} ipython3
 @dataclass
 class FrictionParams:
-    a: float
+    a: np.ndarray
     b: float
     V0: float
     Dc: float
@@ -142,20 +122,51 @@ class FrictionParams:
 
 ```{code-cell} ipython3
 siay = 31556952
-density = 2700  # rock density (kg/m^3)
+density = 2670  # rock density (kg/m^3)
 cs = np.sqrt(shear_modulus / density)  # Shear wave speed (m/s)
 eta = shear_modulus / (2 * cs)  # The radiation damping coefficient (kg / (m^2 * s))
 Vp = 1e-9  # Rate of plate motion
 sigma_n = 50e6  # Normal stress (Pa)
 
+a0 = 0.01
+amax = 0.025
+fy = fault.pts[:,1]
+H = 30000 #TODO:
+H2 = 10000
+h = 3000
+a = np.where(
+    fy > -H,
+    np.where(
+        fy > -H2,
+        np.where(
+            fy > -H2 + h,
+            amax,
+            amax + (a0 - amax) * (fy + (H2 - h)) / -h,
+        ),
+        a0
+    ),
+    np.where(
+        fy > -(H + h),
+        a0 + (amax - a0) * (fy + H) / -h,
+        amax
+    )
+)
 
 fp = FrictionParams(
-    a=0.020,  # direct velocity strengthening effect
-    b=0.025,  # state-based velocity weakening effect
+    a=a,  # direct velocity strengthening effect
+    b=0.015,  # state-based velocity weakening effect
     Dc=0.05,  # state evolution length scale (m)
     f0=0.6,  # baseline coefficient of friction
     V0=1e-6,  # when V = V0, f = f0, V is (m/s)
 )
+```
+
+```{code-cell} ipython3
+plt.figure(figsize=(3,5))
+plt.plot(fp.a, fy)
+plt.plot(np.full(fy.shape[0], fp.b), fy)
+plt.xlim([0, 0.03])
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -182,14 +193,6 @@ def dFdV(fp, V, state):
     expsa = np.exp(state / fp.a)
     Q = (V * expsa) / (2 * fp.V0)
     return fp.a * expsa * sigma_n / (2 * fp.V0 * np.sqrt(1 + Q * Q))
-
-
-def qd_equation(fp, shear_stress, V, state):
-    return shear_stress - eta * V - F(fp, V, state)
-
-
-def qd_equation_dV(fp, V, state):
-    return -eta - dFdV(fp, V, state)
 ```
 
 ```{code-cell} ipython3
@@ -198,43 +201,49 @@ import scipy.optimize
 
 ```{code-cell} ipython3
 from scipy.optimize import fsolve
+import copy
 
-presumed_init_velocity = Vp
-init_state_scalar = fsolve(lambda S: aging_law(fp, presumed_init_velocity, S), 0.7)[0]
+fp_amax = copy.deepcopy(fp)
+fp_amax.a = amax
+
+init_state_scalar = fsolve(lambda S: aging_law(fp, Vp, S), 0.7)[0]
 init_state = np.full(fault.n_pts, init_state_scalar)
-
-tau_i = F(fp, presumed_init_velocity, init_state_scalar) + eta * presumed_init_velocity
-init_traction = np.full(fault.n_pts, tau_i)
-```
-
-$$
-\int_{H} H^* u + \int_{F} H^* s = t
-$$
-$$
-u + \int_{H} T^* u + \int_{F} T^* s = 0
-$$
-
-```{code-cell} ipython3
-slip_deficit_fullspace = np.linalg.inv(fault_slip_to_fault_stress[:, 0, :]).dot(
-    init_traction
-)
+tau_amax = F(fp_amax, Vp, init_state_scalar) + eta * Vp
+init_traction = np.full(fault.n_pts, tau_amax)
 ```
 
 ```{code-cell} ipython3
-plt.plot(fault.pts[:, 1], slip_deficit_fullspace, "r-")
-plt.show()
+def qd_equation(fp, shear_stress, V, state):
+    return init_traction + shear_stress - eta * V - F(fp, V, state)
+
+def qd_equation_dV(fp, V, state):
+    return -eta - dFdV(fp, V, state)
+
+def rate_state_solve(fp, shear, V_old, state):
+    
+    def qd(V):
+        return qd_equation(fp, shear, V, state)
+
+    def qd_dV(V):
+        return qd_equation_dV(fp, V, state)
+    
+    # TODO:
+    V = V_old
+    for i in range(150):
+        f = qd_equation(fp, shear, V, state)
+        dfdv = qd_equation_dV(fp, V, state)
+        Vn = V -  (0.1 if i < 50 else 1.0) * (f / dfdv)
+        if np.max(np.abs(V - Vn) / Vn) < 1e-10:
+            #print('solved after ', i)
+            break
+        V = Vn
+    
+    return Vn
 ```
 
 ```{code-cell} ipython3
-stress = fault_slip_to_fault_stress.dot(slip_deficit_fullspace)
-plt.plot(fault.pts[:, 1], init_traction, "r-")
-plt.plot(fault.pts[:, 1], stress[:, 0], "k-")
-plt.show()
-```
-
-```{code-cell} ipython3
-init_slip_deficit = -slip_deficit_fullspace
-init_conditions = np.concatenate((init_slip_deficit, init_state))
+init_slip = np.zeros(fault.n_pts)
+init_conditions = np.concatenate((init_slip, init_state))
 ```
 
 ```{code-cell} ipython3
@@ -246,48 +255,41 @@ def calc_system_state(t, y, verbose=False):
         print(t)
         print(t)
     
-    slip_deficit = y[: init_slip_deficit.shape[0]]
-    state = y[init_slip_deficit.shape[0] :]
-    
+    slip = y[: init_slip.shape[0]]
+    state = y[init_slip.shape[0] :]
     
     if np.any(state < 0) or np.any(state > 1.2):
         return False
 
-    stress = -fault_slip_to_fault_stress.dot(slip_deficit)
-    shear = np.sum(stress * fault.normals, axis=1)
+    slip_deficit = t * Vp - slip
+    stress = fault_slip_to_fault_stress.dot(slip_deficit)
+    shear = -np.sum(stress * fault.normals, axis=1)
 
-    def qd(V):
-        return qd_equation(fp, shear, V, state)
-
-    def qd_dV(V):
-        return qd_equation_dV(fp, V, state)
 
     try:
-        V = scipy.optimize.newton(qd, calc_system_state.V_old, fprime=qd_dV)
+        V = rate_state_solve(fp, shear, calc_system_state.V_old, state)
     except RuntimeError:
         return False
-    calc_system_state.V_old = V
-    
     if not np.all(np.isfinite(V)):
         return False
+    calc_system_state.V_old = V
 
     dstatedt = aging_law(fp, V, state)
     
-    slip_deficit_rate = Vp - V
-    out = slip_deficit, state, stress, V, slip_deficit_rate, dstatedt
+    out = slip, slip_deficit, state, stress, V, dstatedt
     if verbose:
         plot_system_state(out)
         
     return out
-calc_system_state.V_old = np.full(fault.n_pts, presumed_init_velocity)
+calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
 def plot_system_state(SS):
-    slip_deficit, state, stress, V, slip_deficit_rate, dstatedt = SS
+    slip, slip_deficit, state, stress, V, dstatedt = SS
     
-    plt.figure(figsize=(9,9))
+    plt.figure(figsize=(15,9))
     plt.subplot(2,3,1)
-    plt.title('slip deficit')
-    plt.plot(fault.pts[:,1], slip_deficit)
+    plt.title('slip')
+    plt.plot(fault.pts[:,1], slip)
 
     plt.subplot(2,3,2)
     plt.title('state')
@@ -300,24 +302,16 @@ def plot_system_state(SS):
     plt.subplot(2,3,4)
     plt.title('slip rate')
     plt.plot(fault.pts[:,1], V)
-    plt.tight_layout()
-    
-    
-    plt.subplot(2,3,5)
-    plt.title('slip deficit rate')
-    plt.plot(fault.pts[:,1], slip_deficit_rate)
-    plt.tight_layout()
-    
     
     plt.subplot(2,3,6)
     plt.title('dstatedt')
     plt.plot(fault.pts[:,1], dstatedt)
-    #plt.tight_layout()
+    plt.tight_layout()
     
     plt.show()
 
 def calc_derivatives(t, y):
-    print('trying', t / siay)
+    #print('trying', t / siay)
     if not np.all(np.isfinite(y)):
         return np.inf * y
     state = calc_system_state(t, y)#, verbose=True)
@@ -331,23 +325,26 @@ def calc_derivatives(t, y):
 ```{code-cell} ipython3
 from scipy.integrate import RK23
 
-calc_system_state.V_old = np.full(fault.n_pts, presumed_init_velocity)
+calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
 tol = 1e-5
-rk23 = RK23(calc_derivatives, 0, init_conditions, 1e50, atol=tol, rtol=tol, max_step = 0.01 * siay)
+rk23 = RK23(calc_derivatives, 0, init_conditions, 1e50, atol=tol, rtol=tol)#, max_step = 0.01 * siay)
 rk23.h_abs = 1.0
 
-n_steps = 1000
+n_steps = 5000
 t_history = [0]
 y_history = [init_conditions.copy()]
 for i in range(n_steps):
-    print(i)
+    #print(i)
     if rk23.step() != None:
         print("TIME STEPPING FAILED")
         break
     
+    if i % 500 == 0:# or i % 10 == 0:
+        print(i, rk23.t / siay)
 #     if rk23.t > 1.4 * siay:
-#         plot_system_state(calc_derivatives.state)
+        plot_system_state(calc_derivatives.state)
+        #break
     
     t_history.append(rk23.t)
     y_history.append(rk23.y.copy())
