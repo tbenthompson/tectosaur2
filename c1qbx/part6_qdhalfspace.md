@@ -15,14 +15,10 @@ kernelspec:
 Based on: https://strike.scec.org/cvws/seas/download/SEAS_BP1_QD.pdf
 
 Goals:
-- move this to include the free surface
 - make another version that also includes a viscoelastic layer!
-- fix up the newton solver and figure out why that was causing trouble
+- fix up and optimize the newton solver and figure out why that was causing trouble
 - ideally, understand why swapping Dc for a smaller value helped prevent problems
-- optimize rate_state_solver
-- make nicer plots
-- compare with SEAS results. 
-
+- compare with SEAS results.
 
 Possible issues:
 
@@ -35,9 +31,6 @@ Initial conditions:
 - Would a slip deficit formulation be easier to get right?
 - What about just using far-field plate rate BCs?
 - *The pre-stress formulation from the SEAS document!*
-
-Newton solver:
-- Is this just broken? It's a pretty shit solver.
 
 problem: how do I impose a backslip forcing? ultimately, this is physically unrealistic but I need to do it anyway. 
 - look at how the scec seas project does this?
@@ -71,6 +64,7 @@ from common import (
 ```
 
 ```{code-cell} ipython3
+surf_half_L = 100000
 fault_bottom = 40000
 shear_modulus = 3.2e10
 
@@ -80,21 +74,67 @@ t = sp.var("t")
 control_points = [
     (0, -fault_bottom / 2, fault_bottom / 2, 1200),
 ]
-fault = stage1_refine(
+fault, free = stage1_refine(
     [
-        (t, t * 0, fault_bottom * (t + 1) * -0.5),  # fault    
+        (t, t * 0, fault_bottom * (t + 1) * -0.5),  # fault
+        (t, -t * surf_half_L, 0 * t),  # free surface
     ],
     (qx, qw),
     control_points=control_points,
-)[0]
+)
 
-fault_expansions = qbx_panel_setup([fault], directions=[0], p=10)[0]
+fault_expansions, free_expansions = qbx_panel_setup(
+    [fault, free], directions=[0, 1], p=10
+)
+```
+
+```{code-cell} ipython3
+free_disp_to_free_disp = qbx_matrix2(
+    double_layer_matrix, free, free.pts, free_expansions
+)[:, 0, :]
+fault_slip_to_free_disp = qbx_matrix2(
+    double_layer_matrix, fault, free.pts, free_expansions
+)[:, 0, :]
+
+free_disp_solve_mat = np.eye(free_disp_to_free_disp.shape[0]) + free_disp_to_free_disp
+free_disp_solve_mat_inv = np.linalg.inv(free_disp_solve_mat)
 ```
 
 ```{code-cell} ipython3
 fault_slip_to_fault_stress = shear_modulus * qbx_matrix2(
     hypersingular_matrix, fault, fault.pts, fault_expansions
 )
+free_disp_to_fault_stress = shear_modulus * qbx_matrix2(
+    hypersingular_matrix, free, fault.pts, fault_expansions
+)
+```
+
+```{code-cell} ipython3
+fault_slip_to_fault_traction = np.sum(fault_slip_to_fault_stress * fault.normals[:,:,None], axis=1)
+free_disp_to_fault_traction = np.sum(free_disp_to_fault_stress * fault.normals[:,:,None], axis=1)
+```
+
+$$
+\int_{H} H^* u + \int_{F} H^* s = t
+$$
+$$
+u + \int_{H} T^* u + \int_{F} T^* s = 0
+$$
+
+Copy the derivation on my whiteboard
+
+```{code-cell} ipython3
+A = fault_slip_to_fault_traction
+B = free_disp_to_fault_traction
+C = fault_slip_to_free_disp
+Dinv = free_disp_solve_mat_inv
+total_fault_slip_to_fault_traction = A - B.dot(Dinv.dot(C))
+```
+
+```{code-cell} ipython3
+plt.plot(fy, np.sum(total_fault_slip_to_fault_traction, axis=1), 'r-')
+plt.plot(fy, np.sum(A, axis=1), 'b-')
+plt.show()
 ```
 
 ```{code-cell} ipython3
@@ -122,20 +162,11 @@ sigma_n = 50e6  # Normal stress (Pa)
 a0 = 0.01
 amax = 0.025
 fy = fault.pts[:,1]
-H = 30000 #TODO:
-H2 = 10000
+H = 15000
 h = 3000
 a = np.where(
     fy > -H,
-    np.where(
-        fy > -H2,
-        np.where(
-            fy > -H2 + h,
-            amax,
-            amax + (a0 - amax) * (fy + (H2 - h)) / -h,
-        ),
-        a0
-    ),
+    a0,
     np.where(
         fy > -(H + h),
         a0 + (amax - a0) * (fy + H) / -h,
@@ -255,8 +286,7 @@ def calc_system_state(t, y, verbose=False):
         return False
 
     slip_deficit = (t * Vp - slip)# * central_pattern
-    stress = fault_slip_to_fault_stress.dot(slip_deficit)
-    shear = -np.sum(stress * fault.normals, axis=1)
+    shear = -total_fault_slip_to_fault_traction.dot(slip_deficit)
 
     try:
         V = rate_state_solve(fp, shear, calc_system_state.V_old, state)
@@ -268,7 +298,7 @@ def calc_system_state(t, y, verbose=False):
 
     dstatedt = aging_law(fp, V, state)
     
-    out = slip, slip_deficit, state, stress, V, dstatedt
+    out = slip, slip_deficit, state, shear, V, dstatedt
     if verbose:
         plot_system_state(out)
         
@@ -276,7 +306,7 @@ def calc_system_state(t, y, verbose=False):
 calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
 def plot_system_state(SS):
-    slip, slip_deficit, state, stress, V, dstatedt = SS
+    slip, slip_deficit, state, shear, V, dstatedt = SS
     
     plt.figure(figsize=(15,9))
     plt.subplot(2,3,1)
@@ -289,7 +319,7 @@ def plot_system_state(SS):
     
     plt.subplot(2,3,3)
     plt.title('shear')
-    plt.plot(fault.pts[:,1], stress[:,0])
+    plt.plot(fault.pts[:,1], shear)
     
     plt.subplot(2,3,4)
     plt.title('slip rate')
@@ -319,26 +349,31 @@ from scipy.integrate import RK45
 
 calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
-rk23 = RK45(calc_derivatives, 0, init_conditions, 1e50, atol=Vp*1e-6, rtol=1e-6)
-rk23.h_abs = 1.0
+atol = Vp * 1e-10
+rtol = 1e-7
+rk23 = RK45(calc_derivatives, 0, init_conditions, 1e50, atol=atol, rtol=rtol)
+rk23.h_abs = 60 * 60 * 24
 
-n_steps = 10000
+n_steps = 10000000
+max_T = 3000 * siay
+
 t_history = [0]
 y_history = [init_conditions.copy()]
+
 for i in range(n_steps):
-    #print(i)
     if rk23.step() != None:
-        print("TIME STEPPING FAILED")
+        raise Exception("TIME STEPPING FAILED")
         break
     
-    if i % 500 == 0:# or i % 10 == 0:
+    if i % 500 == 0:
         print(i, rk23.t / siay)
-#     if rk23.t > 1.4 * siay:
-        plot_system_state(calc_derivatives.state)
-        #break
+        #plot_system_state(calc_derivatives.state)
     
     t_history.append(rk23.t)
     y_history.append(rk23.y.copy())
+    
+    if rk23.t > max_T:
+        break
 ```
 
 ```{code-cell} ipython3
@@ -367,8 +402,10 @@ for i in range(len(y_history) - 1):
         last_plt_t = t
         last_plt_slip = slip
 plt.xlim([0, np.max(last_plt_slip)])
-plt.ylim([-35, -5])
+plt.ylim([-40, 0])
 plt.ylabel(r'$\textrm{z (km)}$')
 plt.xlabel(r'$\textrm{slip (m)}$')
+plt.tight_layout()
+plt.savefig('halfspace.png', dpi=300)
 plt.show()
 ```
