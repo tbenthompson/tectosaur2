@@ -38,34 +38,6 @@ from common import (
 )
 ```
 
-BUGBUGBUGBUG:
-```
-surf_half_L = 100000
-corner_resolution = 5000
-fault_bottom = 17000
-shear_modulus = 3e10
-
-qx, qw = gauss_rule(6)
-t = sp.var("t")
-
-control_points = [
-    (0, 0, 0, corner_resolution),
-    (0, -fault_bottom / 2, fault_bottom / 1.9, 500)
-]
-fault, free = stage1_refine(
-    [
-        (t, t * 0, fault_bottom * (t + 1) * -0.5),  # fault
-        (t, -t * surf_half_L, 0 * t),  # free surface
-    ],
-    (qx, qw),
-    control_points=control_points
-)
-
-fault_expansions, free_expansions = qbx_panel_setup(
-    [fault, free], directions=[0, 1], p=10
-)
-```
-
 ```{code-cell} ipython3
 surf_half_L = 100000
 corner_resolution = 5000

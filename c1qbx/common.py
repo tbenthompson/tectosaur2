@@ -916,11 +916,9 @@ def stage1_refine(
                 # we can simplify the criterion to:
                 # Since the self distance metric is symmetric, we only need to check
                 # if the panel is too large.
-                fudge_factor = 0.01
-                refine_from_self |= (
-                    0.5 * nearby_panel_length + nearby_dist
-                    < (1 - fudge_factor) * cur_surfs[j].panel_length
-                )
+                refine_from_self |= ((
+                    0.5 * nearby_panel_length + nearby_dist < cur_surfs[j].panel_length
+                ) & (nearby_panel_length < 0.5 * cur_surfs[j].panel_length))
 
             refine = (
                 refine_from_control

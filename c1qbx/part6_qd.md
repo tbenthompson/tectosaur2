@@ -14,6 +14,16 @@ kernelspec:
 
 Based on: https://strike.scec.org/cvws/seas/download/SEAS_BP1_QD.pdf
 
+Goals:
+- move this to include the free surface
+- make another version that also includes a viscoelastic layer!
+- fix up the newton solver and figure out why that was causing trouble
+- ideally, understand why swapping Dc for a smaller value helped prevent problems
+- optimize rate_state_solver
+- make nicer plots
+- compare with SEAS results. 
+
+
 Possible issues:
 
 Fault tips: 
@@ -28,6 +38,11 @@ Initial conditions:
 
 Newton solver:
 - Is this just broken? It's a pretty shit solver.
+
+problem: how do I impose a backslip forcing? ultimately, this is physically unrealistic but I need to do it anyway. 
+- look at how the scec seas project does this?
+- use some tapering function?
+- have a basal panel that just has a linear imposed backslip.
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -217,23 +232,6 @@ init_traction = np.full(fault.n_pts, tau_amax)
 ```
 
 ```{code-cell} ipython3
-def sigmoid(x0, W):
-    return 1.0 / (1 + np.exp((fault.pts[:, 1] - x0) / W))
-
-central_pattern = sigmoid(-5000, 100) - sigmoid(-35000, 100)
-plt.plot(fault.pts[:, 1], central_pattern)
-plt.show()
-
-# differential_stress = fault_slip_to_fault_stress.dot(slip)
-
-# print("stress")
-# plt.plot(fault.pts[:, 1], differential_stress[:, 0], "b-", label="sxz")
-# plt.plot(fault.pts[:, 1], differential_stress[:, 1], "r-", label="syz")
-# plt.legend()
-# plt.show()
-```
-
-```{code-cell} ipython3
 def qd_equation(fp, shear_stress, V, state):
     return init_traction + shear_stress - eta * V - F(fp, V, state)
 
@@ -254,14 +252,14 @@ def rate_state_solve(fp, shear, V_old, state):
     for i in range(max_iter):
         f = qd_equation(fp, shear, V, state)
         dfdv = qd_equation_dV(fp, V, state)
-        Vn = V -  (0.1 if i < 50 else 1.0) * (f / dfdv)
+        rate = (0.1 if i < 50 else 1.0)
+        Vn = V - rate  * (f / dfdv)
         if np.max(np.abs(V - Vn) / Vn) < 1e-10:
             #print('solved after ', i)
             break
         V = Vn
         if i == max_iter - 1:
             raise Exception("Failed to converge.")
-    
     return Vn
 ```
 
@@ -285,7 +283,7 @@ def calc_system_state(t, y, verbose=False):
     if np.any(state < 0) or np.any(state > 1.2):
         return False
 
-    slip_deficit = (t * Vp - slip) * central_pattern
+    slip_deficit = (t * Vp - slip)# * central_pattern
     stress = fault_slip_to_fault_stress.dot(slip_deficit)
     shear = -np.sum(stress * fault.normals, axis=1)
 
@@ -346,6 +344,43 @@ def calc_derivatives(t, y):
 ```
 
 ```{code-cell} ipython3
+%load_ext line_profiler
+```
+
+```{code-cell} ipython3
+def integrate():
+    from scipy.integrate import RK23
+
+    calc_system_state.V_old = np.full(fault.n_pts, Vp)
+
+    tol = 1e-5
+    rk23 = RK23(calc_derivatives, 0, init_conditions, 1e50, atol=tol, rtol=tol)#, max_step = 0.01 * siay)
+    rk23.h_abs = 1.0
+
+    n_steps = 500
+    t_history = [0]
+    y_history = [init_conditions.copy()]
+    for i in range(n_steps):
+        #print(i)
+        if rk23.step() != None:
+            print("TIME STEPPING FAILED")
+            break
+
+        if i % 500 == 0:# or i % 10 == 0:
+            print(i, rk23.t / siay)
+    #     if rk23.t > 1.4 * siay:
+            plot_system_state(calc_derivatives.state)
+            #break
+
+        t_history.append(rk23.t)
+        y_history.append(rk23.y.copy())
+```
+
+```{code-cell} ipython3
+%lprun -f calc_system_state -f integrate integrate()
+```
+
+```{code-cell} ipython3
 from scipy.integrate import RK23
 
 calc_system_state.V_old = np.full(fault.n_pts, Vp)
@@ -354,7 +389,7 @@ tol = 1e-5
 rk23 = RK23(calc_derivatives, 0, init_conditions, 1e50, atol=tol, rtol=tol)#, max_step = 0.01 * siay)
 rk23.h_abs = 1.0
 
-n_steps = 5000
+n_steps = 2500
 t_history = [0]
 y_history = [init_conditions.copy()]
 for i in range(n_steps):
@@ -363,7 +398,7 @@ for i in range(n_steps):
         print("TIME STEPPING FAILED")
         break
     
-    if i % 200 == 0:# or i % 10 == 0:
+    if i % 500 == 0:# or i % 10 == 0:
         print(i, rk23.t / siay)
 #     if rk23.t > 1.4 * siay:
         plot_system_state(calc_derivatives.state)
@@ -374,6 +409,13 @@ for i in range(n_steps):
 ```
 
 ```{code-cell} ipython3
+derivs_history = np.diff(y_history, axis=0) / np.diff(t_history)[:, None]
+max_vel = np.max(np.abs(derivs_history), axis=1)
+plt.plot(np.array(t_history[1:]) / siay, np.log10(max_vel))
+plt.show()
+```
+
+```{code-cell} ipython3
 last_plt_t = -1000
 last_plt_slip = init_slip
 for i in range(len(y_history) - 1):
@@ -381,7 +423,7 @@ for i in range(len(y_history) - 1):
     t = t_history[i]
     slip = y[: init_slip.shape[0]]
     should_plot = False
-    if np.max(np.abs(slip - last_plt_slip)) > 0.3:
+    if max_vel[i] > 0.01 and t - last_plt_t > 1:#np.max(np.abs(slip - last_plt_slip)) > 0.25:
         should_plot = True
         color = 'r'
     if t - last_plt_t > 5 * siay:
@@ -399,69 +441,5 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-derivs_history = np.diff(y_history, axis=0) / np.diff(t_history)[:, None]
-max_vel = np.max(np.abs(derivs_history), axis=1)
-plt.plot(t_history[1:], np.log10(max_vel))
-plt.show()
+
 ```
-
-```{code-cell} ipython3
-derivs_history = np.diff(y_history, axis=0) / np.diff(t_history)[:, None]
-
-for i in range(len(y_history) - 1):
-    y = y_history[i]
-    yderivs = derivs_history[i]
-    slip = y[: init_slip_deficit.shape[0]]
-    state = y[init_slip_deficit.shape[0] :]
-    vel = yderivs[: init_slip_deficit.shape[0]]
-    statederiv = yderivs[init_slip_deficit.shape[0] :]
-    print(t_history[i] / siay, np.max(np.abs(vel)))
-#     plt.plot(np.log10(np.abs(vel)), "k-", linewidth=0.5)
-#     plt.show()
-```
-
-```{code-cell} ipython3
-i = 500
-t = t_history[i]
-y = y_history[i]
-slip = y[: init_slip.shape[0]]
-state = y[init_slip.shape[0] :]
-
-slip_deficit = t * plate_motion_backslip - slip
-surf_disp = free_disp_solve_mat_inv.dot(fault_slip_to_free_disp.dot(slip_deficit))
-stress = free_disp_to_fault_stress.dot(surf_disp) + fault_slip_to_fault_stress.dot(
-    slip_deficit
-)
-shear = np.sum(stress * fault.normals, axis=1)
-
-# print(calc_derivatives.V_old)    
-def qd(V):
-    return qd_equation(fp, shear, V, state)
-
-def qd_dV(V):
-    return qd_equation_dV(fp, V, state)
-
-V = scipy.optimize.newton(qd, calc_system_state.V_old, fprime=qd_dV)
-```
-
-```{code-cell} ipython3
-plt.title('slip')
-plt.plot(fault.pts[:,1], slip)
-plt.plot(fault.pts[:,1], slip_deficit)
-plt.show()
-
-plt.title('state')
-plt.plot(fault.pts[:,1], state)
-plt.show()
-plt.title('shear')
-plt.plot(fault.pts[:,1], stress[:,0])
-plt.show()
-plt.title('velocity')
-plt.plot(fault.pts[:,1], V)
-plt.show()
-```
-
-problem: how do I impose a backslip forcing? ultimately, this is physically unrealistic but I need to do it anyway. 
-- look at how the scec seas project does this?
-- use some tapering function?
-- have a basal panel that just has a linear imposed backslip.
