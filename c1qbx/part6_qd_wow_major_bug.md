@@ -13,20 +13,15 @@ kernelspec:
 ---
 
 Based on: https://strike.scec.org/cvws/seas/download/SEAS_BP1_QD.pdf
-And: https://strike.scec.org/cvws/seas/download/apr23_2018/Erickson-Jiang_Benchmark_results_and_discussions.pdf
 
 Goals:
-- email SEAS people to get a time series for one of the backslip models
 - make another version that also includes a viscoelastic layer!
-- probable issues with the fault tip:
-    - debug the weird wavyness I'm seeing in the comparison with Junle Jiang's results from SEAS
-    - debug the crazyness that happens when I increase to 16th order panels.
 
 Possible issues:
 
 Fault tips: 
 - Identify or specify singularities and then make sure that the QBX and quadrature account for the singularities. This would be helpful for avoiding the need to have the sigmoid transition.
-- *Would it be useful to use an interpolation that includes the end points so that I can easily make sure that slip goes to zero at a fault tip?* --> I should test this!
+- *Would it be useful to use an interpolation that includes the end points so that I can easily make sure that slip goes to zero at a fault tip?*
 
 Initial conditions:
 - Is the creep initial condition somehow wrong?
@@ -66,12 +61,21 @@ from common import (
 ```
 
 ```{code-cell} ipython3
+import quadpy
+
+def clencurt(n1):
+    """Computes the Clenshaw Curtis quadrature nodes and weights"""
+    C = quadpy.c1.clenshaw_curtis(n1)
+    return (C.points, C.weights)
+```
+
+```{code-cell} ipython3
 surf_half_L = 100000
 fault_bottom = 40000
-max_panel_length = 300
+max_panel_length = 600
 shear_modulus = 3.2e10
 
-qx, qw = gauss_rule(6)
+qx, qw = gauss_rule(12)
 t = sp.var("t")
 
 control_points = [
@@ -96,81 +100,62 @@ fault.n_panels, fault.n_pts
 ```
 
 ```{code-cell} ipython3
-print(fault_expansions.pts)
+fault_expansions.pts[-5:]
 ```
 
 ```{code-cell} ipython3
-free_disp_to_free_disp = qbx_matrix2(
-    double_layer_matrix, free, free.pts, free_expansions, kappa=5
-)[:, 0, :]
-fault_slip_to_free_disp = qbx_matrix2(
-    double_layer_matrix, fault, free.pts, free_expansions, kappa=5
-)[:, 0, :]
+def build_op(p):
+    free_disp_to_free_disp = qbx_matrix2(
+        double_layer_matrix, free, free.pts, free_expansions, p=p
+    )[:, 0, :]
+    fault_slip_to_free_disp = qbx_matrix2(
+        double_layer_matrix, fault, free.pts, free_expansions, p=p
+    )[:, 0, :]
 
-free_disp_solve_mat = np.eye(free_disp_to_free_disp.shape[0]) + free_disp_to_free_disp
-free_disp_solve_mat_inv = np.linalg.inv(free_disp_solve_mat)
+    free_disp_solve_mat = np.eye(free_disp_to_free_disp.shape[0]) + free_disp_to_free_disp
+    free_disp_solve_mat_inv = np.linalg.inv(free_disp_solve_mat)
+
+    fault_slip_to_fault_stress = shear_modulus * qbx_matrix2(
+        hypersingular_matrix, fault, fault.pts, fault_expansions, p=p
+    )
+    free_disp_to_fault_stress = shear_modulus * qbx_matrix2(
+        hypersingular_matrix, free, fault.pts, fault_expansions, p=p
+    )
+
+    fault_slip_to_fault_traction = np.sum(
+        fault_slip_to_fault_stress * fault.normals[:, :, None], axis=1
+    )
+    free_disp_to_fault_traction = np.sum(
+        free_disp_to_fault_stress * fault.normals[:, :, None], axis=1
+    )
+
+    A = fault_slip_to_fault_traction
+    B = free_disp_to_fault_traction
+    C = fault_slip_to_free_disp
+    Dinv = free_disp_solve_mat_inv
+    total_fault_slip_to_fault_traction = A - B.dot(Dinv.dot(C))
+    return total_fault_slip_to_fault_traction
 ```
 
 ```{code-cell} ipython3
-fault_slip_to_fault_stress = shear_modulus * qbx_matrix2(
-    hypersingular_matrix, fault, fault.pts, fault_expansions, kappa=5
-)
-free_disp_to_fault_stress = shear_modulus * qbx_matrix2(
-    hypersingular_matrix, free, fault.pts, fault_expansions, kappa=5
-)
+# Ms = []
+# for p in range(5, 20, 2):
+#     Ms.append(build_op(p))
+
+# slip = np.ones_like(fault.pts[:,1])# / fault_bottom
+# v1 = Ms[-2].dot(slip)
+# v2 = Ms[-1].dot(slip)
+# plt.plot(np.log10(np.abs(v1)))
+# plt.plot(np.log10(np.abs(v2)))
+# plt.show()
+# plt.plot(np.log10(np.abs(v1 - v2)))
+# plt.show()
+# plt.plot(np.log10(np.abs((v1 - v2) / 1e6)))
+# plt.show()
 ```
 
 ```{code-cell} ipython3
-fault_slip_to_fault_traction = np.sum(
-    fault_slip_to_fault_stress * fault.normals[:, :, None], axis=1
-)
-free_disp_to_fault_traction = np.sum(
-    free_disp_to_fault_stress * fault.normals[:, :, None], axis=1
-)
-```
-
-$$
-\int_{H} H^* u + \int_{F} H^* s = t
-$$
-$$
-u + \int_{H} T^* u + \int_{F} T^* s = 0
-$$
-
-Copy the derivation on my whiteboard
-
-```{code-cell} ipython3
-A = fault_slip_to_fault_traction
-B = free_disp_to_fault_traction
-C = fault_slip_to_free_disp
-Dinv = free_disp_solve_mat_inv
-total_fault_slip_to_fault_traction = A - B.dot(Dinv.dot(C))
-```
-
-```{code-cell} ipython3
-fault_slip_to_fault_stress2 = shear_modulus * qbx_matrix2(
-    hypersingular_matrix, fault, fault.pts, fault_expansions, kappa=6, p=11
-)
-```
-
-```{code-cell} ipython3
-slip = fault.pts[:, 1] / fault_bottom
-v1 = fault_slip_to_fault_stress.dot(slip)[:, 0]
-v2 = fault_slip_to_fault_stress2.dot(slip)[:, 0]
-plt.plot(np.log10(np.abs(v1)))
-plt.plot(np.log10(np.abs(v2)))
-plt.show()
-plt.plot(np.log10(np.abs(v1 - v2)))
-plt.xlim([500, 550])
-plt.show()
-plt.plot(np.log10(np.abs((v1 - v2) / 1e6)))
-plt.xlim([500, 550])
-plt.show()
-```
-
-```{code-cell} ipython3
-# M4 = total_fault_slip_to_fault_traction
-
-# np.max(np.abs((M4 - M2) / M2))
+total_fault_slip_to_fault_traction = build_op(10)
 ```
 
 ## Rate and state friction
@@ -224,9 +209,10 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-mesh_L = np.max(np.abs(np.diff(fault.pts[:, 1])))
+mesh_L = np.max(np.abs(np.diff(fault.pts[:,1])))
 Lb = shear_modulus * fp.Dc / (sigma_n * fp.b)
 hstar = (np.pi * shear_modulus * fp.Dc) / (sigma_n * (fp.b - fp.a))
+print(np.min(np.abs(np.diff(fault.pts[:,1]))))
 mesh_L, Lb, np.min(hstar[hstar > 0])
 ```
 
@@ -335,7 +321,6 @@ def rate_state_solve(
 shear = np.full(fault.n_pts, 30e6)
 V = np.full(fault.n_pts, Vp)
 state = np.full(fault.n_pts, 0.7)
-
 
 def benchmark():
     for i in range(300):
@@ -463,38 +448,36 @@ calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
 atol = Vp * 1e-10
 rtol = 1e-7
-rk = RK45(calc_derivatives, 0, init_conditions, 1e50, atol=atol, rtol=rtol)
-rk.h_abs = 60 * 60 * 24
+rk23 = RK45(calc_derivatives, 0, init_conditions, 1e50, atol=atol, rtol=rtol)
+rk23.h_abs = 60 * 60 * 24
 
-# n_steps = 100000
+#n_steps = 100000
 max_T = 3000 * siay
+n_steps = 8000
 
 t_history = [0]
 y_history = [init_conditions.copy()]
+```
 
-n_steps = 12000
+```{code-cell} ipython3
 for i in range(n_steps):
-    if rk.step() != None:
+    if rk23.step() != None:
         raise Exception("TIME STEPPING FAILED")
         break
 
     if i % 1000 == 0:
-        print(f"step={i}, time={rk.t / siay} yrs")
+        print(f'step={i}, time={rk23.t / siay} yrs')
         # plot_system_state(calc_derivatives.state)
 
-    t_history.append(rk.t)
-    y_history.append(rk.y.copy())
+    t_history.append(rk23.t)
+    y_history.append(rk23.y.copy())
 
-    if rk.t > max_T:
+    if rk23.t > max_T:
         break
 ```
 
 ```{code-cell} ipython3
-196.13312936477178
-```
-
-```{code-cell} ipython3
-rk.t / siay
+rk23.t / siay
 ```
 
 ```{code-cell} ipython3
@@ -512,18 +495,17 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-plt.figure(figsize=(10, 4))
-last_plt_t = -1000
-last_plt_slip = init_slip
+plt.figure(figsize = (10, 4))
+last_plt_t = 50
 event_times = []
-for i in range(len(y_history) - 1):
+for i in range(2000, 3000):#len(y_history) - 1):
     y = y_history[i]
     t = t_history[i]
     slip = y[: init_slip.shape[0]]
     should_plot = False
     if (
         max_vel[i] >= 0.0001 and t - last_plt_t > 3
-    ):  # np.max(np.abs(slip - last_plt_slip)) > 0.25:
+    ):
         if len(event_times) == 0 or t - event_times[-1] > siay:
             event_times.append(t)
         should_plot = True
@@ -534,7 +516,6 @@ for i in range(len(y_history) - 1):
     if should_plot:
         plt.plot(slip, fy / 1000.0, color + "-", linewidth=0.5)
         last_plt_t = t
-        last_plt_slip = slip
 plt.xlim([0, np.max(last_plt_slip)])
 plt.ylim([-40, 0])
 plt.ylabel(r"$\textrm{z (km)}$")
@@ -545,19 +526,24 @@ plt.show()
 ```
 
 ```{code-cell} ipython3
-plt.title("Recurrence interval")
-plt.plot(np.diff(event_times) / siay, "k-*")
+plt.plot(fy, slip)
+plt.show()
+```
+
+```{code-cell} ipython3
+plt.title('Recurrence interval')
+plt.plot(np.diff(event_times) / siay, 'k-*')
 plt.xticks(np.arange(0, 36, 5))
 plt.yticks(np.arange(75, 80, 0.5))
-plt.xlabel("Event number")
-plt.ylabel("Time between events (yr)")
+plt.xlabel('Event number')
+plt.ylabel('Time between events (yr)')
 plt.show()
 ```
 
 ```{code-cell} ipython3
 t_idx = 0  # np.argmax((t_history > event_times[0] - 10))
 fault_idx = np.argmax((-7480 > fy) & (fy > -7500))
-n_steps = 12000
+n_steps = t_history.shape[0]
 t_chunk = t_history[t_idx : (t_idx + n_steps)]
 y_chunk = y_history[t_idx : (t_idx + n_steps)]
 shear_chunk = []
@@ -576,73 +562,36 @@ slip_deficit_chunk = np.array(slip_deficit_chunk)
 ```
 
 ```{code-cell} ipython3
-t_start = t_chunk[np.argmax(slip_rate_chunk[:,fault_idx] > 0.0001)]
+t_start = t_chunk[np.argmax(slip_rate_chunk[:,fault_idx] > 0.1)]
 ```
 
 ```{code-cell} ipython3
-jiang_data = np.loadtxt("jiang.txt")
-jiang_vel = np.diff(jiang_data[:, 1]) / np.diff(jiang_data[:, 0])
+np.max(slip_rate_chunk)
+```
+
+```{code-cell} ipython3
+jiang_data = np.loadtxt('jiang.txt')
+jiang_vel = np.diff(jiang_data[:,1]) / np.diff(jiang_data[:,0])
 jiang_t_start = np.argmax(jiang_vel > 0.1)
 ```
 
 ```{code-cell} ipython3
 for lims in [(-1, 1), (-15, 30)]:
-    plt.figure(figsize=(12, 8))
-    plt.subplot(2, 1, 1)
-    plt.plot(t_chunk - t_start, shear_chunk[:,fault_idx] / 1e6, "k-o", markersize=0.5, linewidth=0.5)
-    plt.plot(
-        jiang_data[:, 0] - jiang_data[jiang_t_start, 0],
-        jiang_data[:, 3],
-        "b-*",
-        markersize=0.5,
-        linewidth=0.5,
-    )
+    plt.figure(figsize=(12,8))
+    plt.subplot(2,1,1)
+    plt.plot(t_chunk - t_start, shear_chunk / 1e6, 'k-o', markersize=0.5, linewidth=0.5)
+    plt.plot(jiang_data[:,0] - jiang_data[jiang_t_start,0], jiang_data[:, 3], 'b-*', markersize=0.5, linewidth = 0.5)
     plt.xlim(lims)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Shear Stress (MPa)")
-    # plt.show()
+    plt.xlabel('Time (s)')
+    plt.ylabel('Shear Stress (MPa)')
+    #plt.show()
 
-    plt.subplot(2, 1, 2)
-    plt.plot(t_chunk - t_start, slip_rate_chunk[:,fault_idx], "k-o", markersize=0.5, linewidth=0.5)
-    plt.plot(
-        jiang_data[1:, 0] - jiang_data[jiang_t_start, 0],
-        jiang_vel[:],
-        "b-*",
-        markersize=0.5,
-        linewidth=0.5,
-    )
+    plt.subplot(2,1,2)
+    plt.plot(t_chunk - t_start, slip_rate_chunk, 'k-o', markersize=0.5, linewidth=0.5)
+    plt.plot(jiang_data[1:,0] - jiang_data[jiang_t_start,0], jiang_vel[:], 'b-*', markersize=0.5, linewidth = 0.5)
     plt.xlim(lims)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Slip rate (m/s)")
+    plt.xlabel('Time (s)')
+    plt.ylabel('Slip rate (m/s)')
     plt.tight_layout()
     plt.show()
-```
-
-```{code-cell} ipython3
-shear_chunk.shape
-```
-
-```{code-cell} ipython3
-for i in range(0, 12000, 1000):
-    plt.plot(
-        slip_rate_chunk[
-            i,
-        ]
-    )
-    plt.show()
-```
-
-```{code-cell} ipython3
-for i in range(0, 12000, 1000):
-    plt.plot(
-        shear_chunk[
-            i,
-        ]
-    )
-    plt.show()
-```
-
-```{code-cell} ipython3
-plt.plot(Vp * t_history - y_history[:, fault.n_pts - 1])
-plt.show()
 ```

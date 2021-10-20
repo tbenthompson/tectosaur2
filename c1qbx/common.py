@@ -295,16 +295,10 @@ class QBXExpansions:
     `pts`: The expansion centers that are offset from the source surface.
 
     `r`: The distance from the source surface to the expansion center.
-
-    `p`: The whole set of expansions has a constant `p` which is the
-        number of terms in the expansion (in principle, there is no reason that the
-        order could not vary from expansion to expansion, but keeping it constant
-        simplifies the implementation.)
     """
 
     pts: np.ndarray
     r: np.ndarray
-    p: int
 
     @property
     def N(self):
@@ -354,7 +348,7 @@ def qbx_setup(source, mult=5.0, direction=0, p=5, r=None):
     return QBXExpansions(centers, r, p)
 
 
-def qbx_expand_matrix(kernel, source, expansions):
+def qbx_expand_matrix(kernel, source, expansions, p):
     """
     Given a kernel and source surface, construct a matrix that computes the
     coefficients of the QBX power series from the source density field.
@@ -372,7 +366,7 @@ def qbx_expand_matrix(kernel, source, expansions):
     # different source functions.
 
     # Construct the quadrature points on the circles surrounding each expansion.
-    qbx_nq = 2 * expansions.p + 1
+    qbx_nq = 2 * p + 1
     qbx_qx, qbx_qw = trapezoidal_rule(qbx_nq)
     qbx_qw *= np.pi
     qbx_theta = np.pi * (qbx_qx + 1)
@@ -397,10 +391,10 @@ def qbx_expand_matrix(kernel, source, expansions):
 
     # Compute the expansion coefficients in matrix form.
     alpha = np.empty(
-        (expansions.pts.shape[0], kernel_ndim, expansions.p, source.n_pts),
+        (expansions.pts.shape[0], kernel_ndim, p, source.n_pts),
         dtype=np.complex128,
     )
-    for L in range(expansions.p):
+    for L in range(p):
         C = 1.0 / (np.pi * (qbx_eval_r ** L))
         if L == 0:
             C /= 2.0
@@ -411,7 +405,7 @@ def qbx_expand_matrix(kernel, source, expansions):
     return alpha
 
 
-def qbx_eval_matrix(obs_pts_per_expansion, expansions):
+def qbx_eval_matrix(obs_pts_per_expansion, expansions, p):
     """
     Construct a matrix evaluating the QBX integrals from `expansions` to `obs_pts`.
 
@@ -425,10 +419,10 @@ def qbx_eval_matrix(obs_pts_per_expansion, expansions):
     qbx_center = expansions.pts[:, 0] + expansions.pts[:, 1] * 1j
     sep = obs_complex - qbx_center[:, None]
     out = np.empty(
-        (obs_pts_per_expansion.shape[0], obs_pts_per_expansion.shape[1], expansions.p),
+        (obs_pts_per_expansion.shape[0], obs_pts_per_expansion.shape[1], p),
         dtype=np.complex,
     )
-    for L in range(expansions.p):
+    for L in range(p):
         out[:, :, L] = sep ** L
     return out
 
@@ -444,6 +438,7 @@ def qbx_interior_eval_matrix(
     source,
     obs_pts,
     expansions,
+    p
 ):
     """
     This function identifies which expansion center to use for which
@@ -530,14 +525,14 @@ def qbx_interior_eval_matrix(
         eval_pts,
         QBXExpansions(
             expansions.pts[centers_used],
-            expansions.r[centers_used],
-            expansions.p,
+            expansions.r[centers_used]
         ),
+        p
     )
     return QBXInteriorEval(Q, centers_used, obs_pt_idxs)
 
 
-def qbx_matrix(kernel, source, obs_pts, expansions):
+def qbx_matrix(kernel, source, obs_pts, expansions, p):
     """
     A QBX evaluation can be broken down into two basic stages:
     1. "Expand" the field in a series.
@@ -547,15 +542,14 @@ def qbx_matrix(kernel, source, obs_pts, expansions):
     any given expansion is ever used. And we would like to ignore those expansions
     that never end up getting used.
     """
-    evaluate = qbx_interior_eval_matrix(source, obs_pts, expansions)
+    evaluate = qbx_interior_eval_matrix(source, obs_pts, expansions, p)
     
     # Only expand for expansion centers that are actually used.
     expansions_used = QBXExpansions(
         expansions.pts[evaluate.centers_used],
-        expansions.r[evaluate.centers_used],
-        expansions.p
+        expansions.r[evaluate.centers_used]
     )
-    expand = qbx_expand_matrix(kernel, source, expansions_used)
+    expand = qbx_expand_matrix(kernel, source, expansions_used, p)
     
     entries_used = evaluate.obs_pt_idxs >= 0
     
@@ -582,13 +576,6 @@ def qbx_matrix(kernel, source, obs_pts, expansions):
     out[obs_pt_not_qbx] = kernel(source, obs_pts[obs_pt_not_qbx])
 
     return out
-
-
-def qbx_self_interaction_matrix(kernel, obs_surface, src_surface, expansions):
-    expand_mat = qbx_expand_matrix(kernel, src_surface, expansions)
-    eval_mat = qbx_eval_matrix(obs_surface.pts[None, :], expansions)[0]
-    I = np.real(np.sum(eval_mat[:, None, :, None] * expand_mat, axis=2))
-    return I, expand_mat, eval_mat
 
 
 @dataclass()
@@ -707,7 +694,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
 
 
 
-def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
+def qbx_panel_setup(src_surfs, directions=None, mult=0.5, singularities=None):
     """
     Determine the ideal locations for QBX expansion centers for several
     surfaces.
@@ -743,14 +730,16 @@ def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
     src_trees = []
     for surf in proc_src_surfs:
         src_trees.append(scipy.spatial.KDTree(surf.pts))
-
+    if singularities is not None:
+        singularity_tree = scipy.spatial.KDTree(singularities)
+        
     all_centers = []
     all_rs = []
     for i, surf in enumerate(proc_src_surfs):
         r = mult * np.repeat(surf.panel_length, surf.panel_order)
         offset = proc_directions[i] * r
 
-        max_iter = 30
+        max_iter = 40
         for j in range(max_iter):
             centers = surf.pts + offset[:, None] * surf.normals
             which_violations = np.zeros(centers.shape[0], dtype=bool)
@@ -766,6 +755,11 @@ def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
                 which_violations |= dist_to_nearest_panel * fudge_factor < np.abs(
                     offset
                 )
+            
+            if singularities is not None:
+                dist_to_singularity, which_singularity = singularity_tree.query(centers)
+                which_violations |= dist_to_singularity <= 4 * offset
+                #import ipdb;ipdb.set_trace()
 
             if not which_violations.any():
                 break
@@ -780,18 +774,20 @@ def qbx_panel_setup(src_surfs, directions=None, mult=0.5, p=5):
         if directions[i] == 0:
             C = np.concatenate((all_centers[s_idx], all_centers[s_idx+1]))
             R = np.concatenate((all_rs[s_idx], all_rs[s_idx+1]))
-            out.append(QBXExpansions(C, R, p))
+            out.append(QBXExpansions(C, R))
             s_idx += 2
         else:
-            out.append(QBXExpansions(all_centers[s_idx], all_rs[s_idx], p))
+            out.append(QBXExpansions(all_centers[s_idx], all_rs[s_idx]))
             s_idx += 1
     
     return out
 
-def qbx_matrix2(kernel, source, obs_pts, expansions):
-    source_refined, interp_mat = stage2_refine(source, expansions)
+def qbx_matrix2(kernel, source, obs_pts, expansions, distance_limit=0.49, kappa=3, p=10):
+    source_refined, interp_mat = stage2_refine(
+        source, expansions.pts, distance_limit=distance_limit, kappa=kappa
+    )
     return apply_interp_mat(
-        qbx_matrix(kernel, source_refined, obs_pts, expansions),
+        qbx_matrix(kernel, source_refined, obs_pts, expansions, p),
         interp_mat,
     )
 
@@ -954,10 +950,10 @@ def stage1_refine(
             )
 
         if not did_refine:
-            for j in range(n_surfs):
-                print(
-                    f"done after n_iterations={i} with n_panels={cur_panels[j].shape[0]}"
-                )
+#             for j in range(n_surfs):
+#                 print(
+#                     f"done after n_iterations={i} with n_panels={cur_panels[j].shape[0]}"
+#                 )
             break
 
     return cur_surfs
@@ -1036,12 +1032,12 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
     ), interp_mat
 
 
-def stage2_refine(surf, expansions, max_iter=30, distance_limit=0.49, kappa=3):
+def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
     stage2_panels = np.array(
         [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
     ).T
     panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
-    expansion_tree = scipy.spatial.KDTree(expansions.pts)
+    expansion_tree = scipy.spatial.KDTree(obs_pts)
 
     for i in range(max_iter):
         stage2_surf, _ = build_stage2_panel_surf(surf, stage2_panels, surf.qx, surf.qw)
