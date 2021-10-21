@@ -213,7 +213,9 @@ def single_layer_matrix(source, obs_pts):
     dx = obs_pts[:, 0, None] - source.pts[None, :, 0]
     dy = obs_pts[:, 1, None] - source.pts[None, :, 1]
     r2 = dx ** 2 + dy ** 2
+    r2[r2 == 0] = 1
     G = (1.0 / (4 * np.pi)) * np.log(r2)
+    G[r2 == 0] = 0
 
     return (G * source.jacobians * source.quad_wts[None, :])[:, None, :]
 
@@ -225,6 +227,7 @@ def double_layer_matrix(source, obs_pts):
     dx = obs_pts[:, 0, None] - source.pts[None, :, 0]
     dy = obs_pts[:, 1, None] - source.pts[None, :, 1]
     r2 = dx ** 2 + dy ** 2
+    r2[r2 == 0] = 1
 
     # The double layer potential
     integrand = (
@@ -232,6 +235,7 @@ def double_layer_matrix(source, obs_pts):
         / (2 * np.pi * r2)
         * (dx * source.normals[None, :, 0] + dy * source.normals[None, :, 1])
     )
+    integrand[r2 == 0] = 0.0
 
     return (integrand * source.jacobians * source.quad_wts[None, :])[:, None, :]
 
@@ -240,10 +244,13 @@ def adjoint_double_layer_matrix(source, obs_pts):
     dx = obs_pts[:, None, 0] - source.pts[None, :, 0]
     dy = obs_pts[:, None, 1] - source.pts[None, :, 1]
     r2 = dx ** 2 + dy ** 2
+    r2[r2 == 0] = 1
 
     out = np.empty((obs_pts.shape[0], 2, source.n_pts))
     out[:, 0, :] = dx
     out[:, 1, :] = dy
+    
+    out[r2[:,None,:]] = 0
 
     C = -1.0 / (2 * np.pi * r2)
 
@@ -255,6 +262,7 @@ def hypersingular_matrix(source, obs_pts):
     dx = obs_pts[:, 0, None] - source.pts[None, :, 0]
     dy = obs_pts[:, 1, None] - source.pts[None, :, 1]
     r2 = dx ** 2 + dy ** 2
+    r2[r2 == 0] = 1
 
     A = 2 * (dx * source.normals[None, :, 0] + dy * source.normals[None, :, 1]) / r2
     C = 1.0 / (2 * np.pi * r2)
@@ -265,6 +273,8 @@ def hypersingular_matrix(source, obs_pts):
     out[:, 0, :] = source.normals[None, :, 0] - A * dx
     # unscaled sigma_xz component
     out[:, 1, :] = source.normals[None, :, 1] - A * dy
+    
+    out[r2[:,None,:]] = 0
 
     # multiply by the scaling factor, jacobian and quadrature weights
     return out * (C * (source.jacobians * source.quad_wts[None, :]))[:, None, :]
@@ -623,6 +633,9 @@ class PanelSurface:
         self.panel_length = np.sum(
             (self.quad_wts * self.jacobians).reshape((-1, self.panel_order)), axis=1
         )
+        self.panel_radius = np.min(
+            self.radius.reshape((-1, qx.shape[0])), axis=1
+        )
 
     @property
     def panel_order(self):
@@ -810,7 +823,7 @@ def stage1_refine(
     quad_rule,
     other_surfaces=[],
     initial_panels=None,
-    max_radius_ratio=0.25,
+    max_curvature=0.25,
     control_points=None,
     max_iter=30,
 ):
@@ -854,11 +867,8 @@ def stage1_refine(
         for j in range(n_surfs):
             # Step 1) Refine based on radius of curvature
             # The absolute value
-            panel_radius = np.min(
-                cur_surfs[j].radius.reshape((-1, quad_rule[0].shape[0])), axis=1
-            )
             refine_from_radius = (
-                cur_surfs[j].panel_length > max_radius_ratio * panel_radius
+                cur_surfs[j].panel_length > max_curvature * cur_surfs[j].panel_radius
             )
 
             # Step 2) Refine based on a nearby user-specified control points.
@@ -1057,6 +1067,7 @@ def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
         stage2_panels = new_quad_panels
 
     out_order = surf.panel_order * kappa
+    
     upsampled_gauss = gauss_rule(out_order)
     final_surf, interp_mat = build_stage2_panel_surf(surf, stage2_panels, *upsampled_gauss)
     return final_surf, interp_mat
