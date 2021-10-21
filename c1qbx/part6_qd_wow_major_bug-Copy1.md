@@ -72,10 +72,10 @@ def clencurt(n1):
 ```{code-cell} ipython3
 surf_half_L = 100000
 fault_bottom = 40000
-max_panel_length = 600
+max_panel_length = 300
 shear_modulus = 3.2e10
 
-qx, qw = gauss_rule(12)
+qx, qw = gauss_rule(6)
 t = sp.var("t")
 
 control_points = [
@@ -155,11 +155,11 @@ def build_op(p, kappa):
 ```
 
 ```{code-cell} ipython3
-total_fault_slip_to_fault_traction = build_op(10)
+total_fault_slip_to_fault_traction = build_op(10, 5)
 ```
 
 ```{code-cell} ipython3
-total_fault_slip_to_fault_traction2 = build_op(12, 5)
+total_fault_slip_to_fault_traction2 = build_op(12, 7)
 ```
 
 ```{code-cell} ipython3
@@ -170,8 +170,10 @@ plt.plot(np.log10(np.abs(v1)))
 plt.plot(np.log10(np.abs(v2)))
 plt.show()
 plt.plot(np.log10(np.abs(v1 - v2)))
+#plt.xlim([1300, 1600])
 plt.show()
 plt.plot(np.log10(np.abs((v1 - v2) / 1e6)))
+#plt.xlim([1300, 1600])
 plt.show()
 ```
 

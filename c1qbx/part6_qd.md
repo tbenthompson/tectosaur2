@@ -372,8 +372,8 @@ init_traction = np.full(fault.n_pts, tau_amax)
 ```
 
 ```{code-cell} ipython3
-init_slip = np.zeros(fault.n_pts)
-init_conditions = np.concatenate((init_slip, init_state))
+init_slip_deficit = np.zeros(fault.n_pts)
+init_conditions = np.concatenate((init_slip_deficit, init_state))
 ```
 
 ```{code-cell} ipython3
@@ -385,13 +385,12 @@ def calc_system_state(t, y, verbose=False):
         print(t)
         print(t)
 
-    slip = y[: init_slip.shape[0]]
+    slip_deficit = y[: init_slip.shape[0]]
     state = y[init_slip.shape[0] :]
 
     if np.any((state < 0) | (state > 1.2)):
         return False
 
-    slip_deficit = t * Vp - slip
     tau_qs = init_traction - total_fault_slip_to_fault_traction.dot(slip_deficit)
 
     try:
@@ -404,7 +403,8 @@ def calc_system_state(t, y, verbose=False):
 
     dstatedt = aging_law(fp, V, state)
 
-    out = slip, slip_deficit, state, tau_qs, V, dstatedt
+    slip_deficit_rate = Vp - V
+    out = slip_deficit, state, tau_qs, slip_deficit_rate, dstatedt
     if verbose:
         plot_system_state(out)
 
@@ -415,12 +415,12 @@ calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
 
 def plot_system_state(SS):
-    slip, slip_deficit, state, tau_qs, V, dstatedt = SS
+    slip_deficit, state, tau_qs, slip_deficit_rate, dstatedt = SS
 
     plt.figure(figsize=(15, 9))
     plt.subplot(2, 3, 1)
     plt.title("slip")
-    plt.plot(fault.pts[:, 1], slip)
+    plt.plot(fault.pts[:, 1], slip_deficit)
 
     plt.subplot(2, 3, 2)
     plt.title("state")
@@ -432,7 +432,7 @@ def plot_system_state(SS):
 
     plt.subplot(2, 3, 4)
     plt.title("slip rate")
-    plt.plot(fault.pts[:, 1], V)
+    plt.plot(fault.pts[:, 1], slip_deficit_rate)
 
     plt.subplot(2, 3, 6)
     plt.title("dstatedt")
@@ -457,7 +457,7 @@ def calc_derivatives(t, y):
 ## Integrating through time
 
 ```{code-cell} ipython3
-from scipy.integrate import RK45
+from scipy.integrate import RK23, RK45
 
 calc_system_state.V_old = np.full(fault.n_pts, Vp)
 
@@ -519,7 +519,7 @@ event_times = []
 for i in range(len(y_history) - 1):
     y = y_history[i]
     t = t_history[i]
-    slip = y[: init_slip.shape[0]]
+    slip_deficit = y[: init_slip.shape[0]]
     should_plot = False
     if (
         max_vel[i] >= 0.0001 and t - last_plt_t > 3
@@ -532,6 +532,7 @@ for i in range(len(y_history) - 1):
         should_plot = True
         color = "b"
     if should_plot:
+        slip = -slip_deficit + Vp * t
         plt.plot(slip, fy / 1000.0, color + "-", linewidth=0.5)
         last_plt_t = t
         last_plt_slip = slip
@@ -565,7 +566,8 @@ slip_rate_chunk = []
 slip_deficit_chunk = []
 for i in range(n_steps):
     system_state = calc_system_state(t_history[t_idx + i], y_history[t_idx + i])
-    slip, slip_deficit, state, tau_qs, V, dstatedt = system_state
+    slip_deficit, state, tau_qs, slip_deficit_rate, dstatedt = system_state
+    V = Vp - slip_deficit_rate
     slip_deficit_chunk.append(slip_deficit)
     shear_chunk.append((tau_qs - eta * V))
     slip_rate_chunk.append(V)
@@ -576,7 +578,7 @@ slip_deficit_chunk = np.array(slip_deficit_chunk)
 ```
 
 ```{code-cell} ipython3
-t_start = t_chunk[np.argmax(slip_rate_chunk[:,fault_idx] > 0.0001)]
+t_start = t_chunk[np.argmax(slip_rate_chunk[:,fault_idx] > 0.1)]
 ```
 
 ```{code-cell} ipython3
