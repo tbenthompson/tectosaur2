@@ -51,19 +51,24 @@ def double_layer_eval(obs_pts, exp_centers, r, m):
     z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
     return (z - z0) ** m / (r ** m)
 
+
 def global_qbx_self(source, p, direction=1, kappa=3):
     obs_pts = source.pts
-    
+
     L = np.repeat(source.panel_length, source.panel_order)
     exp_centers = source.pts - direction * source.normals * L[:, None] * 0.5
     exp_rs = L * 0.5
-    
+
     source_high, interp_mat_high = upsample(source, kappa)
-    
+
     exp_terms = []
     for i in range(p):
-        K = double_layer_expand(exp_centers, source_high.pts, source_high.normals, exp_rs, i)
-        I = K * (source_high.quad_wts[None, None, :] * source_high.jacobians[None, None, :])
+        K = double_layer_expand(
+            exp_centers, source_high.pts, source_high.normals, exp_rs, i
+        )
+        I = K * (
+            source_high.quad_wts[None, None, :] * source_high.jacobians[None, None, :]
+        )
         exp_terms.append(I)
 
     eval_terms = []
@@ -87,7 +92,7 @@ def global_qbx_self(source, p, direction=1, kappa=3):
 #cython: boundscheck=False, wraparound=False, cdivision=True
 
 import numpy as np
-from libc.math cimport pi
+from libc.math cimport pi, fabs
 from cython.parallel import prange
 
 cdef extern from "<complex.h>" namespace "std" nogil:
@@ -102,14 +107,14 @@ cdef void single_obs(
     double[:,::1] src_pts, double[:,::1] src_normals,
     double[::1] src_jacobians, double[::1] src_quad_wts,
     int src_panel_order,
-    double[:,::1] exp_centers, double[::1] exp_rs, int p, qbx_panels,
-    int obs_pt_idx
+    double[:,::1] exp_centers, double[::1] exp_rs, 
+    int min_p, int max_p, int max_kappa, double tol,
+    qbx_panels, int obs_pt_idx
 ) nogil:
     
     cdef int pt_start, pt_end, panel_idx, src_pt_idx, m
     
-    cdef double r, rm, qbx_term, JW
-    cdef double kahanc, kahany, kahant
+    cdef double r, rm, qbx_term, JW, am
     cdef double complex z0, z, w, nw, exp_t, eval_t
     #cdef double complex zz0m[20]
     cdef double complex zz0_div_r, inv_wz0, r_inv_wz0
@@ -133,30 +138,32 @@ cdef void single_obs(
             nw = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
             JW = src_quad_wts[src_pt_idx] * src_jacobians[src_pt_idx]
             
-            qbx_term = 0
-            kahanc = 0
-            
             inv_wz0 = 1.0 / (w - z0)
             r_inv_wz0 = r * inv_wz0
             
+            qbx_term = 0
             exp_t = nw * inv_wz0
             eval_t = C * JW
-            for m in range(p):
-                kahany = real(exp_t * eval_t) - kahanc
-                kahant = qbx_term + kahany
-                c = (kahant - qbx_term) - kahany
-                qbx_term = kahant
-                #qbx_term += 
-                if m != p - 1:
-                    exp_t *= r_inv_wz0
-                    eval_t *= zz0_div_r
-
-            # TODO: TRY KAHAN SUMMATION?
+            am = real(exp_t * eval_t)
+            mag_a0 = fabs(am) # TODO: should I use a relative tolerance?
+            for m in range(max_p):
+                if src_pt_idx == 15 and obs_pt_idx == 15:
+                    with gil:
+                        print(m, am)
+                qbx_term += am
+                if fabs(am) < tol * mag_a0:
+                    break
+                exp_t *= r_inv_wz0
+                eval_t *= zz0_div_r
+                am = real(exp_t * eval_t)
+                
             qbx_mat[obs_pt_idx, 0, src_pt_idx] = qbx_term
     
 def local_qbx_self_integrals(
     double[:,:,::1] qbx_mat, double[:,::1] obs_pts, src, 
-    double[:,::1] exp_centers, double[::1] exp_rs, int p, qbx_panels
+    double[:,::1] exp_centers, double[::1] exp_rs, 
+    int min_p, int max_p, int max_kappa, double tol,
+    qbx_panels
 ):
         
     cdef double[:,::1] src_pts = src.pts
@@ -171,40 +178,81 @@ def local_qbx_self_integrals(
         single_obs(
             qbx_mat, obs_pts, 
             src_pts, src_normals, src_jacobians, src_quad_wts, src_panel_order,
-            exp_centers, exp_rs, p, qbx_panels, i
+            exp_centers, exp_rs, min_p, max_p, max_kappa, tol, qbx_panels, i
         )
 ```
 
 ```{code-cell} ipython3
-def local_qbx_self(source, d_cutoff, p, direction = 1, kappa=10):
+from common import stage2_refine
+
+
+def local_qbx_self(source, d_cutoff, tol, direction=1, min_p=2, max_p=30, max_kappa=5):
     obs_pts = source.pts
-    
+
     L = np.repeat(source.panel_length, source.panel_order)
     exp_centers = source.pts - direction * source.normals * L[:, None] * 0.5
     exp_rs = L * 0.5
-    
-    source_high, interp_mat_high = upsample(source, kappa)
-    
+
+    refined_source, interp_mat = stage2_refine(source, exp_centers, kappa=max_kappa)
+    print(f"initial source n_pts={source.n_pts}")
+    print(f"stage2 refinement n_pts={refined_source.n_pts}")
+
     import scipy.spatial
-    qbx_mat = kernel(source_high, obs_pts)
-    
-    src_high_tree = scipy.spatial.KDTree(source_high.pts)
+
+    qbx_mat = double_layer_matrix(refined_source, obs_pts)
+
+    src_high_tree = scipy.spatial.KDTree(refined_source.pts)
     qbx_src_pts_lists = src_high_tree.query_ball_point(exp_centers, d_cutoff * L)
-    
-    local_qbx_self_integrals(qbx_mat, obs_pts, source_high, exp_centers, exp_rs, p, qbx_src_pts_lists)
-    return apply_interp_mat(qbx_mat, interp_mat_high)
+
+    local_qbx_self_integrals(
+        qbx_mat,
+        obs_pts,
+        refined_source,
+        exp_centers,
+        exp_rs,
+        min_p,
+        max_p,
+        max_kappa,
+        tol,
+        qbx_src_pts_lists,
+    )
+    return apply_interp_mat(qbx_mat, interp_mat)
 ```
 
 ```{code-cell} ipython3
-qx, qw = gauss_rule(12)
-t = sp.var("t")
+density = np.ones_like(source.pts[:,0])#np.cos(source.pts[:,0] * source.pts[:,1])
+baseline = global_qbx_self(source, p=50, kappa=10, direction=-1.0)
+baseline_v = baseline.dot(density)
 
+# Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
+local_baseline = local_qbx_self(
+    source, d_cutoff=100.0, tol=1e-10, max_p=50, max_kappa=10, direction=-1.0
+)
+local_baseline_v = local_baseline.dot(density)
+print(np.max(np.abs(baseline_v - local_baseline_v)))
+#assert(np.max(np.abs(baseline_v-local_baseline_v)) < 5e-14)
+```
+
+```{code-cell} ipython3
+t = sp.var("t")
 (circle,) = stage1_refine(
     [
         (t, sp.cos(sp.pi * t), sp.sin(sp.pi * t)),
     ],
-    (qx, qw),
-    max_radius_ratio=1.0
+    gauss_rule(12),
+    max_radius_ratio=1.0,
+)
+local_qbx_self(circle, 1.5, direction=1.0)
+```
+
+```{code-cell} ipython3
+t = sp.var("t")
+(circle,) = stage1_refine(
+    [
+        (t, sp.cos(sp.pi * t), sp.sin(sp.pi * t)),
+    ],
+    gauss_rule(12),
+    max_radius_ratio=1.0,
 )
 ```
 
@@ -238,17 +286,18 @@ def upsample(source, kappa):
     return source_refined, interp_mat
 
 
-
 def find_safe_dist(source, start_d, tol, kappa_base):
     L = np.repeat(source.panel_length, source.panel_order)
-    
+
     source_high, interp_mat_high = upsample(source, kappa_base)
     source_higher, interp_mat_higher = upsample(source, kappa_base + 1)
-    test_density = np.cos(1 * np.pi * source.pts[:,0])
+    test_density = np.cos(1 * np.pi * source.pts[:, 0])
     d = start_d
     for i in range(20):
         test_pts = source.pts - source.normals * L[:, None] * d
-        higher_mat = apply_interp_mat(kernel(source_higher, test_pts), interp_mat_higher)
+        higher_mat = apply_interp_mat(
+            kernel(source_higher, test_pts), interp_mat_higher
+        )
         high_mat = apply_interp_mat(kernel(source_high, test_pts), interp_mat_high)
 
         higher_vals = higher_mat.dot(test_density)
@@ -263,6 +312,7 @@ def find_safe_dist(source, start_d, tol, kappa_base):
         if rel_err < tol:
             return d
         d *= 1.2
+
 
 d_tol = 1e-13
 d_qbx = find_safe_dist(source, 0.05, d_tol, 2)
@@ -286,28 +336,32 @@ When we compute an integral using QBX, we will only use QBX for those source pan
 ```
 
 ```{code-cell} ipython3
-density = np.ones_like(source.pts[:,0])#np.cos(source.pts[:,0] * source.pts[:,1])
+density = np.ones_like(source.pts[:, 0])  # np.cos(source.pts[:,0] * source.pts[:,1])
 kappa = 2
 for direction in [-1.0, 1.0]:
     baseline = global_qbx_self(source, p=50, kappa=10, direction=direction)
-    baseline_v = baseline[:,0,:].dot(density)
-    
+    baseline_v = baseline[:, 0, :].dot(density)
+
     # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
     d_cutoff = 100.0
-    local_baseline = local_qbx_self(source, d_cutoff=100.0, p=50, kappa=10, direction=direction)
+    local_baseline = local_qbx_self(
+        source, d_cutoff=100.0, max_p=50, max_kappa=10, direction=direction
+    )
     local_baseline_v = local_baseline.dot(density)
-    print(np.max(np.abs(baseline_v-local_baseline_v)))
-    #assert(np.max(np.abs(baseline_v-local_baseline_v)) < 5e-14)
-    
+    print(np.max(np.abs(baseline_v - local_baseline_v)))
+    assert(np.max(np.abs(baseline_v-local_baseline_v)) < 5e-14)
+
     d_cutoffs = [0.9, 1.2, 1.5, 2.0]
     ps = np.arange(3, 55, 5)
     for d_cutoff in d_cutoffs:
         errs = []
         for p in ps:
-            #print(p, d_cutoff)
+            # print(p, d_cutoff)
             kappa_temp = kappa + p // 10
-            test = local_qbx_self(source, d_cutoff, p, direction=direction, kappa=kappa_temp)
-            testv = test[:,0,:].dot(density)
+            test = local_qbx_self(
+                source, d_cutoff, max_p=p, direction=direction, max_kappa=kappa_temp
+            )
+            testv = test[:, 0, :].dot(density)
             errs.append(np.max(np.abs(baseline_v - testv)))
         print(errs)
         plt.plot(ps, np.log10(errs), label=str(d_cutoff))
@@ -318,37 +372,6 @@ for direction in [-1.0, 1.0]:
 
 ```{code-cell} ipython3
 errs
-```
-
-```{code-cell} ipython3
-%load_ext cython
-```
-
-```{code-cell} ipython3
-%%time
-build_qbx_matrix(test_pts, source, exp_centers, r, 1.0, 10, kappa=5)
-```
-
-```{code-cell} ipython3
-true = build_qbx_matrix(test_pts, source, exp_centers, r, 1.0, 11, kappa=10)
-ahh = build_qbx_matrix(test_pts, source, exp_centers, r, 1.0, 10, kappa=4)
-density = np.cos(source.pts[:,0] + source.pts[:,1])
-print(np.max(np.abs(true[:,0,:].dot(density) - ahh[:,0,:].dot(density))))
-np.max(np.abs(true[:,0,:].dot(density) - correct_mat[:,0,:].dot(density)))
-```
-
-```{code-cell} ipython3
-#true[:,0,:].sum(axis=1) - ahh[:,0,:].sum(axis=1)
-```
-
-```{code-cell} ipython3
-correct_mat.shape
-```
-
-```{code-cell} ipython3
-out = apply_interp_mat(qbx_self_interaction(test_pts, source_high, exp_centers, r, 7), interp_mat_high)
-density = np.cos(source.pts[:,0] + source.pts[:,1])
-correct_mat[:, 0, :].dot(density) - out[:, 0, :].dot(density)
 ```
 
 ```{code-cell} ipython3
