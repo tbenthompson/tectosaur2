@@ -12,6 +12,12 @@ kernelspec:
   name: python3
 ---
 
+## TODO:
+
+- implement single_layer, adjoint_double_layer, hypersingular
+- try a fault with a singular tip!
+- implement interior evaluation.
+
 ```{code-cell} ipython3
 :tags: [remove-cell]
 
@@ -64,7 +70,7 @@ def double_layer_eval(obs_pts, exp_centers, r, m):
 
 
 
-def global_qbx_self(kernel, src, p, direction=1, kappa=3):
+def global_qbx_self(src, p, direction=1, kappa=3):
     obs_pts = src.pts
 
     L = np.repeat(src.panel_length, src.panel_order)
@@ -75,7 +81,7 @@ def global_qbx_self(kernel, src, p, direction=1, kappa=3):
 
     exp_terms = []
     for i in range(p):
-        K = double_layer.expand(
+        K = double_layer_expand(
             exp_centers, src_high.pts, src_high.normals, exp_rs, i
         )
         I = K * (
@@ -85,7 +91,7 @@ def global_qbx_self(kernel, src, p, direction=1, kappa=3):
 
     eval_terms = []
     for i in range(p):
-        eval_terms.append(double_layer.eval(obs_pts, exp_centers, exp_rs, i))
+        eval_terms.append(double_layer_eval(obs_pts, exp_centers, exp_rs, i))
 
     kernel_ndim = exp_terms[0].shape[1]
     out = np.zeros((obs_pts.shape[0], kernel_ndim, src_high.n_pts), dtype=np.float64)
@@ -104,15 +110,15 @@ def global_qbx_self(kernel, src, p, direction=1, kappa=3):
 #cython: boundscheck=False, wraparound=False, cdivision=True
 
 import numpy as np
+from cython.parallel import prange
+
 cimport numpy as np
 from libc.math cimport pi, fabs
 from libcpp cimport bool
 from libcpp.pair cimport pair
-from cython.parallel import prange
 
 cdef extern from "<complex.h>" namespace "std" nogil:
     double real(double complex z)
-    #double complex I
     
 cdef double complex I = 1j
 cdef double C = 1.0 / (2 * pi)
@@ -124,28 +130,28 @@ cdef pair[int, bool] single_obs(
     int src_panel_order,
     double[:,::1] exp_centers, double[::1] exp_rs, 
     int max_p, double tol,
-    qbx_panels, int obs_pt_idx
+    qbx_panels, int obs_pt_idx, int exp_idx
 ) nogil:
 
-    cdef double complex z0 = exp_centers[obs_pt_idx,0] + (exp_centers[obs_pt_idx,1] * I)
     cdef double complex z = obs_pts[obs_pt_idx, 0] + (obs_pts[obs_pt_idx, 1] * I)
-    cdef double r = exp_rs[obs_pt_idx]
+    cdef double complex z0 = exp_centers[exp_idx,0] + (exp_centers[exp_idx, 1] * I)
+    cdef double r = exp_rs[exp_idx]
     cdef double complex zz0_div_r = (z - z0) / r
     
-    cdef long[:] panels
-    with gil:
-        if len(qbx_panels[obs_pt_idx]) == 0:
-            return -1, False
-        panels = np.unique(
-            np.array(qbx_panels[obs_pt_idx]) // src_panel_order
-        )
-    
-    cdef int n_panels = panels.shape[0]
-    cdef int n_srcs = n_panels * src_panel_order
+    cdef long[:] panels    
+    cdef int n_panels
+    cdef int n_srcs
     cdef double complex[:] r_inv_wz0
     cdef double complex[:] exp_t
     cdef double[:] qbx_terms
     with gil:
+        if len(qbx_panels) == 0:
+            return -1, False
+        panels = np.unique(
+            np.array(qbx_panels) // src_panel_order
+        )
+        n_panels = panels.shape[0]
+        n_srcs = n_panels * src_panel_order
         r_inv_wz0 = np.empty(n_panels * src_panel_order, dtype=np.complex128)
         exp_t = np.empty(n_panels * src_panel_order, dtype=np.complex128)
         qbx_terms = np.zeros(n_panels * src_panel_order)
@@ -221,12 +227,16 @@ def local_qbx_self_integrals(
     cdef int i
     cdef np.ndarray p = np.empty(obs_pts.shape[0], dtype=np.int32)
     cdef np.ndarray kappa_too_small = np.empty(obs_pts.shape[0], dtype=np.bool_)
-    for i in range(obs_pts.shape[0]):#TODO: PRANGE, nogil=True):
-        p[i], kappa_too_small[i] = single_obs(
+    
+    cdef pair[int,bool] result
+    for i in range(obs_pts.shape[0]):
+        this_panel_set = qbx_panels[i]
+        result = single_obs(
             qbx_mat, obs_pts, 
             src_pts, src_normals, src_jacobians, src_quad_wts, src_panel_order,
-            exp_centers, exp_rs, max_p, tol, qbx_panels, i
+            exp_centers, exp_rs, max_p, tol, this_panel_set, i, i
         )
+        p[i], kappa_too_small[i] = result
     return p, kappa_too_small
 ```
 
@@ -236,7 +246,7 @@ from common import stage2_refine
 
 
 def local_qbx_self(
-    src, d_cutoff, tol, direction=1, max_p=50, kappa=5, return_report=False
+    src, d_cutoff, tol, kappa=5, direction=1, max_p=50, return_report=False
 ):
     direct_mat = double_layer_matrix(src, src.pts)
 
@@ -262,8 +272,9 @@ def local_qbx_self(
         refined_src,
         exp_centers,
         exp_rs,
-        max_p,
         tol,
+        kappa,
+        max_p,
         qbx_src_pts_lists,
     )
     final_local_mat = apply_interp_mat(qbx_mat, interp_mat)
@@ -328,7 +339,35 @@ src = circle
 kernel = double_layer_matrix
 ```
 
-## Prep stage
+```{code-cell} ipython3
+density = np.cos(circle.pts[:,0] - circle.pts[:,1])
+baseline = global_qbx_self(circle, p=50, kappa=10, direction=1.0)
+baseline_v = baseline.dot(density)
+tols = 10.0 ** np.arange(0, -15, -1)
+```
+
+```{code-cell} ipython3
+%%time
+local_baseline, report = local_qbx_self(
+    circle,
+    d_cutoff=1.0,
+    tol=1e-8,
+    kappa=4,
+    direction=1.0,
+    return_report=True,
+)
+```
+
+```{code-cell} ipython3
+local_baseline_v = local_baseline.dot(density)
+err = np.max(np.abs(baseline_v - local_baseline_v))
+print(err)
+plt.plot(baseline_v)
+plt.plot(local_baseline_v)
+plt.show()
+```
+
+## Kernel exploration prep stage
 
 The prep parameters will be fixed as a function of `(max_curvature, tolerance, kernel, nq)`:
 
@@ -380,7 +419,7 @@ for di, direction in enumerate([-1.0, 1.0]):
         errs = []
         for i_p, p in enumerate(ps):
             # print(p, d_cutoff)
-            kappa_temp = 2 + p // 9
+            kappa_temp = 8
             test, report = local_qbx_self(
                 src,
                 d_cutoff,
@@ -398,8 +437,8 @@ for di, direction in enumerate([-1.0, 1.0]):
                     kappa_test, kappa_report = local_qbx_self(
                         src,
                         d_cutoff,
-                        tol=d_tol,
-                        max_p=p + 5,  # Increase p here to have a kappa safety margin
+                        tol=d_tol * 0.8, # Increase d_tol to have a safety margin.
+                        max_p=p + 20,  # Increase p here to have a kappa safety margin
                         direction=direction,
                         kappa=kappa_decrease,
                         return_report=True,
@@ -591,6 +630,25 @@ plt.tight_layout()
 plt.show()
 ```
 
-```{code-cell} ipython3
+## Interior Evaluation
 
+```{code-cell} ipython3
+from common import pts_grid
+nobs = 50
+zoomx = [0.75, 1.25]
+zoomy = [0.15, 0.65]
+xs = np.linspace(*zoomx, nobs)
+ys = np.linspace(*zoomy, nobs)
+obs_pts = pts_grid(xs, ys)
+obs_pts.shape
+```
+
+```{code-cell} ipython3
+# part 1: direct evaluation
+# part 2: identify nearfield for each kappa
+# part 3: identify qbx points
+```
+
+```{code-cell} ipython3
+direct = kernel(source, obs_pts)
 ```
