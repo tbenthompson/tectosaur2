@@ -1002,12 +1002,11 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
         left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
     )
 
-    in_panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
-
     interp_mat = build_panel_interp_matrix(
         surf.n_panels, surf.qx, stage2_panels[:, 0].astype(int), out_relative_nodes
     )
 
+    in_panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
     quad_pts = (
         surf.panel_bounds[in_panel_idx, 0, None]
         + in_panel_parameter_width[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
