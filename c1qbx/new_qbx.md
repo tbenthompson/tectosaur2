@@ -106,6 +106,19 @@ def global_qbx_self(src, p, direction=1, kappa=3):
 ```
 
 ```{code-cell} ipython3
+def build_interp_wts(x):
+    dist = x[:, None] - x[None, :]
+    np.fill_diagonal(dist, 1.0)
+    weights = 1.0 / np.prod(dist, axis=1)
+    return weights
+
+def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
+    dist = eval_pts[:, None] - interp_pts[None, :]
+    kernel = interp_wts[None, :] / dist
+    return (kernel.dot(fnc_vals)) / np.sum(kernel, axis=1)
+```
+
+```{code-cell} ipython3
 %%cython --compile-args=-fopenmp --link-args=-fopenmp --verbose --cplus
 #cython: boundscheck=False, wraparound=False, cdivision=True
 
@@ -125,11 +138,13 @@ cdef double C = 1.0 / (2 * pi)
 
 cdef pair[int, bool] single_obs(
     double[:,:,::1] qbx_mat, double[:,::1] obs_pts, 
-    double[:,::1] src_pts, double[:,::1] src_normals,
-    double[::1] src_jacobians, double[::1] src_quad_wts,
-    int src_panel_order,
-    double[:,::1] exp_centers, double[::1] exp_rs, 
-    int max_p, double tol,
+    double[:,::1] orig_src_pts, double[:,::1] orig_src_normals,
+    double[::1] orig_src_jacobians, double[::1] orig_src_panel_widths,
+    int orig_src_panel_order,
+    double[:,::1] exp_centers, double[::1] exp_rs,
+    double[:,::1] quad_pts, double[:, ::1] quad_wts, int[::1] quad_orders,
+    double[:] interp_wts, 
+    double tol, int max_kappa, int max_p,
     qbx_panels, int obs_pt_idx, int exp_idx
 ) nogil:
 
@@ -140,10 +155,10 @@ cdef pair[int, bool] single_obs(
     
     cdef long[:] panels    
     cdef int n_panels
-    cdef int n_srcs
-    cdef double complex[:] r_inv_wz0
-    cdef double complex[:] exp_t
+    cdef int n_orig_srcs
     cdef double[:] qbx_terms
+    cdef int[:] kappa
+    
     with gil:
         if len(qbx_panels) == 0:
             return -1, False
@@ -151,43 +166,61 @@ cdef pair[int, bool] single_obs(
             np.array(qbx_panels) // src_panel_order
         )
         n_panels = panels.shape[0]
-        n_srcs = n_panels * src_panel_order
-        r_inv_wz0 = np.empty(n_panels * src_panel_order, dtype=np.complex128)
-        exp_t = np.empty(n_panels * src_panel_order, dtype=np.complex128)
-        qbx_terms = np.zeros(n_panels * src_panel_order)
-    
+        n_orig_srcs = n_panels * orig_src_panel_order
+        n_max_srcs = n_orig_srcs * max_kappa
+        qbx_terms = np.zeros(n_orig_srcs)
+        kappa = np.ones(n_panels)
     
     cdef double am, am_sum
     cdef double complex w, nw, inv_wz0
-
-    cdef double mag_a0 = 0
-    cdef double complex eval_t = 1.0
     
-    cdef int pt_start, pt_end, pt_idx, panel_idx, src_pt_idx, j, m
-    for panel_idx in range(n_panels):
-        pt_start = panels[panel_idx] * src_panel_order
-        pt_end = (panels[panel_idx] + 1) * src_panel_order
-        for pt_idx in range(pt_end - pt_start):
-            src_pt_idx = pt_start + pt_idx
-            j = panel_idx * src_panel_order + pt_idx
-            w = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
-            nw = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
-            inv_wz0 = 1.0 / (w - z0)
-            
-            r_inv_wz0[j] = r * inv_wz0
-            exp_t[j] = nw * inv_wz0 * C * src_quad_wts[src_pt_idx] * src_jacobians[src_pt_idx]
-            qbx_terms[j] = 0.0
-            mag_a0 += fabs(real(exp_t[j] * eval_t))
+    cdef int pt_start, pt_end, panel_idx, j, j_orig, orig_src_pt_idx, src_pt_idx, m
+    cdef double src_x, src_y, src_nx, src_ny, src_J
+    cdef double interp_denom, qx_kappa, qx_orig, wt, dist
     
     cdef double am_sum_prev = 0.0
     cdef int divergences = 0
     for m in range(max_p):
         am_sum = 0
-        for j in range(n_srcs):
-            am = real(exp_t[j] * eval_t)
-            am_sum += am
-            qbx_terms[j] += am
-            exp_t[j] *= r_inv_wz0[j]
+        
+        for panel_idx in range(n_panels):
+            pt_start = panels[panel_idx] * src_panel_order
+            pt_end = (panels[panel_idx] + 1) * src_panel_order
+            k = kappa[panel_idx]
+            for j in range(k * src_panel_order):
+                # Interpolate if k > 1!
+                if k==1:
+                    src_x = orig_src_pts[src_pt_idx,0]
+                    src_y = orig_src_pts[src_pt_idx,1]
+                    src_nx = orig_src_normals[src_pt_idx,0]
+                    src_ny = orig_src_normals[src_pt_idx,1]
+                    src_J = orig_src_jacobians[src_pt_idx]
+                else:
+                    qx_kappa = quad_pts[k - 1, j]
+                    src_x = 0
+                    src_y = 0
+                    src_nx = 0
+                    src_ny = 0
+                    src_J = 0
+                    interp_denom = 0
+                    for j_orig in range(pt_end - pt_start):
+                        orig_src_pt_idx = j_orig + pt_start
+                        qx_orig = quad_pts[0, j_orig]
+                        wt = interp_wts[0, j_orig]
+                        dist = qx_kappa - qx_orig
+                        kernel = wt / dist
+                        src_x += kernel * orig_src_pts[orig_src_pt_idx,0]
+                        src_y += kernel * orig_src_pts[orig_src_pt_idx,1]
+                        src_nx += kernel * orig_src_normals[orig_src_pt_idx,0]
+                        src_ny += kernel * orig_src_normals[orig_src_pt_idx,1]
+                        src_J += kernel * orig_src_jacobians[orig_src_pt_idx]
+                        interp_denom += kernel
+                    src_x /= interp_denom
+                    src_y /= interp_denom
+                    src_nx /= interp_denom
+                    src_ny /= interp_denom
+                    src_J *= orig_src_panel_widths[panel_idx] / interp_denom
+                w = 
         # We use the sum of the last two terms to avoid issues with
         # common sequences where every terms alternate in magnitude
         # See Klinteberg and Tornberg 2018 at the end of page 5
@@ -204,17 +237,17 @@ cdef pair[int, bool] single_obs(
     for panel_idx in range(n_panels):
         pt_start = panels[panel_idx] * src_panel_order
         pt_end = (panels[panel_idx] + 1) * src_panel_order
-        for pt_idx in range(pt_end - pt_start):
-            src_pt_idx = pt_start + pt_idx
-            j = panel_idx * src_panel_order + pt_idx
-            qbx_mat[obs_pt_idx, 0, src_pt_idx] = qbx_terms[j]
+        for j in range(pt_end - pt_start):
+            qbx_mat[obs_pt_idx, 0, pt_start + j] = qbx_terms[panel_idx * src_panel_order + j]
     
     return pair[int, bool](m, divergences > 1)
     
 def local_qbx_self_integrals(
     double[:,:,::1] qbx_mat, double[:,::1] obs_pts, src, 
     double[:,::1] exp_centers, double[::1] exp_rs, 
-    int max_p, double tol,
+    double[:,::1] quad_pts, double[:, ::1] quad_wts, int[::1] quad_orders,
+    double[:] interp_wts,
+    double tol, int max_kappa, int max_p, 
     qbx_panels
 ):
         
@@ -234,7 +267,8 @@ def local_qbx_self_integrals(
         result = single_obs(
             qbx_mat, obs_pts, 
             src_pts, src_normals, src_jacobians, src_quad_wts, src_panel_order,
-            exp_centers, exp_rs, max_p, tol, this_panel_set, i, i
+            exp_centers, exp_rs, quad_pts, quad_wts, quad_orders, interp_wts,
+            tol, max_kappa, max_p, this_panel_set, i, i
         )
         p[i], kappa_too_small[i] = result
     return p, kappa_too_small
@@ -253,25 +287,38 @@ def local_qbx_self(
     L = np.repeat(src.panel_length, src.panel_order)
     exp_centers = src.pts + direction * src.normals * L[:, None] * 0.5
     exp_rs = L * 0.5
+    exp_L = L
 
     refined_src, interp_mat = stage2_refine(src, exp_centers, kappa=kappa)
 
     src_high_tree = scipy.spatial.KDTree(refined_src.pts)
-    qbx_src_pts_lists = src_high_tree.query_ball_point(exp_centers, d_cutoff * L)
+    qbx_src_pts_lists = src_high_tree.query_ball_point(exp_centers, d_cutoff * exp_L)
     n_src_pts_per_center = np.array([len(pt_list) for pt_list in qbx_src_pts_lists])
     #     qbx_src_pts = np.concatenate(qbx_src_pts_lists)
     #     pt_list_starts = np.zeros(n_src_pts_per_center.shape[0] + 1)
     #     pt_list_starts[1:] = np.cumsum(n_src_pts_per_center)
     #     local_terms = np.empty(qbx_src_pts.shape[0])
 
+    quad_orders = np.arange(1, max_kappa+1, 1)
+    quad_pts = np.empty((max_kappa, max_kappa * src.panel_order))
+    quad_wts = np.empty((max_kappa, max_kappa * src.panel_order))
+    for k in range(1, max_kappa+1):
+        order = k * src.panel_order
+        qx, qw = gauss_rule(order)
+        quad_pts[k - 1,:qx.shape[0]] = qx
+        quad_wts[k - 1,:qx.shape[0]] = qw
+        quad_orders[k-1] = order
+    interp_wts = build_interp_wts(gauss_rule(src.panel_order))
+    
     # TODO: This could be replaced by a sparse local matrix.
     qbx_mat = np.zeros((src.pts.shape[0], 1, refined_src.n_pts))
-    p, kappa_too_small = local_qbx_self_integrals(
+    p, kappa = local_qbx_self_integrals(
         qbx_mat,
         src.pts,
         refined_src,
         exp_centers,
         exp_rs,
+        quad_pts, quad_wts, quad_orders,
         tol,
         kappa,
         max_p,
@@ -289,7 +336,7 @@ def local_qbx_self(
         report["n_qbx_panels"] = np.sum(n_src_pts_per_center) // src.panel_order
         report["qbx_src_pts_lists"] = qbx_src_pts_lists
         report["p"] = p
-        report["kappa_too_small"] = kappa_too_small
+        report["kappa"] = kappa
         return direct_mat, report
     else:
         return direct_mat
@@ -397,7 +444,8 @@ density = np.ones_like(src.pts[:, 0])  # np.cos(src.pts[:,0] * src.pts[:,1])
 plt.figure(figsize=(9, 13))
 
 params = []
-d_cutoffs = [0.8, 1.0, 1.1, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
+d_cutoffs = np.linspace(0.8, 2.4, 9)
+
 ps = np.arange(1, 55, 3)
 for di, direction in enumerate([-1.0, 1.0]):
     baseline = global_qbx_self(src, p=15, kappa=10, direction=direction)
