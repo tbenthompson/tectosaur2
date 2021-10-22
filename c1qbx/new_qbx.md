@@ -14,9 +14,10 @@ kernelspec:
 
 ## TODO:
 
+- make sure this works for fault-surface intersection and the like where historically i've needed to make sure the expansion centers were exactly the same.
 - implement single_layer, adjoint_double_layer, hypersingular
 - try a fault with a singular tip!
-- implement interior evaluation.
+- optimize! later!
 
 ```{code-cell} ipython3
 :tags: [remove-cell]
@@ -37,10 +38,8 @@ from common import (
     adjoint_double_layer_matrix,
     hypersingular_matrix,
     stage1_refine,
-    qbx_panel_setup,
     build_stage2_panel_surf,
-    apply_interp_mat,
-    qbx_expand_matrix,
+    apply_interp_mat
 )
 ```
 
@@ -178,7 +177,7 @@ cdef pair[int, bool] single_obs(
     
     cdef double am_sum_prev = 0.0
     cdef int divergences = 0
-    for m in range(max_p):
+    for m in range(max_p+1):
         am_sum = 0
         for j in range(n_srcs):
             am = real(exp_t[j] * eval_t)
@@ -208,7 +207,7 @@ cdef pair[int, bool] single_obs(
     
     return pair[int, bool](m, divergences > 1)
     
-def local_qbx_self_integrals(
+def local_qbx_integrals(
     double[:,:,::1] qbx_mat, double[:,::1] obs_pts, src, 
     double[:,::1] exp_centers, double[::1] exp_rs, 
     int max_p, double tol,
@@ -261,7 +260,7 @@ def nearfield_integrals(
             with gil:
                 panels = nearfield_panels[i]
             
-            if len(panels[i]) == 0:
+            if panels.shape[0] == 0:
                 continue
             n_panels = panels.shape[0]
             n_srcs = n_panels * src_panel_order
@@ -286,28 +285,36 @@ def nearfield_integrals(
 ```{code-cell} ipython3
 import warnings
 import scipy.spatial
-from common import stage2_refine, qbx_panel_setup
-
+from common import stage2_refine
 
 def local_qbx(
-    obs_pts, src, d_cutoff, tol, kappa=5, direction=1, max_p=50, return_report=False
+    obs_pts, src, tol, d_cutoff, kappa, d_up, on_src_direction=1, max_p=50, return_report=False
 ):
     # step 1: construct the farfield matrix!
     mat = double_layer_matrix(src, obs_pts)
-
-    # step 2: find expansion centers
-    # TODO: account for singularities
-    L = np.repeat(src.panel_length, src.panel_order)
-    exp_rs = L * 0.5
-    exp_centers = obs_pts + direction * src.normals * exp_rs[:, None]
-
-    # step 3: find which source panels need to use QBX
-    # this information must be propagated to the refined panels.
+    
+    # step 2: identify QBX observation points.
     src_tree = scipy.spatial.KDTree(src.pts)
+    closest_dist, closest_idx = src_tree.query(obs_pts)
+    closest_panel_length = src.panel_length[closest_idx // src.panel_order]
+    use_qbx = closest_dist < d_up[-1] * closest_panel_length
+    qbx_closest_pts = src.pts[closest_idx][use_qbx]
+    qbx_normals = src.normals[closest_idx][use_qbx]
+    qbx_obs_pts = obs_pts[use_qbx]
+    qbx_L = closest_panel_length[use_qbx]
+
+    # step 3: find expansion centers
+    # TODO: account for singularities
+    exp_rs = qbx_L * 0.5
+    direction_dot = np.sum(qbx_normals * (qbx_obs_pts - qbx_closest_pts), axis=1) / exp_rs
+    direction = np.sign(direction_dot)
+    direction[np.abs(direction) < 1e-13] = on_src_direction
+    exp_centers = qbx_closest_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
     
-    
-    qbx_src_pts_unrefined = src_tree.query_ball_point(exp_centers, d_cutoff * L)
-    
+    # step 4: find which source panels need to use QBX
+    # this information must be propagated to the refined panels.
+    qbx_src_pts_unrefined = src_tree.query_ball_point(exp_centers, d_cutoff * qbx_L)
+
     refined_src, interp_mat, refinement_plan = stage2_refine(src, exp_centers, kappa=kappa)
     refinement_map = {i:[] for i in range(src.n_panels)}
     # todo: could use np.unique here
@@ -322,12 +329,12 @@ def local_qbx(
         qbx_src_panels_unrefined.append(unrefined_panels)
         qbx_src_panels_refined.append(np.concatenate([refinement_map[p] for p in unrefined_panels]))
     
-    # step 4: QBX integrals
+    # step 5: QBX integrals
     # TODO: This could be replaced by a sparse local matrix.
-    qbx_mat = np.zeros((obs_pts.shape[0], 1, refined_src.n_pts))
-    p, kappa_too_small = local_qbx_self_integrals(
+    qbx_mat = np.zeros((qbx_obs_pts.shape[0], 1, refined_src.n_pts))
+    p, kappa_too_small = local_qbx_integrals(
         qbx_mat,
-        obs_pts,
+        qbx_obs_pts,
         refined_src,
         exp_centers,
         exp_rs,
@@ -337,14 +344,42 @@ def local_qbx(
     )
     if np.any(kappa_too_small):
         warnings.warn("Some integrals diverged because kappa is too small.")
-    mat += apply_interp_mat(qbx_mat, interp_mat)
+    qbx_mat = np.ascontiguousarray(apply_interp_mat(qbx_mat, interp_mat))
     
-    # step 5: subtract off the direct term whenever a QBX integral is used.
+    # step 6: subtract off the direct term whenever a QBX integral is used.
     nearfield_integrals(
-        mat, obs_pts, src,
+        qbx_mat, qbx_obs_pts, src,
         qbx_src_panels_unrefined, -1.0
     )
+    mat[use_qbx] += qbx_mat
 
+    # step 7: nearfield integrals
+    use_nearfield = (closest_dist < d_up[0] * closest_panel_length) & (~use_qbx)
+    print(np.sum(use_nearfield))
+    print(np.sum(use_qbx))
+    nearfield_obs_pts = obs_pts[use_nearfield]
+    nearfield_L = closest_panel_length[use_nearfield]
+    nearfield_src_pts_unrefined = src_tree.query_ball_point(nearfield_obs_pts, d_up[0] * nearfield_L)
+    
+    nearfield_src_panels_refined = []
+    nearfield_src_panels_unrefined = []
+    for i in range(nearfield_obs_pts.shape[0]):
+        unrefined_panels = np.unique(np.array(nearfield_src_pts_unrefined[i])//src.panel_order)
+        nearfield_src_panels_unrefined.append(unrefined_panels)
+        nearfield_src_panels_refined.append(np.concatenate([refinement_map[p] for p in unrefined_panels]))
+    
+    nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], 1, refined_src.n_pts))
+    nearfield_integrals(
+        nearfield_mat, nearfield_obs_pts, refined_src,
+        nearfield_src_panels_refined, 1.0
+    )
+    nearfield_mat = np.ascontiguousarray(apply_interp_mat(nearfield_mat, interp_mat))
+    nearfield_integrals(
+        nearfield_mat, nearfield_obs_pts, src,
+        nearfield_src_panels_unrefined, -1.0
+    )
+    mat[use_nearfield] += nearfield_mat
+    
     if return_report:
         report = dict()
         report["stage2_src"] = refined_src
@@ -360,27 +395,6 @@ def local_qbx(
 ```
 
 ```{code-cell} ipython3
-from dataclasses import dataclass
-from typing import Callable
-
-@dataclass()
-class Kernel:
-    direct: Callable
-    expand: Callable
-    evaluate: Callable
-    global_qbx_self: Callable
-    local_qbx_self: Callable
-
-double_layer = Kernel(
-    direct=double_layer_matrix,
-    expand=double_layer_expand,
-    evaluate=double_layer_eval,
-    global_qbx_self=global_qbx_self,
-    local_qbx_self=local_qbx_self
-)
-```
-
-```{code-cell} ipython3
 max_curvature = 0.5
 t = sp.var("t")
 (circle,) = stage1_refine(
@@ -391,6 +405,12 @@ t = sp.var("t")
     max_curvature=max_curvature,
     control_points=np.array([[1,0,0,0.1]])
 )
+```
+
+```{code-cell} ipython3
+d_cutoff=1.6
+kappa=4
+d_up = [3.31236863, 0.53496603, 0.30958682, 0.21499085]
 ```
 
 ```{code-cell} ipython3
@@ -408,6 +428,8 @@ src = circle
 kernel = double_layer_matrix
 ```
 
+## Quick test
+
 ```{code-cell} ipython3
 density = np.ones_like(circle.pts[:,0])#np.cos(circle.pts[:,0] - circle.pts[:,1])
 baseline = global_qbx_self(circle, p=50, kappa=10, direction=1.0)
@@ -420,20 +442,13 @@ tols = 10.0 ** np.arange(0, -15, -1)
 local_baseline, report = local_qbx(
     circle.pts,
     circle,
-    d_cutoff=1.0,
     tol=1e-8,
+    d_cutoff=1.6,
     kappa=4,
-    direction=1.0,
+    d_up = [3.31236863, 0.53496603, 0.30958682, 0.21499085],
+    on_src_direction=1.0,
     return_report=True,
 )
-```
-
-```{code-cell} ipython3
-report['p']
-```
-
-```{code-cell} ipython3
-(report['stage2_src'].quad_wts * report['stage2_src'].jacobians).sum() / np.pi
 ```
 
 ```{code-cell} ipython3
@@ -717,7 +732,7 @@ plt.show()
 
 ```{code-cell} ipython3
 from common import pts_grid
-nobs = 50
+nobs = 200
 zoomx = [0.75, 1.25]
 zoomy = [0.15, 0.65]
 xs = np.linspace(*zoomx, nobs)
@@ -727,61 +742,64 @@ obs_pts.shape
 ```
 
 ```{code-cell} ipython3
-# part 1: direct evaluation
-# part 2: identify nearfield for each kappa
-# part 3: identify qbx points
+%%time
+upsampled_src, interp = upsample(src, 10)
+high = double_layer_matrix(upsampled_src, obs_pts)
+mat_upsampled = apply_interp_mat(high, interp)
 ```
 
 ```{code-cell} ipython3
-direct = kernel(src, obs_pts)
+mat_upsampled.shape
 ```
 
 ```{code-cell} ipython3
-d_up
+%load_ext line_profiler
 ```
 
 ```{code-cell} ipython3
-# upsampled_srcs = []
-# for k in range(kappa_qbx - 1):
-#     upsampled_srcs.append(upsample(src, k + 1) if k > 0 else src)
+%lprun -f local_qbx local_qbx(obs_pts,circle,tol = 1e-13,d_cutoff = 1.6,kappa = 4,d_up = [3.31236863, 0.53496603, 0.30958682, 0.21499085],on_src_direction=1.0,return_report=True)
 ```
 
 ```{code-cell} ipython3
-#refined_src, interp_mat = stage2_refine(src, exp_centers, kappa=kappa_qbx)
-src_tree = scipy.spatial.KDTree(src.pts)
-obs_pt_tree = scipy.spatial.KDTree(obs_pts)
+%%time
+mat, report = local_qbx(
+    obs_pts,
+    circle,
+    tol = 1e-13,
+    d_cutoff = 1.6,
+    kappa = 4,
+    d_up = [3.31236863, 0.53496603, 0.30958682, 0.21499085],
+    on_src_direction=1.0,
+    return_report=True,
+)
 ```
 
 ```{code-cell} ipython3
-close_pts = obs_pt_tree.query_ball_point(src.panel_centers, (d_up[0] + 0.5) * src.panel_length)
-print([len(cp) for cp in close_pts])
-qbx_pts = obs_pt_tree.query_ball_point(src.panel_centers, (d_up[-1] + 0.5) * src.panel_length)
-print([len(cp) for cp in qbx_pts])
-```
+plt.plot(report['exp_centers'][:,0], report['exp_centers'][:,1], 'k.')
+plt.plot(src.pts[:,0], src.pts[:,1],'k-')
+plt.xlim(zoomx)
+plt.ylim(zoomy)
+plt.show()
 
-```{code-cell} ipython3
-closest_dist, closest_idx = refined_src_tree.query(obs_pts)
-closest_pts = refined_src.pts[closest_idx]
-closest_panel_length = refined_src.panel_length[closest_idx // refined_src.panel_order]
-closest_normals = refined_src.normals[closest_idx]
-use_nearfield = closest_dist < d_up[0] * closest_panel_length
-use_qbx = closest_dist < d_up[-1] * closest_panel_length
-print(np.sum(use_nearfield))
-print(np.sum(use_qbx))
+density = np.cos(src.pts[:,0]**2)
+check = mat_upsampled.dot(density)
 
-direction = np.sign(np.sum(closest_normals * (obs_pts - closest_pts), axis=1))
-exp_centers = closest_pts + direction[:, None] * closest_normals * closest_panel_length[:, None] * 0.5
-```
+est = mat.dot(density)
 
-```{code-cell} ipython3
-nearfield_src_pts = refined_src_tree.query_ball_point(obs_pts, d_up[0] * closest_panel_length)
-qbx_src_pts = refined_src_tree.query_ball_point(exp_centers, d_cutoff * closest_panel_length)
-```
-
-```{code-cell} ipython3
-[len(l) // refined_src.panel_order for l in nearfield_src_pts]
-```
-
-```{code-cell} ipython3
-
+logerror = np.log10(np.abs(est - check)).reshape((nobs, nobs))
+logerror[np.isinf(logerror)] = -17.0
+error_levels = np.linspace(-15, -3, 5)
+cntf = plt.contourf(xs, ys, logerror, levels=error_levels, extend="both")
+plt.contour(
+    xs,
+    ys,
+    logerror,
+    colors="k",
+    linestyles="-",
+    linewidths=0.5,
+    levels=error_levels,
+    extend="both",
+)
+plt.colorbar(cntf)
+plt.show()
 ```
