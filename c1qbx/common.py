@@ -1042,14 +1042,14 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
 
 
 def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
-    stage2_panels = np.array(
+    refinement_plan = np.array(
         [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
     ).T
     panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
     expansion_tree = scipy.spatial.KDTree(obs_pts)
 
     for i in range(max_iter):
-        stage2_surf, _ = build_stage2_panel_surf(surf, stage2_panels, surf.qx, surf.qw)
+        stage2_surf, _ = build_stage2_panel_surf(surf, refinement_plan, surf.qx, surf.qw)
 
         min_panel_expansion_dist = np.min(
             expansion_tree.query(stage2_surf.pts)[0].reshape((-1, surf.panel_order)),
@@ -1057,16 +1057,16 @@ def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
         )
         refine = min_panel_expansion_dist < distance_limit * stage2_surf.panel_length
 
-        new_quad_panel_domains = refine_panels(stage2_panels[:, 1:], refine)
-        new_in_panel_idx = np.repeat(stage2_panels[:, 0], refine + 1)
+        new_quad_panel_domains = refine_panels(refinement_plan[:, 1:], refine)
+        new_in_panel_idx = np.repeat(refinement_plan[:, 0], refine + 1)
         new_quad_panels = np.hstack((new_in_panel_idx[:, None], new_quad_panel_domains))
 
-        if stage2_panels.shape[0] == new_quad_panels.shape[0]:
+        if refinement_plan.shape[0] == new_quad_panels.shape[0]:
             break
-        stage2_panels = new_quad_panels
+        refinement_plan = new_quad_panels
 
     out_order = surf.panel_order * kappa
     
     upsampled_gauss = gauss_rule(out_order)
-    final_surf, interp_mat = build_stage2_panel_surf(surf, stage2_panels, *upsampled_gauss)
-    return final_surf, interp_mat
+    final_surf, interp_mat = build_stage2_panel_surf(surf, refinement_plan, *upsampled_gauss)
+    return final_surf, interp_mat, refinement_plan
