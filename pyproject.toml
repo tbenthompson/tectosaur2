@@ -1,0 +1,28 @@
+[build-system]
+requires = [
+  'setuptools',
+  'setuptools-scm',
+  'wheel',
+  'Cython',
+  'numpy',
+]
+
+[tool.black]
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+ensure_newline_before_comments = true
+line_length = 88
+known_first_party = "tectosaur2"
+skip_glob = '\.eggs/*,\.git/*,\.venv/*,build/*,dist/*,tutorials/*'
+default_section = 'THIRDPARTY'
