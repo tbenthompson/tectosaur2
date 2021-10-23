@@ -72,7 +72,7 @@ def base_expand(exp_centers, src_pts, r, m):
         return np.log(w - z0) / (2 * np.pi)
     else:
         return -(r ** m) / (m * (2 * np.pi) * (w - z0) ** m)
-    
+
 def deriv_expand(exp_centers, src_pts, src_normals, r, m):
     w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
     z0 = exp_centers[:, 0, None] + exp_centers[:, 1, None] * 1j

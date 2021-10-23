@@ -1,4 +1,16 @@
-def find_dcutoff_kappa(src, d_tol):
+import time
+import warnings
+
+import matplotlib.pyplot as plt
+import numpy as np
+import sympy as sp
+
+from .global_qbx import global_qbx_self
+from .local_qbx import local_qbx
+from .mesh import apply_interp_mat, gauss_rule, panelize_symbolic_surface, upsample
+
+
+def find_dcutoff_kappa(src, tol):
     # prep step 1: find d_cutoff and kappa
     # The goal is to estimate the error due to the QBX local patch
     # The local surface will have singularities at the tips where it is cut off
@@ -20,8 +32,8 @@ def find_dcutoff_kappa(src, d_tol):
 
         # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
         d_cutoff = 100.0
-        local_baseline = local_qbx_self(
-            src, d_cutoff=100.0, tol=d_tol, max_p=10, kappa=10, direction=direction
+        local_baseline = local_qbx(
+            src, d_cutoff=100.0, tol=tol, max_p=10, kappa=10, direction=direction
         )
         local_baseline_v = local_baseline.dot(density)
         assert np.max(np.abs(baseline_v - local_baseline_v)) < 5e-14
@@ -37,10 +49,10 @@ def find_dcutoff_kappa(src, d_tol):
                 kappa_temp = 8
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    test, report = local_qbx_self(
+                    test, report = local_qbx(
                         src,
                         d_cutoff,
-                        tol=d_tol,
+                        tol=tol,
                         max_p=p,
                         direction=direction,
                         kappa=kappa_temp,
@@ -49,20 +61,21 @@ def find_dcutoff_kappa(src, d_tol):
                     testv = test[:, 0, :].dot(density)
                     err = np.max(np.abs(baseline_v - testv))
                     errs.append(err)
-                    if err < d_tol:
+                    if err < tol:
                         for kappa_decrease in range(1, kappa_temp + 1):
-                            kappa_test, kappa_report = local_qbx_self(
+                            kappa_test, kappa_report = local_qbx(
                                 src,
                                 d_cutoff,
-                                tol=d_tol * 0.8, # Increase d_tol to have a safety margin.
-                                max_p=p + 20,  # Increase p here to have a kappa safety margin
+                                tol=tol * 0.8,  # Increase tol to have a safety margin.
+                                max_p=p
+                                + 20,  # Increase p here to have a kappa safety margin
                                 direction=direction,
                                 kappa=kappa_decrease,
                                 return_report=True,
                             )
                             kappa_testv = kappa_test[:, 0, :].dot(density)
                             kappa_err = np.max(np.abs(baseline_v - kappa_testv))
-                            if kappa_err < d_tol:
+                            if kappa_err < tol:
                                 kappa_optimal.append(kappa_decrease)
                                 n_qbx_panels.append(kappa_report["n_qbx_panels"])
                                 p_for_full_accuracy.append(p)
@@ -107,7 +120,9 @@ def find_dcutoff_kappa(src, d_tol):
     for i in [0, 1]:
         direction, n_qbx_panels, kappa_optimal, p_for_full_accuracy = params[i]
         appx_cost = (
-            np.array(p_for_full_accuracy) * np.array(n_qbx_panels) * np.array(kappa_optimal)
+            np.array(p_for_full_accuracy)
+            * np.array(n_qbx_panels)
+            * np.array(kappa_optimal)
         )
         print(direction, appx_cost)
         total_cost += appx_cost
@@ -120,11 +135,9 @@ def find_dcutoff_kappa(src, d_tol):
     return d_cutoff, kappa_qbx
 
 
-from common import panelize_symbolic_surface
-
 # prep step 2: find the minimum distance at which integrals are computed
 # to the required tolerance for each kappa in [1, kappa_qbx]
-def find_safe_direct_distance(nq, max_curvature, start_d, tol, kappa):
+def find_safe_direct_distance(kernel, nq, max_curvature, start_d, tol, kappa):
     t = sp.var("t")
 
     n_panels = 2
@@ -138,7 +151,7 @@ def find_safe_direct_distance(nq, max_curvature, start_d, tol, kappa):
         if n_panels_new <= n_panels:
             break
         n_panels = np.ceil(n_panels_new).astype(int)
-    #print(f"\nusing {n_panels} panels with max_curvature={max_curvature}")
+    # print(f"\nusing {n_panels} panels with max_curvature={max_curvature}")
 
     L = np.repeat(circle.panel_length, circle.panel_order)
 
@@ -178,23 +191,25 @@ def find_safe_direct_distance(nq, max_curvature, start_d, tol, kappa):
             return True, d
         d *= 1.2
 
-def find_d_up(nq, max_curvature):
+
+def find_d_up(tol, nq, max_curvature, kappa_qbx):
     d_up = np.zeros(kappa_qbx)
     for k in range(kappa_qbx, 0, -1):
         max_iter = 20
         d_up[k - 1] = d_up[k] if k < kappa_qbx else 0.05
         for i in range(max_iter):
             result = find_safe_direct_distance(
-                nq, max_curvature * (0.8) ** i, d_up[k - 1], d_tol, k
+                nq, max_curvature * (0.8) ** i, d_up[k - 1], tol, k
             )
             d_up[k - 1] = result[1]
             if result[0]:
-                print('done', k, d_up[k-1])
+                print("done", k, d_up[k - 1])
                 break
 
-def final_check():
-    density = np.ones_like(circle.pts[:, 0])  # np.cos(source.pts[:,0] * src.pts[:,1])
-    baseline = global_qbx_self(circle, p=50, kappa=10, direction=1.0)
+
+def final_check(src, d_cutoff, kappa_qbx):
+    density = np.ones_like(src.pts[:, 0])  # np.cos(source.pts[:,0] * src.pts[:,1])
+    baseline = global_qbx_self(src, p=50, kappa=10, direction=1.0)
     baseline_v = baseline.dot(density)
     tols = 10.0 ** np.arange(0, -15, -1)
     errs = []
@@ -203,8 +218,8 @@ def final_check():
         runs = []
         for i in range(10):
             start = time.time()
-            local_baseline, report = local_qbx_self(
-                circle,
+            local_baseline, report = local_qbx(
+                src,
                 d_cutoff=d_cutoff,
                 tol=tol,
                 kappa=kappa_qbx,

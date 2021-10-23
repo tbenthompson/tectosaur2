@@ -100,7 +100,7 @@ plt.show()
 
 So, the final equation we'd like to solve is:
 \begin{equation}
-2\mu \nabla^2 \frac{\partial u}{\partial t} = -\delta(y=D) \frac{\mu}{\eta_V} \sigma_y 
+2\mu \nabla^2 \frac{\partial u}{\partial t} = -\delta(y=D) \frac{\mu}{\eta_V} \sigma_y
 \end{equation}
 
 In some situations, it can be more convenient to consider the equation in terms of the displacement rather than the velocity:
@@ -115,9 +115,9 @@ In some situations, it can be more convenient to consider the equation in terms 
 Now, we'll transform the above equation into integral form. First, remember from the previous section that, when solving for the displacement resulting from a antiplane strike slip fault within a half space, the integral form was:
 
 \begin{equation}
-u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q} 
+u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
 \end{equation}
-where $\mathbf{p}$ is the observation point, $u$ is the displacement, $s$ is the slip on the fault, $H$ is the free surface, $F$ is the fault surface and $\frac{\partial G}{\partial n_q}$ is the kernel of the double layer potential. 
+where $\mathbf{p}$ is the observation point, $u$ is the displacement, $s$ is the slip on the fault, $H$ is the free surface, $F$ is the fault surface and $\frac{\partial G}{\partial n_q}$ is the kernel of the double layer potential.
 
 To extend this to a setting with a body force term, we can include the volume integral term:
 \begin{equation}
@@ -129,7 +129,7 @@ Now, substituting in the body force from above for $f(\mathbf{q})$, the fascinat
 \int_{V} G(\mathbf{p},\mathbf{q}) f(\mathbf{q}) d\mathbf{q} = -\frac{\mu}{\eta_V} \int_{B} G(\mathbf{p}, \mathbf{q}) \bigg[ \int_0^T \sigma_y(\mathbf{q}) dt \bigg] d\mathbf{q}
 \end{equation}
 
-So, the result is a purely boundary integral equation for the behavior of a fault in a viscoelastic and elastic layered space. 
+So, the result is a purely boundary integral equation for the behavior of a fault in a viscoelastic and elastic layered space.
 
 \begin{equation}
 u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q} - \int_{B} G(\mathbf{p}, \mathbf{q}) \bigg[\frac{\mu}{\eta_V} \int_0^T \sigma_y(\mathbf{q}) dt \bigg] d\mathbf{q}
@@ -142,7 +142,7 @@ S(\mathbf{q}) = \frac{\mu}{\eta_V} \int_0^T \sigma_y(\mathbf{q}) dt
 \end{equation}
 
 This integral equation results in a fairly simple time stepping algorithm where, given $S^n$.
-1. Solve the BIE for $u$. 
+1. Solve the BIE for $u$.
 2. Compute $\frac{\partial S(\mathbf{q})}{\partial t} = \sigma_y(\mathbf{q})$ for all $\mathbf{q} \in B$.
 3. Compute $S^{n+1}$ according to the time integral.
 4. Repeat for the next time step.
@@ -279,7 +279,7 @@ There are two boundary integral equations that we need to compute the terms of:
 u(\mathbf{p}) + \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} = -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q} - \frac{1}{\mu}\int_{B} G(\mathbf{p}, \mathbf{q}) S(\mathbf{q}) d\mathbf{q}
 \end{equation}
 
-I'll note these terms as `{src_surf}_to_free_disp`. We'll construct the inverted left hand side matrix in `free_disp_solve_mat_inv`. 
+I'll note these terms as `{src_surf}_to_free_disp`. We'll construct the inverted left hand side matrix in `free_disp_solve_mat_inv`.
 
 ```{code-cell} ipython3
 free_disp_to_free_disp = qbx_matrix2(
@@ -298,7 +298,7 @@ free_disp_solve_mat_inv = np.linalg.inv(free_disp_solve_mat)
 slip = np.ones(fault.n_pts)
 ```
 
-2. The equation to solve for the stress on the viscoelastic boundary surface. 
+2. The equation to solve for the stress on the viscoelastic boundary surface.
 
 \begin{equation}
 \vec{\sigma}(\mathbf{p}) = -\mu\int_{H} \frac{\partial G}{\partial n_q \partial n_p}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\mu\int_{F} \frac{\partial G}{\partial n_q \partial n_p}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q} - \int_{B} \frac{\partial G}{\partial n_p} S(\mathbf{q})  d\mathbf{q}
@@ -325,7 +325,7 @@ VB_S_to_VB_syz = qbx_matrix2(
 syz_fault = fault_slip_to_VB_syz.dot(slip)
 rhs_slip = fault_slip_to_free_disp.dot(slip)
 
-# We'll integrate for 100 years of time in steps of 0.01 years. 
+# We'll integrate for 100 years of time in steps of 0.01 years.
 # siay is "seconds in a year".
 n_steps = 10001
 dt = 0.01 * siay
@@ -363,7 +363,7 @@ velocity = siay * np.diff(np.array(disp_history), axis=0) / np.diff(t_history)[:
 
 ## Comparison against the analytic solution.
 
-The first and second plots below show the numerical solution against the analytic solution. We can see that the error rises over time. Further investigation will demonstrate that this error is completely dominated by the error from truncating the infinite surfaces in the analytic problem into finite surfaces here. 
+The first and second plots below show the numerical solution against the analytic solution. We can see that the error rises over time. Further investigation will demonstrate that this error is completely dominated by the error from truncating the infinite surfaces in the analytic problem into finite surfaces here.
 
 ```{code-cell} ipython3
 plt.figure(figsize=(10, 10))
@@ -413,12 +413,12 @@ plt.show()
 - Why is the max velocity going back up after 30 years? It wasn't doing that before. What did I break?
     - This was only happening when I had the longer VB surface or maybe the longer free surface.
     - This might be due to some kind of QBX expansion center issue at the tips of the VB surface.
-- Why does using a subset of the expansions for any given boundary integral operator evaluation give me the wrong answer? 
-  - It doesn't!!! 
+- Why does using a subset of the expansions for any given boundary integral operator evaluation give me the wrong answer?
+  - It doesn't!!!
   - Doing this correctly gives the best answer possible and solves the above problem with max velocity increasing after 30 years. Getting all the math right is always such a wonderful thing!!
-  - However, there's a really interesting lesson here. All the terms in a BIE seem to need to be evaluated at the *same* interior points. In other words, for every observation point, it's important to always use the same expansion center. 
+  - However, there's a really interesting lesson here. All the terms in a BIE seem to need to be evaluated at the *same* interior points. In other words, for every observation point, it's important to always use the same expansion center.
   - An interesting consequence of this might be that the observation points themselves should be assigned to expansion centers or otherwise somehow linked in the software design?
-- Why is there a factor of two in the viscoelastic stress-equivalent update? 
+- Why is there a factor of two in the viscoelastic stress-equivalent update?
   - My current best guess here is that the equation for the stress on the VB boundary is $\frac{\sigma}{2} = \textrm{syz_full}$ - That would introduce the expected factor of two and would possibly result from a limit to the boundary process?
 - A handy debugging tool would be a function that returns the expansion center for each observation point. Is there a way to refactor so that this is easy?
 - There's **STILL** something broken when I increase the length of the VB surface to be equal to that of the free surface.

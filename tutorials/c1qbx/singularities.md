@@ -17,7 +17,7 @@ Things to do here:
 - look at the error estimates from one of the relevant papers. how does the estimate vary with distance from a singularity? with the order of the singularity? what if only the derivatives are singular?
 - maybe stage2 refinement should be modified near a singularity?
 
-Fault tips: 
+Fault tips:
 - Identify or specify singularities and then make sure that the QBX and quadrature account for the singularities. This would be helpful for avoiding the need to have the sigmoid transition.
 - *Would it be useful to use an interpolation that includes the end points so that I can easily make sure that slip goes to zero at a fault tip?* --> I should test this!
 
@@ -364,7 +364,7 @@ def approach_test(obs_pts, slip):
 
 #     plt.plot(fault.pts[:,1], slip(fault.pts[:,1]))
 #     plt.show()
-    
+
     return V1 - V2
 ```
 

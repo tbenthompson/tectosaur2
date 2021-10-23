@@ -14,7 +14,7 @@ kernelspec:
 
 # Low rank approximation of BEM matrices with adaptive cross approximation (ACA).
 
-In the last section, I demonstrated how to avoid constructing the full dense BEM matrix by regenerating matrix entries whenever they are needed. This can be helpful for reducing memory costs and, in some situations, actually results in a faster solver too. But, it still suffers from the fundamental problem of having to work with a dense matrix where each matrix-vector product is an $O(n^2)$ operation. Ultimately, for boundary integral methods to be a useful technology, we need to avoid working with dense matrices entirely. 
+In the last section, I demonstrated how to avoid constructing the full dense BEM matrix by regenerating matrix entries whenever they are needed. This can be helpful for reducing memory costs and, in some situations, actually results in a faster solver too. But, it still suffers from the fundamental problem of having to work with a dense matrix where each matrix-vector product is an $O(n^2)$ operation. Ultimately, for boundary integral methods to be a useful technology, we need to avoid working with dense matrices entirely.
 
 So, here, I'll be demonstrating how the off-diagonal blocks of a BEM matrix can be dramatically compressed via a low-rank approximation. The result will be $O(n\log n)$ or $O(n)$ solution methods that can scale up to millions of elements. Hierarchical matrices (aka H-matrices,{cite:p}`Bebendorf2008`), tree-codes {cite:p}`Barnes1986`, fast multipole methods (FMM, {cite:p}`beatson1997short`) and several other techniques all make use of this basic concept. I'd argue these linear or log-linear methods are the largest distinguishing factor between "basic" BEM approaches from "advanced" or "modern" BEM approaches. So, let's dive into a tour of low rank matrices! The tools we build here will form the core of the hierarchical matrix (H-matrix) implementation in the next section.
 
@@ -73,9 +73,9 @@ A = lhs_reordered
 
 ## Near-field vs far-field
 
-Let's dig in and investigate the matrix itself! In particular, let's start by looking at two blocks of the matrix. 
-1. A "near-field" block will contain the diagonal of the matrix. Remember that the diagonal of the matrix consists of entries representing the displacement at the center of the same element on which the slip occurred. You can see the bright yellow diagonal in the figure below. The matrix entries decay rapidly away from the diagonal. 
-2. The other, a "far-field" block will consist of matrix entries coming from interactions between observation points and source elements that are very far from each other. In the figure below, there's no intense variation in entries. 
+Let's dig in and investigate the matrix itself! In particular, let's start by looking at two blocks of the matrix.
+1. A "near-field" block will contain the diagonal of the matrix. Remember that the diagonal of the matrix consists of entries representing the displacement at the center of the same element on which the slip occurred. You can see the bright yellow diagonal in the figure below. The matrix entries decay rapidly away from the diagonal.
+2. The other, a "far-field" block will consist of matrix entries coming from interactions between observation points and source elements that are very far from each other. In the figure below, there's no intense variation in entries.
 
 The thing to notice here is that there is, in some sense, just a lot more going on in the near-field matrix.
 
@@ -250,7 +250,7 @@ print(f"Linf(UVx-y)      = {linf_err}")
 print(f"Frobenius(M-UV)  = {frob_err}")
 ```
 
-It looks like this SVD approximation worked out really well here! We're getting very low error matrix-vector products. These errors are all somewhat similar to threshold we used for the singular value cutoff. And, based on the Frobenius error, the approximate matrix itself is extremely similar to the original matrix. The Frobenius error is just barely better than our tolerance condition, as expected. 
+It looks like this SVD approximation worked out really well here! We're getting very low error matrix-vector products. These errors are all somewhat similar to threshold we used for the singular value cutoff. And, based on the Frobenius error, the approximate matrix itself is extremely similar to the original matrix. The Frobenius error is just barely better than our tolerance condition, as expected.
 
 Before we move on, I'll record these error values in a dataframe so that it's easy to compare with the fancier methods in the next two sections.
 
@@ -268,9 +268,9 @@ err_df.T
 
 ## Adaptive cross approximation (ACA)
 
-So, we've managed to create an extremely efficient approximation of our off-diagonal matrix block by using the SVD. That's definitely useful for computing fast matrix-vector products or even for computing a LU decomposition. But, it still suffers from the need to compute the entire matrix block in the first place, an $O(n^2)$ operation! If we're going to be throwing all that information away immediately after computing the SVD, is there a way to avoid computing the dense matrix block in the first place? There are several solutions to this problem like randomized SVDs {cite:p}`Halko2011`, but the most useful solution for our setting is the adaptive cross approximation (ACA) method {cite:p}`Bebendorf2000, bebendorf2003adaptive`. These algorithms depending on the ability to compute arbitrary individual matrix entries without computing the entire matrix. By making certain assumptions about the structure of a matrix, we can be confident that an accurate approximation can be constructed from just a few rows and columns. 
+So, we've managed to create an extremely efficient approximation of our off-diagonal matrix block by using the SVD. That's definitely useful for computing fast matrix-vector products or even for computing a LU decomposition. But, it still suffers from the need to compute the entire matrix block in the first place, an $O(n^2)$ operation! If we're going to be throwing all that information away immediately after computing the SVD, is there a way to avoid computing the dense matrix block in the first place? There are several solutions to this problem like randomized SVDs {cite:p}`Halko2011`, but the most useful solution for our setting is the adaptive cross approximation (ACA) method {cite:p}`Bebendorf2000, bebendorf2003adaptive`. These algorithms depending on the ability to compute arbitrary individual matrix entries without computing the entire matrix. By making certain assumptions about the structure of a matrix, we can be confident that an accurate approximation can be constructed from just a few rows and columns.
 
-The basic idea of ACA is to approximate a matrix with a rank 1 outer product of one row and one column of that same matrix. And then iteratively use this process to construct an approximation of arbitrary precision. Ideally, at each step, we will choose the best fitting row and column. After the first iteration, we are no longer trying to approximate the original matrix, but instead we approximate the residual matrix formed by the difference between the original matrix and the current approximation matrix. Eventually, given certain matrix properties that have been proven true for BEM problem  {cite:p}`bebendorf2003adaptive`, the procedure will converge. 
+The basic idea of ACA is to approximate a matrix with a rank 1 outer product of one row and one column of that same matrix. And then iteratively use this process to construct an approximation of arbitrary precision. Ideally, at each step, we will choose the best fitting row and column. After the first iteration, we are no longer trying to approximate the original matrix, but instead we approximate the residual matrix formed by the difference between the original matrix and the current approximation matrix. Eventually, given certain matrix properties that have been proven true for BEM problem  {cite:p}`bebendorf2003adaptive`, the procedure will converge.
 
 For the sake of real-world usage, the description above will be sufficient for understanding what's going on. But, if you want to dive into a detailed description and implementation of the method, see below! Otherwise, skip over the next two sub-sections.
 
@@ -279,26 +279,26 @@ The simple version, runs like (following {cite:t}`Grasedyck2004`):
 
 **ACA with full pivoting**: Given a matrix $M \in \mathbb{R}^{n x m}$, we'll construct an approximation like $\sum_{k}^{r} u_k v_k^T$. The task will be to construct the row and column vectors $u_k$ and $v_k$ on each iteration such that the Frobenius norm error eventually converges. To do that, the key will be to iteratively form rank-1 approximations to the residual matrix. The residual matrix is the matrix forming the difference between $M$ and the current approximation and can be written as $R_{ij} = M_{ij} - \sum_{k}^{r} u_{kj} v_{ki}$ representing the entry-wise difference between the target matrix and the current approximation. The goal will be to have $R$ satisfy $\|R\|_2 < \epsilon$ where $\epsilon$ is a user-specified accuracy parameter. To do this, during each iteration:
 1. Determine a "pivot" $(i^*, j^*)$ as the indices that maximize $R_{ij}$. Intuitively, the largest rows and columns are going to be most "important".
-2. Assign a new rank-1 component of the approximation: 
+2. Assign a new rank-1 component of the approximation:
 
     \begin{align}
     u_{kj} &= R_{i^*,j} / R_{i^*,j^*} \\
     v_{ki} &= R_{i,j^*}
     \end{align}
-3. Update $R$ to account for the new rank-1 update to the approximation. 
+3. Update $R$ to account for the new rank-1 update to the approximation.
 4. If the magnitude of the $u_k v_k$ update is small enough, stop. Otherwise, return to step 1.
 
 The reason the algorithm is called "ACA with full pivoting" is because we're allowing the algorithm to choose an arbitrary $(i^*, j^*)$ in the first step. However, that is impossible in our real-world setting because it requires full knowledge of the residual matrix. But, we don't have all the entries of $M$ so we can't have all the entries of $R_{ij}$. Computing all the entries of $M$ is exactly what we're trying to avoid! But, this basic "full information" algorithm is instructive and can be modified slightly so that we don't need the whole matrix.
 
-**ACA+**: Most real-world application use either *ACA with partial pivoting* or the *ACA+* ("ACA plus") algorithm. Here, I'll introduce the modifications necessary for ACA+. The main distinction is that instead of searching over all matrix indices in step 1, we will search over a subset specified by a random row and a random row. This row and column will be our window into the matrix. Instead of finding the largest entry across the full pivoting algorithm in step 1, we will just find the largest entry in either the row window or the column window. While the ACA+ approximation will be less efficient and will converge more slowly than ACA with full pivoting, the end result will still be very good. Note that this approach may completely fail for general low rank matrices, but is very successful for the low rank matrices specifically coming from BEM problems. 
+**ACA+**: Most real-world application use either *ACA with partial pivoting* or the *ACA+* ("ACA plus") algorithm. Here, I'll introduce the modifications necessary for ACA+. The main distinction is that instead of searching over all matrix indices in step 1, we will search over a subset specified by a random row and a random row. This row and column will be our window into the matrix. Instead of finding the largest entry across the full pivoting algorithm in step 1, we will just find the largest entry in either the row window or the column window. While the ACA+ approximation will be less efficient and will converge more slowly than ACA with full pivoting, the end result will still be very good. Note that this approach may completely fail for general low rank matrices, but is very successful for the low rank matrices specifically coming from BEM problems.
 
-The algorithm: Before starting the iteration, we choose a random row, $i_{\mathrm{ref}}$ and random $j_{\mathrm{ref}}$. And we will maintain the corresponding row and column of the residual matrix, $R$. At the start of the algorithm $R_{i_{\mathrm{ref}}, j} = M_{i_{\mathrm{ref}}, j}$ and $R_{i, j_{\mathrm{ref}}} = M_{i, _{\mathrm{ref}}j}$ 
+The algorithm: Before starting the iteration, we choose a random row, $i_{\mathrm{ref}}$ and random $j_{\mathrm{ref}}$. And we will maintain the corresponding row and column of the residual matrix, $R$. At the start of the algorithm $R_{i_{\mathrm{ref}}, j} = M_{i_{\mathrm{ref}}, j}$ and $R_{i, j_{\mathrm{ref}}} = M_{i, _{\mathrm{ref}}j}$
 
 Then, the iteration proceeds like:
-1. Find the index $j^*$ that maximizes $R_{i_{\mathrm{ref}}, j}$ and the index $i^*$ that maximizes $R_{i, j_{\mathrm{ref}}}$. Essentially, we are finding the largest entries in each of these vectors. 
-2. If $R_{i_{\mathrm{ref}}, j^*} > R_{i^*, j_{\mathrm{ref}}}$ then, we compute the column corresponding to $j^*$ or if the opposite is true, we compute the row corresponding to $i^*$. Essentially, we are determining here whether we should pivot first based on the row or the column. 
-3. If we pivoted based on column, we should now have computed a new residual column $R_{i,j^*} = M_{i,j^*} - \sum_{k}^{r} u_{kj^*} v_{ki}$. Find the missing pivot index now by maximizing $R_{i,j^*}$ to get $i^*$. Or if we pivoted on the row, we will have a new residual row $R_{i^*,j} = M_{i^*,j} - \sum_{k}^{r} u_{kj} v_{ki^*}$ and we maximize $R_{i^*,j}$ to get $j^*$. The idea here is to finish the pivot operation from step 2 by pivoting in the dimension that we have not considered yet. At each step, we are essentially trying to find the largest residual matrix element out of all the entries we have seen so far with the goal of getting as close as possible to the full pivoting algorithm without actually needing to calculate all the residual matrix elements. Why am I referring to the identification of the largest entries as "pivoting"? This is by analogy to various matrix operations like LU decomposition where the numerical stability is best when the largest entries are handled first. ACA can also be reframed as an iterative triangular decomposition of a matrix. Before moving on, note how we calculate the residual row (column) here by computing the original matrix row and then subtracting the row (column) of the current approximation. This is critical since it means that we're only compunting a single row or column of the original matrix. 
-4. Next, just like in the full pivoting algorithm, assign: 
+1. Find the index $j^*$ that maximizes $R_{i_{\mathrm{ref}}, j}$ and the index $i^*$ that maximizes $R_{i, j_{\mathrm{ref}}}$. Essentially, we are finding the largest entries in each of these vectors.
+2. If $R_{i_{\mathrm{ref}}, j^*} > R_{i^*, j_{\mathrm{ref}}}$ then, we compute the column corresponding to $j^*$ or if the opposite is true, we compute the row corresponding to $i^*$. Essentially, we are determining here whether we should pivot first based on the row or the column.
+3. If we pivoted based on column, we should now have computed a new residual column $R_{i,j^*} = M_{i,j^*} - \sum_{k}^{r} u_{kj^*} v_{ki}$. Find the missing pivot index now by maximizing $R_{i,j^*}$ to get $i^*$. Or if we pivoted on the row, we will have a new residual row $R_{i^*,j} = M_{i^*,j} - \sum_{k}^{r} u_{kj} v_{ki^*}$ and we maximize $R_{i^*,j}$ to get $j^*$. The idea here is to finish the pivot operation from step 2 by pivoting in the dimension that we have not considered yet. At each step, we are essentially trying to find the largest residual matrix element out of all the entries we have seen so far with the goal of getting as close as possible to the full pivoting algorithm without actually needing to calculate all the residual matrix elements. Why am I referring to the identification of the largest entries as "pivoting"? This is by analogy to various matrix operations like LU decomposition where the numerical stability is best when the largest entries are handled first. ACA can also be reframed as an iterative triangular decomposition of a matrix. Before moving on, note how we calculate the residual row (column) here by computing the original matrix row and then subtracting the row (column) of the current approximation. This is critical since it means that we're only compunting a single row or column of the original matrix.
+4. Next, just like in the full pivoting algorithm, assign:
 
     \begin{align}
     u_{kj} &= R_{i^*,j} / R_{i^*,j^*} \\
@@ -307,7 +307,7 @@ Then, the iteration proceeds like:
 5. And update the $R_{i_{\mathrm{ref}}, j}$ row and $R_{i, j_{\mathrm{ref}}}$ by subtracting the new terms of the approximation.
 6. Finally, if the magnitude of the $u_k v_k$ update is small enough, stop. Otherwise, return to step 1.
 
-I hope the key difference with the full pivoting algorithm is now clear -- we only need to compute a single row and a single column of the matrix for each iteration. If the algorithm converges in a number of iterations less than the rank of the matrix $M$, then we will have computed only a small subset of the entries. I've deliberately left some of the details vague in order to make the salient features of the algorithm more prominent. But, below, I'm going to go through a full implementation of the algorithm so hopefully that will clear up any of the details. 
+I hope the key difference with the full pivoting algorithm is now clear -- we only need to compute a single row and a single column of the matrix for each iteration. If the algorithm converges in a number of iterations less than the rank of the matrix $M$, then we will have computed only a small subset of the entries. I've deliberately left some of the details vague in order to make the salient features of the algorithm more prominent. But, below, I'm going to go through a full implementation of the algorithm so hopefully that will clear up any of the details.
 
 ### Implementing ACA+
 
@@ -610,7 +610,7 @@ Basically $V^T$ maps from a high-dimensional space to a low-dimensional space an
 \begin{equation}
 UV^T = Q_UR_UR_V^TQ_V^T
 \end{equation}
-One way of thinking about this is that $Q_V^T$ and $Q_U$ are just rotations now and $R_UR_V^T$ is a square matrix in the low-dimensional subspace that is performing the non-rotational action of $M$. 
+One way of thinking about this is that $Q_V^T$ and $Q_U$ are just rotations now and $R_UR_V^T$ is a square matrix in the low-dimensional subspace that is performing the non-rotational action of $M$.
 
 Now, take the SVD of that small action matrix:
 \begin{equation}

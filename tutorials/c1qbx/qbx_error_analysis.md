@@ -71,7 +71,7 @@ for p in ps:
     As.append(A)
     B = -qbx_matrix(double_layer_matrix, fault_stage2, flat.pts, expansions)[:, 0, :]
     Bs.append(B.dot(fault_interp_mat.toarray()))
-    
+
     lhs = np.eye(A.shape[0]) + A
     rhs = B.dot(np.ones(fault_stage2.n_pts))
     surf_disp = np.linalg.solve(lhs, rhs)
@@ -119,7 +119,7 @@ plt.show()
 print('\nA')
 for i in range(len(As)):
     print(np.max(np.abs(As[i] - As[-1])))
-    
+
 print('\nB')
 for i in range(len(Bs)):
     print(np.max(np.abs(Bs[i] - Bs[-1])))
@@ -175,8 +175,8 @@ lhs = np.eye(A.shape[0]) + A
 rhs = B.dot(np.ones(fault_stage2.n_pts))
 surf_disp = np.linalg.solve(lhs, rhs)
 
-# Note that the analytical solution is slightly different than in the buried 
-# fault setting because we need to take the limit of an arctan as the 
+# Note that the analytical solution is slightly different than in the buried
+# fault setting because we need to take the limit of an arctan as the
 # denominator of the argument  goes to zero.
 s = 1.0
 analytical = -np.arctan(-1 / flat.pts[:,0]) / np.pi

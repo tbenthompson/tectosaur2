@@ -376,7 +376,7 @@ for i, to_plot in enumerate([u_box_rough, u_box, u_body_force]):
     plt.colorbar(cntf)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
-    
+
 plt.figure(figsize=(12,4))
 for i, to_plot in enumerate([correct, u_full]):
     plt.subplot(1,3,1+i)
@@ -396,7 +396,7 @@ for i, to_plot in enumerate([correct, u_full]):
     plt.colorbar(cntf)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
-    
+
 plt.subplot(1,3,3)
 to_plot = correct - u_full
 levels = np.linspace(-0.1, 0.1, 21)

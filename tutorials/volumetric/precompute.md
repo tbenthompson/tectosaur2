@@ -485,7 +485,7 @@ correct_lower_right
 ```{code-cell} ipython3
 def nearfield_box(I, Fv, flipx, flipy, rotxy):
     Fv = Fv.reshape((N,N))
-    
+
     n_rot = {
         (1, 1): 0,
         (1, -1): 1,
@@ -493,7 +493,7 @@ def nearfield_box(I, Fv, flipx, flipy, rotxy):
         (-1, 1): 3
     }[(flipx, flipy)]
     n_transpose = ((n_rot % 2) == 1) + rotxy
-    
+
     # Rotate from input coordinates into position
     Fv = np.rot90(Fv, n_rot)
     if n_transpose % 2 == 1:
@@ -640,18 +640,18 @@ def scale_integral(I, basis_dot_F, src_s):
     C = scale_T ** 2
     log_factor = C * (1 / (2 * np.pi)) * np.log(scale_T)
     return C * I + log_factor * basis_dot_F
-    
+
 F_xy = lambda x, y: (1 - x) * (1 - y ** 2)
 for i, mult in enumerate([1, 2, 4, 8, 16]):
     src_c = np.array([0, 0])
     src_s = mult / 4.0
     obs_c = np.array([src_c[0] + 0.5 * src_s, src_c[1] - 1.5 * src_s])
     #obs_c = np.array([src_c[0] - 0.5 * src_s, src_c[1] - 1.5 * src_s])
-    
+
     obs_s = src_s * 2
     transformed_obs_center = np.round(2 * (obs_c - src_c) / src_s, decimals=1)
     transformed_obs_size = np.round(obs_s / src_s, decimals=1)
-    
+
     correct_xy = get_test_values(
         xy_soln_shifted[i],
         obs_s / 2.0,
@@ -663,16 +663,16 @@ for i, mult in enumerate([1, 2, 4, 8, 16]):
 
     src_box_pts = cheb2d * 0.5 * src_s + src_c[None,:]
     Fv_xy = F_xy(src_box_pts[:,0], src_box_pts[:,1])
-    
+
     nearfield_info = boxes[(transformed_obs_size, *transformed_obs_center)]
     integral_type, flipx, flipy, rotxy = nearfield_info
-    
+
     basis_I_xy = basis_integrals.ravel().dot(Fv_xy.ravel())
-    
+
     I_xy = nearfield_box(all_integrals[integral_type], Fv_xy, flipx, flipy, rotxy)
-    
+
     est_xy = scale_integral(I_xy, basis_I_xy, src_s)
-    
+
     print(f'\nfor source size={src_s}')
     print("xy error: ", np.max(np.abs(correct_xy - est_xy)[~np.isnan(correct_xy)]))
 ```
@@ -683,7 +683,7 @@ for i, mult in enumerate([1, 2, 4, 8, 16]):
 
 1. Scale the source box to have width and length 2.
 2. Center the source box at `(0,0)`
-3. Perform the same transformations on the observation box. 
+3. Perform the same transformations on the observation box.
 4. Because adjacent boxes are at most one level apart, they will fall into one of the 33 categories defined above.
 5. Retrieve the integral type and rotation information and compute the integral!
 6. Reverse the rotations.

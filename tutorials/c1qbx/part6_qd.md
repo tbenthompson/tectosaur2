@@ -24,7 +24,7 @@ Goals:
 
 Possible issues:
 
-Fault tips: 
+Fault tips:
 - Identify or specify singularities and then make sure that the QBX and quadrature account for the singularities. This would be helpful for avoiding the need to have the sigmoid transition.
 - *Would it be useful to use an interpolation that includes the end points so that I can easily make sure that slip goes to zero at a fault tip?* --> I should test this!
 
@@ -34,7 +34,7 @@ Initial conditions:
 - What about just using far-field plate rate BCs?
 - *The pre-stress formulation from the SEAS document!*
 
-problem: how do I impose a backslip forcing? ultimately, this is physically unrealistic but I need to do it anyway. 
+problem: how do I impose a backslip forcing? ultimately, this is physically unrealistic but I need to do it anyway.
 - look at how the scec seas project does this?
 - use some tapering function?
 - have a basal panel that just has a linear imposed backslip.
@@ -288,23 +288,23 @@ import numpy as np
 from libc.math cimport asinh, exp, sqrt, fabs, fmax, fmin
 
 def rate_state_solve(
-    fp, double sigma_n, double eta, 
-    double[::1] shear, double[::1] V_old, double[::1] state, 
+    fp, double sigma_n, double eta,
+    double[::1] shear, double[::1] V_old, double[::1] state,
     int max_iter=100, double tol=1e-10, double V_min=1e-30
 ):
     cdef double[::1] fp_a = fp.a
     cdef double fp_b = fp.b
     cdef double fp_V0 = fp.V0
-    
+
     cdef int n = shear.shape[0]
     cdef out_V = np.empty(n, dtype=np.float64)
     cdef double[::1] V = out_V
-    
+
     cdef int i, j
     cdef double F, dFdV, qd_eqtn, Q, qd_eqtn_dV, V_tmp, sigma_F, expsa
     cdef bint failed = False
-    
-    # We don't parallelize here because the small problems here have more 
+
+    # We don't parallelize here because the small problems here have more
     # parallelization overhead than speedup.
     for j in range(n):
         V[j] = V_old[j]
@@ -314,10 +314,10 @@ def rate_state_solve(
             Q = V[j] * expsa
             F = sigma_F * asinh(Q)
             qd_eqtn = shear[j] - eta * V[j] - F
-    
+
             dFdV = sigma_F * expsa / sqrt(1 + Q * Q)
             qd_eqtn_dV = -eta - dFdV
-            
+
             V_tmp = V[j]
             V[j] = fmax(V[j] - qd_eqtn / qd_eqtn_dV, V_min)
             if fabs(V[j] - V_tmp) / fmin(V[j], V_tmp) < tol:
@@ -325,7 +325,7 @@ def rate_state_solve(
             if i == max_iter - 1:
                 print(V[j], V_tmp)
                 failed = True
-                
+
     if failed == 1:
         raise Exception(f"Rate-state Newton failed to converge in {max_iter} iterations.")
     return out_V

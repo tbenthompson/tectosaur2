@@ -19,7 +19,7 @@ from config import setup, import_and_display_fnc
 setup()
 ```
 
-# Near-field evaluation via quadrature by expansion (QBX). 
+# Near-field evaluation via quadrature by expansion (QBX).
 
 ## An intro to QBX.
 
@@ -30,7 +30,7 @@ When working with boundary integral methods, it's common to need to evaluate sur
 u(\mathbf{p}) = \int_{S} K(\mathbf{p}, \mathbf{q}) \phi(\mathbf{q}) d\mathbf{q}
 \end{equation}
 
-where $K(\mathbf{p}, \mathbf{q})$ is normally a fundamental solution to a PDE or the derivative thereof. At a basic level, these integrals are hard because $K$ is singular. Depending on the dimension and problem, the singularity will be something like $\log(r)$ or $\frac{1}{r^n}$ where $r = \|\mathbf{p}-\mathbf{q}\|_2$. 
+where $K(\mathbf{p}, \mathbf{q})$ is normally a fundamental solution to a PDE or the derivative thereof. At a basic level, these integrals are hard because $K$ is singular. Depending on the dimension and problem, the singularity will be something like $\log(r)$ or $\frac{1}{r^n}$ where $r = \|\mathbf{p}-\mathbf{q}\|_2$.
 
 If $\mathbf{p}$ is far away from $S$, then the integral is very smooth and well-behaved and can be super easily computed with standard quadrature rules like Gaussian quadrature or the trapezoidal rule. But, if $\mathbf{p}$ is close to some part of $S$, then the singularity in $K(\mathbf{p},\mathbf{q})$ makes computation of the integral hard. In the boundary integral literature, this is called the **near-field evaluation problem**. Or in the case where $\mathbf{p} \in S$, the **singular evaluation problem**.
 
@@ -147,22 +147,22 @@ So, what's the full algorithm look like?
 1. Choose an expansion center a distance of $r$ away from the surface.
 2. Discretize the integrals for the expansion coefficients and identify the points where we will need to evaluate $u(\mathbf{c} + \delta r(cos \theta, sin \theta))$.
 3. Evaluate $u(\mathbf{p})$ for those points by directly evaluating $\int K(\mathbf{p}, \mathbf{q}) \phi(\mathbf{q}) d\mathbf{q}$ using a simple quadrature rule (e.g. Gaussian quadrature). Because we choose, $\delta = 1/2$, the closest we will have to evaluate $u(\mathbf{p})$ is $r/2$.
-4. Integrate/sum to compute $\alpha_l$. 
-5. Now that we have the coefficients $\alpha_l$, to evaluate $u(\mathbf{p})$ at any point arbitrarily close to the surface, simply evaluate the complex power series and take the real part. 
+4. Integrate/sum to compute $\alpha_l$.
+5. Now that we have the coefficients $\alpha_l$, to evaluate $u(\mathbf{p})$ at any point arbitrarily close to the surface, simply evaluate the complex power series and take the real part.
 
 Some comments about QBX:
 * Because the evaluation of the series is independent of the computation of the coefficients, we can compute **many near-field values for the price of one**.
 * The method actually works just as well for computing a $u(\mathbf{p})$ directly on the boundary. To be precise, we can compute a limit to the boundary like $\lim_{\mathbf{p} \to S^+}u(\mathbf{p})$. Thus, QBX can actually **replace the singular quadrature required in many boundary integral methods**.
-* The method works best when there are no singularities in $u(\mathbf{p})$. The most common violation of this is a sharp corner in $S$. When there are corners, QBX will still work, but the expansion center $c$ will need to be closer to the surface and, as a result, a high number of quadrature points will be needed in the vicinity of the corner. 
-* There are three relevant parameters which all control the accuracy. The distance to offset from the surface, $r$. The order of the expansion, $p$. And the order of quadrature method used to compute the coefficients of the expansion, $n_q$. They interact in somewhat complex ways. 
-* By increasing $r$, the expansion is formed further from the surface and (holding $n_q$ constant) the expansion coefficients will be computed more accurately, but (holding $p$ constant) the accuracy of the expansion near the surface will decrease because the distance from the evaluation point to the expansion center is larger. 
+* The method works best when there are no singularities in $u(\mathbf{p})$. The most common violation of this is a sharp corner in $S$. When there are corners, QBX will still work, but the expansion center $c$ will need to be closer to the surface and, as a result, a high number of quadrature points will be needed in the vicinity of the corner.
+* There are three relevant parameters which all control the accuracy. The distance to offset from the surface, $r$. The order of the expansion, $p$. And the order of quadrature method used to compute the coefficients of the expansion, $n_q$. They interact in somewhat complex ways.
+* By increasing $r$, the expansion is formed further from the surface and (holding $n_q$ constant) the expansion coefficients will be computed more accurately, but (holding $p$ constant) the accuracy of the expansion near the surface will decrease because the distance from the evaluation point to the expansion center is larger.
 * Increasing $p$ will improve the accuracy of the expansion up to a point, but eventually the higher order terms in the expansion will become corrupted by the error introduced by the numerical integration. So, in order to increase $p$, $n_q$ must also increase.
 
 ## Implementing QBX
 
 ### The double layer potential on a circle.
 
-Great, let's put together a simple implementation for the Laplace double layer potential! The double layer potential is one of the fundamental objects of potential theory and, physically, is the integral that computes the electric or magnetic potential due to a dipolar surface. Or, the integral that computes the displacement due to an earthquake under the assumption of antiplane strain. 
+Great, let's put together a simple implementation for the Laplace double layer potential! The double layer potential is one of the fundamental objects of potential theory and, physically, is the integral that computes the electric or magnetic potential due to a dipolar surface. Or, the integral that computes the displacement due to an earthquake under the assumption of antiplane strain.
 
 ```{margin}
 How easily do these double layer potential calculations extend to 2D plane-strain elasticity? Super easily. In fact, basically nothing needs to change except that we do everything four times, once for each component of the 2x2 tensor form of the equations! Extension to 3D elasticity is even more involved from a software and computational standpoint, but also does not require major algorithmic changes.
@@ -487,7 +487,7 @@ While what we did so far is a cool demonstration, it's not a practical implement
 
 It might make sense to skip to the end of this section and take a look at the figure generated to understand what the end goal is.
 
-First, I'll share the the implementation of a couple functions that generalize and vectorize the code from above. The docstring for `QBXExpansions` will hopefully provide a high-level overview of the structure of the code, separating the computation into setup, expansion and evaluation. Depending on how detailed of an understanding you want, please feel free to either read the implementation in detail or just stick to reading the docstrings. 
+First, I'll share the the implementation of a couple functions that generalize and vectorize the code from above. The docstring for `QBXExpansions` will hopefully provide a high-level overview of the structure of the code, separating the computation into setup, expansion and evaluation. Depending on how detailed of an understanding you want, please feel free to either read the implementation in detail or just stick to reading the docstrings.
 
 ```{code-cell} ipython3
 :tags: [remove-input]
@@ -499,7 +499,7 @@ import_and_display_fnc('common', 'qbx_eval_matrix')
 ```
 
 
-Next up is the fun part. This function identifies which expansion center to use for which observation points by finding which expansion is closest. And then we construct a QBX evaluation matrix to perform the evaluation. 
+Next up is the fun part. This function identifies which expansion center to use for which observation points by finding which expansion is closest. And then we construct a QBX evaluation matrix to perform the evaluation.
 
 ```{code-cell} ipython3
 :tags: [remove-input]
@@ -537,7 +537,7 @@ bie_eval_high = (
 )
 ```
 
-Now, we get into the meat of it. Using an 8th order QBX expansion, we'll create expansions away from the surface for each source point. `qbx_center_x` and `qbx_center_y` are the coordinates of those expansion centers and `qbx_r` is both the maximum radius at which the expansion is valid and the distance from the surface to the expansion center. `Qexpand` will be a matrix that maps from the source density to the expansion coefficients. As a result, `qbx_coeffs` are the coefficients resulting from the density `surface[1]` (just the y coordinate on the surface). 
+Now, we get into the meat of it. Using an 8th order QBX expansion, we'll create expansions away from the surface for each source point. `qbx_center_x` and `qbx_center_y` are the coordinates of those expansion centers and `qbx_r` is both the maximum radius at which the expansion is valid and the distance from the surface to the expansion center. `Qexpand` will be a matrix that maps from the source density to the expansion coefficients. As a result, `qbx_coeffs` are the coefficients resulting from the density `surface[1]` (just the y coordinate on the surface).
 
 Note that everything in this cell is independent of the observation points. We can re-use these expansion coefficients for many different sets of observation points.
 

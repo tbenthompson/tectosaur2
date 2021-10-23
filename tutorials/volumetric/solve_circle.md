@@ -16,7 +16,7 @@ kernelspec:
 
 +++
 
-## TODO: 
+## TODO:
 
 * Based on mms_circle
 * Deal with the homogeneous solution.

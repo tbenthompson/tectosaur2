@@ -2,6 +2,7 @@ name: bie_book
 channels:
   - conda-forge
 dependencies:
+  - pre-commit
   - jupyterlab
   - cython
   - numpy

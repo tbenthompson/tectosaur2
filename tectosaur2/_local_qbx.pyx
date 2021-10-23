@@ -4,9 +4,10 @@ import numpy as np
 from cython.parallel import prange
 
 cimport numpy as np
-from libc.math cimport pi, fabs
+from libc.math cimport fabs, pi
 from libcpp cimport bool
 from libcpp.pair cimport pair
+
 
 cdef extern from "<complex.h>" namespace "std" nogil:
     double real(double complex z)

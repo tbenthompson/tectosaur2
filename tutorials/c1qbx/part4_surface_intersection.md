@@ -52,8 +52,8 @@ from common import (
 ## Panels
 
 The key to solving both these problem will be to separate the surface into many smaller components that we will call "panels". Up until now, every surface we've dealt with has been parameterized with a single curve and then discretized using a single quadrature rule, either Gaussian or trapezoidal. Why does separating this single surface into subcomponents help?
-1. A Gaussian quadrature rule implicitly assumes that the function being integrated is smooth. However, at a fault-surface intersection, the surface displacement will actually be discontinuous! 
-2. The resolution needed near the fault will be high. The resolution needed 100 fault lengths away from the fault trace is very low. So, we will need to have higher point density in some places than others. We will achieve this by refining some panels to be much smaller than others. 
+1. A Gaussian quadrature rule implicitly assumes that the function being integrated is smooth. However, at a fault-surface intersection, the surface displacement will actually be discontinuous!
+2. The resolution needed near the fault will be high. The resolution needed 100 fault lengths away from the fault trace is very low. So, we will need to have higher point density in some places than others. We will achieve this by refining some panels to be much smaller than others.
 
 [draft note] Explain the code below more.
 
@@ -62,14 +62,14 @@ The key to solving both these problem will be to separate the surface into many 
 What is necessary for refinement?
 1. The surfaces!
 2. The source functions.
-3. Ideally, the solution function. 
+3. Ideally, the solution function.
 
-The refinement necessary for solution and quadrature is distinct. 
+The refinement necessary for solution and quadrature is distinct.
 It would be nice to simply use separate meshes for the two.
 The solution mesh would be:
 - coarser than the quadrature mesh.
 - required to not vary by more than a factor of two from panel to panel
- 
+
 The quadrature grid would:
 - have values calculated from an interpolation operation.
 - have no restrictions on the variation in panel length.
@@ -80,9 +80,9 @@ So, the overall plan is:
    1. refine based on radius of curvature.
    2. refine based on locally specified length scale.
    3. refine based on other nearby surfaces.
-2. interpolate boundary condition functions on to the proto-solution mesh producing both a final solution mesh and the coefficients of the interpolated function. Often this step will be unnecessary because the boundary data is known only at certain nodes or is simple and constant. 
-3. form expansion centers and then construct the quadrature mesh via further refinement of solution meshes accounting for the necessary quadrature order for expansion center. 
-4. compute a solution and, if desired, refine again based on the solution and then re-solve. 
+2. interpolate boundary condition functions on to the proto-solution mesh producing both a final solution mesh and the coefficients of the interpolated function. Often this step will be unnecessary because the boundary data is known only at certain nodes or is simple and constant.
+3. form expansion centers and then construct the quadrature mesh via further refinement of solution meshes accounting for the necessary quadrature order for expansion center.
+4. compute a solution and, if desired, refine again based on the solution and then re-solve.
 
 In a fault-surface intersection problem, there are two operators that we want to compute:
 1. DLP, source = fault, target = free surf
@@ -167,8 +167,8 @@ lhs = np.eye(A.shape[0]) + A
 rhs = B.dot(np.ones(fault_stage2.n_pts))
 surf_disp = np.linalg.solve(lhs, rhs)
 
-# Note that the analytical solution is slightly different than in the buried 
-# fault setting because we need to take the limit of an arctan as the 
+# Note that the analytical solution is slightly different than in the buried
+# fault setting because we need to take the limit of an arctan as the
 # denominator of the argument  goes to zero.
 s = 1.0
 analytical_fnc = lambda x: -np.arctan(-1 / x) / np.pi

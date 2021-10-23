@@ -118,7 +118,7 @@ The underlying basis of almost any (static, isotropic, homogeneous, linear) elas
     \label{somigliana}
 \end{equation}
 
-where: 
+where:
 
 * $\mathbf{x}$ is the observation coordinate
 * $\mathbf{y}$ is the source surface point under the integral
@@ -152,13 +152,13 @@ So, let's expand the Somigliana identity for this case:
 \begin{equation}
 u_{k}(\mathbf{x}) + \int_{C^+} T^{*}_{kj}(\mathbf{x},\mathbf{y}) u^+_j(\mathbf{y}) d\mathbf{y} + \int_{C^-} T^{*}_{kj}(\mathbf{x},\mathbf{y}) u^-_j(\mathbf{y}) d\mathbf{y} = \int_{C^+} U^*_{kj}(\mathbf{x},\mathbf{y}) t^+_j(\mathbf{y}) d\mathbf{y} + \int_{C^-} U^*_{kj}(\mathbf{x},\mathbf{y}) t^-_j(\mathbf{y}) d\mathbf{y}
 \end{equation}
- 
+
 The critical step here is to:
 
 1. introduce the displacement discontinuity $\Delta u = u^+ - u^-$
 2. enforce force balance across the crack. This implies that $t^+ + t^- = 0$
 3. the value of $U^*$ depends only on position and has no dependence on the normal vector, this assumption of force balance means the $U^*$ integrals cancel each other out.
-4. the value of $T^*$ on $C^-$ will be exactly the negative of its value on $C^+$, so the $T^*$ integrals can be combined into a single integral that depends on $\Delta u$. 
+4. the value of $T^*$ on $C^-$ will be exactly the negative of its value on $C^+$, so the $T^*$ integrals can be combined into a single integral that depends on $\Delta u$.
 
 What we get is:
 
@@ -192,7 +192,7 @@ Let's put together the pieces to build our integral equation for a fault beneath
 u_{k}(\mathbf{x}) - \int_{H} U^*_{kj}(\mathbf{x},\mathbf{y}) t_j(\mathbf{y}) d\mathbf{y} + \int_{H} T^{*}_{kj}(\mathbf{x},\mathbf{y}) u_j(\mathbf{y}) d\mathbf{y} = -\int_{F} T^{*}_{kj}(\mathbf{x},\mathbf{y}) \Delta u_j(\mathbf{y}) d\mathbf{y}
 \end{equation}
 
-But, we know that $t_j \approx 0$ on $H$ because it's the surface of the Earth. So, we're left with: 
+But, we know that $t_j \approx 0$ on $H$ because it's the surface of the Earth. So, we're left with:
 
 \begin{equation}
 u_{k}(\mathbf{x}) + \int_{H} T^{*}_{kj}(\mathbf{x},\mathbf{y}) u_j(\mathbf{y}) d\mathbf{y} = -\int_{F} T^{*}_{kj}(\mathbf{x},\mathbf{y}) \Delta u_j(\mathbf{y}) d\mathbf{y}
@@ -210,7 +210,7 @@ There's once remaining continuous aspect here: the observation point location, $
 \vec{u}(\overline{H_i}) - \sum_j \mathrm{TDE}_{\mathrm{disp}}(\overline{H_i}, H_j, \vec{u}_j) = \sum_j \mathrm{TDE}_{\mathrm{disp}}(\overline{H_i}, F_j, \Delta \vec{u}_j)
 \end{equation}
 
-To simplify the notation, suppose we only consider displacements and slip in one dimension. The naturally forms a square linear system like 
+To simplify the notation, suppose we only consider displacements and slip in one dimension. The naturally forms a square linear system like
 
 \begin{equation}
 \begin{split}
@@ -228,7 +228,7 @@ For a more in-depth introduction to boundary element methods from a displacement
 
 ### Comparison with Okada
 
-Okay, that was a lot of math to just implement some topography! And actually, for our first problem, there's not even going to be any topography. Let's reproduce the displacements from a halfspace rectangular Okada dislocation by using fullspace TDEs. 
+Okay, that was a lot of math to just implement some topography! And actually, for our first problem, there's not even going to be any topography. Let's reproduce the displacements from a halfspace rectangular Okada dislocation by using fullspace TDEs.
 
 First, calculating some displacement values using the Okada dislocation solutions... [`okada_wrapper` is a handy Python wrapper around the original Fortran source.](https://github.com/tbenthompson/okada_wrapper)
 
@@ -377,7 +377,7 @@ To understand what's going on, let's back up to the integral equation at hand an
 -\int_{\mathrm{Tri}} T^{*}_{kj}(\mathbf{x},\mathbf{y}) \Delta u_j d\mathbf{y} ~~~~ \mathrm{where} ~~ \mathbf{x} \in \mathrm{Tri}
 \end{equation}
 
-But, if we go looking at the expression for $T^*$, there's an ugly looking $1/r^2$ term. If $\mathbf{x}$ is a point on $\mathrm{Tri}$, then that means there's a point in the integral for which $\mathbf{x} = \mathbf{y}$ and $r = 0$. So, the integral is singular! No wonder it's unpleasant to compute a TDE for a point on the surface of the TDE. 
+But, if we go looking at the expression for $T^*$, there's an ugly looking $1/r^2$ term. If $\mathbf{x}$ is a point on $\mathrm{Tri}$, then that means there's a point in the integral for which $\mathbf{x} = \mathbf{y}$ and $r = 0$. So, the integral is singular! No wonder it's unpleasant to compute a TDE for a point on the surface of the TDE.
 
 Let's get a concrete sense of what this actually means for computing displacement. In the snippet of code below, we are going to compute the $u_y$ component of displacement due to a triangular dislocation lying on the $x,y$ plane. So, if $z=0$, we are evaluating displacement for a point directly on the triangle.
 
@@ -425,7 +425,7 @@ plt.show()
 
 As seen from comparing the figures in the second column above, the value of $u_y$ has a jump in value of 1.0m when crossing from $z=-(10^{-15})$ to $z=10^{-15}$. This jump is equal to the slip, as expected. In essence, we are seeing the $\lim_{z \to 0^{-}} u_y = -0.5$ and $\lim_{z \to 0^{+}} u_y = 0.5$.
 
-However, the particularly interesting thing here is that the value of $u_y$ as computed by the Nikhoo and Walter 2015 solution is equal to the negative limit for $x < 0$ and equal to the positive limit for $x > 0$. This is exactly what is resulting in the oscillations we see in the final topographic solution we computed above. It's not surprising that the solution is indecisive like this when it comes to what value to assign to $u_y(z = 0)$. 
+However, the particularly interesting thing here is that the value of $u_y$ as computed by the Nikhoo and Walter 2015 solution is equal to the negative limit for $x < 0$ and equal to the positive limit for $x > 0$. This is exactly what is resulting in the oscillations we see in the final topographic solution we computed above. It's not surprising that the solution is indecisive like this when it comes to what value to assign to $u_y(z = 0)$.
 
 The solution to this issue is to back up and reconsider the "collocation step". This was the step in our derivation where we chose the element centroids as the locations where we impose the integral equation by choosing those centroids as our observation points. That step is where we introduced this singularity/indeterminacy. So, the goal is to modify that step slightly to avoid the problem!
 
@@ -516,7 +516,7 @@ plt.show()
 
 ## South American subduction model
 
-So, we've demonstrated an effective method for modeling a fault below a triangulated free surface. Let's use this technique for something slightly more interesting. A bizarre freak earthquake on the entire South America subduction zone beneath a topographic free surface with Earth curvature. 
+So, we've demonstrated an effective method for modeling a fault below a triangulated free surface. Let's use this technique for something slightly more interesting. A bizarre freak earthquake on the entire South America subduction zone beneath a topographic free surface with Earth curvature.
 
 I've built the mesh for this already, so I'll just load it up and plot it.
 
@@ -641,8 +641,8 @@ plot.camera = [
 
 Next, the hard part. We need to deal with rotating vectors into the various coordinate systems we have:
 * The Earth-fixed geocentric $(x,y,z)$ coordinate system (`xyz`) that our model is built in. This will be the primary calculation coordinate system
-* The WGS84 lat-lon coordinate system (`lonlat`) that allows talking about normal cardinal directions like "east" or "north". This will be a nice coordinate system for reporting intuitive outputs and making figures. 
-* The triangular dislocation coordinate system (`tdcs`) constructed from the `xyz` system where vectors are described in terms of `(strike-slip, dip-slip, tensile-slip)`. 
+* The WGS84 lat-lon coordinate system (`lonlat`) that allows talking about normal cardinal directions like "east" or "north". This will be a nice coordinate system for reporting intuitive outputs and making figures.
+* The triangular dislocation coordinate system (`tdcs`) constructed from the `xyz` system where vectors are described in terms of `(strike-slip, dip-slip, tensile-slip)`.
 
 There will be an additional complication. When the `tdcs` coordinate system is built from `xyz`, the strike and dip vectors will not be pointing in the intuitive direction because the concept of a flat strike vector doesn't map easily into the `xyz` coordinate system. So, we will build a third `tdcs2` coordinate system from the `lonlat` coordinate system for use whenever we want to discuss the concepts of strike and dip in a coherent way. The `tdcs` coordinate system built from `xyz` will only be used for providing inputs in the format expected by the TDE solutions in `cutde`. This might be a bit confusing, but hopefully the code will help clarify.
 

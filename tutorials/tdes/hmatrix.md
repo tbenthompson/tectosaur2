@@ -16,7 +16,7 @@ kernelspec:
 
 +++
 
-Last time, we investigate the low-rank property of the far-field blocks of a BEM matrix and built an adaptive cross approximation (ACA) implementation. Remember, the goal is to find a way to handle dense BEM matrices without running into the brick wall of $O(n^2)$ algorithmic scaling. With scaling like that, even a very powerful machine can't handle medium sized problems with 100,000 elements. The low-rank property will be the key to solving this problem. 
+Last time, we investigate the low-rank property of the far-field blocks of a BEM matrix and built an adaptive cross approximation (ACA) implementation. Remember, the goal is to find a way to handle dense BEM matrices without running into the brick wall of $O(n^2)$ algorithmic scaling. With scaling like that, even a very powerful machine can't handle medium sized problems with 100,000 elements. The low-rank property will be the key to solving this problem.
 
 This time, we'll put the pieces together and actually build a $O(n\log{n})$ algorithm for matrix-vector products that's not just theoretically faster, but also much faster in practice! To do this, we'll build a hierarchical matrix (H-matrix) implementation for TDE matrices. While I'll just focus on performing matrix-vector products with the approximation, it's possible to do much more with H-matrices -- for example, a compressed and accelerated LU decomposition.
 
@@ -72,9 +72,9 @@ full_mat[:, :, :, 1] = tmp
 
 ## The tree data structure
 
-Ok, let's build a binary tree for determining which subsets of elements are far away from each other. What do I mean by binary-tree here? Since we're in three-dimensional space, there's not an obvious connection to the standard binary tree in one dimension. So, start with the bounding box that contains all our elements. Then, we'll split that box along its longest dimension. The two child boxes will then, themselves, be split along their respective longest dimensions. Thus, we can construct a binary tree in three dimensional space by always choosing the longest dimension for the split. 
+Ok, let's build a binary tree for determining which subsets of elements are far away from each other. What do I mean by binary-tree here? Since we're in three-dimensional space, there's not an obvious connection to the standard binary tree in one dimension. So, start with the bounding box that contains all our elements. Then, we'll split that box along its longest dimension. The two child boxes will then, themselves, be split along their respective longest dimensions. Thus, we can construct a binary tree in three dimensional space by always choosing the longest dimension for the split.
 
-This is closely to a [k-d tree](https://en.wikipedia.org/wiki/K-d_tree). An [octree](https://en.wikipedia.org/wiki/Octree) would be another common choice here. Octree split on all three dimensions simultaneous meaning that each node has eight children, making them a sort of [B-tree](https://en.wikipedia.org/wiki/B-tree). I decided to go with the above binary tree concept here just because the code ends up being very simple. It also seems likely to me that a binary tree will find good splits because it will avoid long narrow boxes by splitting on the longest dimension. 
+This is closely to a [k-d tree](https://en.wikipedia.org/wiki/K-d_tree). An [octree](https://en.wikipedia.org/wiki/Octree) would be another common choice here. Octree split on all three dimensions simultaneous meaning that each node has eight children, making them a sort of [B-tree](https://en.wikipedia.org/wiki/B-tree). I decided to go with the above binary tree concept here just because the code ends up being very simple. It also seems likely to me that a binary tree will find good splits because it will avoid long narrow boxes by splitting on the longest dimension.
 
 Getting back to the code, as a simplification, we'll actually model each element as a sphere that encloses the element. This is just to make distance calculations easier. So, we calculate a "radius" for each element which is simply the distance from the centroid to the corner that is furthest from the centroid. I don't believe this is actually the minimal bounding sphere, but it's easy to calculate and we're not trying to be perfectly optimal here.
 
@@ -84,9 +84,9 @@ element_radius = np.max(
 )
 ```
 
-Next, we'll use Python dataclasses to implement the tree and its nodes. 
+Next, we'll use Python dataclasses to implement the tree and its nodes.
 
-The data structure here might take a bit of explanation. Let's start with the `Tree.ordered_idxs`, `TreeNode.idx_start` and `TreeNode.idx_end`. Once we've constructed a binary tree, it's possible to order the elements from left to right by simply enforcing the rule that the indices of all elements in the left hand child have indices that are less than all the indices of the right hand child. This can be achieved by re-ordering elements during the construction process: if there are $n_l$ elements in the left child, we assign them indices $0...n_l-1$. Then the $n_r$ elements in the right child will be assigned indices $n_l...n_l+n_r$. The result is that the left child can be assigned `idx_start = 0` and `idx_end = n_l` and the right child can be assigned `idx_start = n_l` and `idx_end = n_r`. If this is confusing, see below for a few figures that might help explain. 
+The data structure here might take a bit of explanation. Let's start with the `Tree.ordered_idxs`, `TreeNode.idx_start` and `TreeNode.idx_end`. Once we've constructed a binary tree, it's possible to order the elements from left to right by simply enforcing the rule that the indices of all elements in the left hand child have indices that are less than all the indices of the right hand child. This can be achieved by re-ordering elements during the construction process: if there are $n_l$ elements in the left child, we assign them indices $0...n_l-1$. Then the $n_r$ elements in the right child will be assigned indices $n_l...n_l+n_r$. The result is that the left child can be assigned `idx_start = 0` and `idx_end = n_l` and the right child can be assigned `idx_start = n_l` and `idx_end = n_r`. If this is confusing, see below for a few figures that might help explain.
 
 The node `center` and `radius` are simple, but represent a simplification. While above we talked about splitting boxes into sub-boxes, it's simpler to perform distance calculations if we just store the bounding sphere of each of these boxes. Since we split on the longest dimension, the boxes will never deviate too far from being a cube and thus a sphere will be a decent approximation.
 
@@ -386,7 +386,7 @@ plt.rcParams["text.usetex"] = True
 
 ## Finding node pairs that we can approximate.
 
-Having built the binary tree above, let's use it for its intended purpose: determining which nodes are close and far from which other nodes. 
+Having built the binary tree above, let's use it for its intended purpose: determining which nodes are close and far from which other nodes.
 
 The technique I'm using here is called a dual tree traversal {cite:p}`yokota2013fmm`. The basic idea is to recursively traverse both the observation and source trees simultaneously. Whenever two nodes are sufficiently far away from each other, we assign those nodes to use an approximate calculation. When the nodes are too close and are leaf nodes, we use a direct calculation. And when the nodes are too close but are not leaf nodes, we choose the larger node and recurse to use its children.
 
@@ -396,7 +396,7 @@ Let's make the concept of "close" and "far" more concrete. First, since both nod
 \mathrm{intersection~if~ ~} \|c_2 - c_1\| < r_1 + r_2
 \end{equation}
 
-where $c_i$ is the center of a node and $r_i$ is the radius. But, to say two nodes are far from each other, lack of intersection is not sufficient. At the edge of the intersection bound, the two spheres would meet at a point while still not intersecting. As a result, it's possible that two elements in those nodes are still extremely close. Nearby elements will result in a block matrix that has full rank and cannot be efficiently approximated by adaptive cross approximation. 
+where $c_i$ is the center of a node and $r_i$ is the radius. But, to say two nodes are far from each other, lack of intersection is not sufficient. At the edge of the intersection bound, the two spheres would meet at a point while still not intersecting. As a result, it's possible that two elements in those nodes are still extremely close. Nearby elements will result in a block matrix that has full rank and cannot be efficiently approximated by adaptive cross approximation.
 
 So, we want a slightly stronger criterion. How about just adding a safety factor, $S$ where $S > 1$:
 
@@ -495,7 +495,7 @@ plt.show()
 
 These figures make a few points:
 * The nearest neighbor nodes interact directly. This is expected since we were hoping to operationalize the concept of "near-field".
-* As we get further and further away from the observation node, the size of the source nodes becomes larger. 
+* As we get further and further away from the observation node, the size of the source nodes becomes larger.
 * This second point can be rigorously elaborated on to derive the $O(n\log(n))$ scaling of many hierarchical matrix operations.
 
 ## Direct matrix blocks
@@ -506,7 +506,7 @@ The direct blocks are more of less as expected and can be implemented with the `
 
 However, each of these matrix blocks is quite small. So, doing them one at a time is inefficient and defeats the point of using a highly-parallelized GPU TDE implementation (`cutde`). Luckily, there's a function designed just for this situation, `cutde.disp_block`. When we use `disp_block`, we can specify many contiguous sub-blocks of a larger matrix to be computed at once.
 
-To get more precise, we pass the full set of observation points and source triangles and then also pass a list of the start and end indices of the observation points we want to compute a matrix block and a list of the start and end indices of the source triangles for each block. Also note that the return value is a contiguous block of memory, `packed_blocks` containing all the blocks packed together. The `block_starts` array contains indices where each block's entries start. The number of entries per block can be computed easily from the number of observation points and number of source triangles. 
+To get more precise, we pass the full set of observation points and source triangles and then also pass a list of the start and end indices of the observation points we want to compute a matrix block and a list of the start and end indices of the source triangles for each block. Also note that the return value is a contiguous block of memory, `packed_blocks` containing all the blocks packed together. The `block_starts` array contains indices where each block's entries start. The number of entries per block can be computed easily from the number of observation points and number of source triangles.
 
 I'll time this section of code and then also compare with the runtime of computing each block separately.
 
@@ -700,9 +700,9 @@ That full-matrix tolerance needs to be translated into a tolerance that is used 
 \end{equation}
 where $m_i$ and $n_i$ are the number of rows and columns for the block and $M$ and $N$ are the number of rows and columns of the full matrix.
 
-The {cite:t}`bradley2011hmatrix` bradley paper works through the details of this approach. 
+The {cite:t}`bradley2011hmatrix` bradley paper works through the details of this approach.
 
-It's important to always be clear about whether we're talking about a relative error or an absolute error. In the `ACA_plus` and `SVD_recompress` implementations, the error is specified in absolute terms. But, here the error is a relative error in terms of $\|B\|_F$, the Frobenius norm of the full matrix. 
+It's important to always be clear about whether we're talking about a relative error or an absolute error. In the `ACA_plus` and `SVD_recompress` implementations, the error is specified in absolute terms. But, here the error is a relative error in terms of $\|B\|_F$, the Frobenius norm of the full matrix.
 
 In order to implement block-wise error tolerance, the only remaining puzzle is how to calculate $\|B\|_F$ itself. This actually turns out to be pretty simple: we can just sample several rows at random from the full matrix and compute a statistical estimate of the matrix norm. Let's do it:
 
@@ -751,7 +751,7 @@ true_frob2
 
 Finally, we can compute the tolerance for each block and plot two histograms:
 1. A histogram of the number of blocks at each tolerance level.
-2. A histogram of the total number of matrix entries at each tolerance level. 
+2. A histogram of the total number of matrix entries at each tolerance level.
 
 This emphasizes that a looser tolerance is being applied to the larger blocks. That's great because it reduces the computational effort.
 
@@ -819,7 +819,7 @@ for i in range(10):
         )
 ```
 
-Here, we'll do essentially the same thing as the `approx_block` function above except we'll run for all the blocks simultaneously using `cutde.disp_aca`. 
+Here, we'll do essentially the same thing as the `approx_block` function above except we'll run for all the blocks simultaneously using `cutde.disp_aca`.
 
 The SVD recompression is not optimized beyond the version from before, but it requires much less time than ACA+. It would probably be possible to reduce the runtime of the SVD recompression by 5-20x using a parallel or GPU-optimized version. However, it's not currently slow enough to justify that.
 
@@ -909,7 +909,7 @@ print(f"compression factor = {dense_nbytes / hmatrix_nbytes:.3}X smaller")
 
 ## A matrix-vector product
 
-We're not just trying to reduce memory usage. I'd also like to see reduced runtime. So, the final step here is to actually use the matrix! Let's run a quick matrix-vector product as a performance and accuracy demonstration. 
+We're not just trying to reduce memory usage. I'd also like to see reduced runtime. So, the final step here is to actually use the matrix! Let's run a quick matrix-vector product as a performance and accuracy demonstration.
 
 First, the correct answer, using the `full_mat` that we built way back at the beginning of this section.
 
@@ -940,7 +940,7 @@ from cython.parallel import prange
 cimport cython
 cimport openmp
 
-# Cython doesn't support OpenMP atomic operations so we very briefly drop 
+# Cython doesn't support OpenMP atomic operations so we very briefly drop
 # into C here.
 cdef extern from *:
     """
@@ -951,8 +951,8 @@ cdef extern from *:
     """
     void omp_atomic_add(float* x, float y) nogil
 
-cdef void single_block_dot(long n_rows, long n_cols,  
-                           float* packed_blocks, float* x, 
+cdef void single_block_dot(long n_rows, long n_cols,
+                           float* packed_blocks, float* x,
                            float* y) nogil:
     cdef int row_start
     cdef int i, j
@@ -967,9 +967,9 @@ cdef void single_block_dot(long n_rows, long n_cols,
         # use a safe atomic operation.
         omp_atomic_add(&y[i], out_v)
 
-def direct_dot(long[::1] obs_start, long[::1] obs_end, 
-              long[::1] src_start, long[::1] src_end, 
-              float[::1] packed_blocks, long[::1] block_starts, 
+def direct_dot(long[::1] obs_start, long[::1] obs_end,
+              long[::1] src_start, long[::1] src_end,
+              float[::1] packed_blocks, long[::1] block_starts,
               float[::1] x_tree):
     cdef int k
     cdef int block_obs_start, block_src_start
@@ -977,12 +977,12 @@ def direct_dot(long[::1] obs_start, long[::1] obs_end,
     cdef int block_start, n_rows, n_cols
     cdef y_tree_arr = np.zeros(x_tree.shape[0], dtype=np.float32)
     cdef float[::1] y_tree = y_tree_arr
-    
+
     for k in prange(obs_start.shape[0], nogil=True):
         single_block_dot(
-            obs_end[k] * 3 - obs_start[k] * 3, 
-            src_end[k] * 3 - src_start[k] * 3, 
-            &packed_blocks[block_starts[k]], &x_tree[src_start[k] * 3], 
+            obs_end[k] * 3 - obs_start[k] * 3,
+            src_end[k] * 3 - src_start[k] * 3,
+            &packed_blocks[block_starts[k]], &x_tree[src_start[k] * 3],
             &y_tree[obs_start[k] * 3]
         )
     return y_tree_arr
@@ -992,47 +992,47 @@ cdef float* get_ptr_from_array(X):
     cdef float* X_ptr = &X_view[0, 0]
     return X_ptr
 
-def approx_dot(long[::1] obs_start, long[::1] obs_end, 
-               long[::1] src_start, long[::1] src_end, 
+def approx_dot(long[::1] obs_start, long[::1] obs_end,
+               long[::1] src_start, long[::1] src_end,
                float[::1] packed_blocks, long[::1] block_starts,
                long max_rank,
                float[::1] x_tree):
-    
+
     cdef y_tree_arr = np.zeros(x_tree.shape[0], dtype=np.float32)
     cdef float[::1] y_tree = y_tree_arr
-    
+
     cdef int n_threads = openmp.omp_get_max_threads()
     cdef temp_buffer = np.empty(n_threads * max_rank, dtype=np.float32)
     cdef float[::1] temp_buffer_view = temp_buffer
-    
+
     cdef int thread_id
     cdef int i, k, n_entries, n_cols, n_rows, rank
     cdef float* thread_buffer_ptr
     cdef float* U_ptr
     cdef float* V_ptr
-    
+
     for k in prange(obs_start.shape[0], nogil=True):
-        
+
         n_entries = block_starts[k+1] - block_starts[k]
         n_rows = (obs_end[k] - obs_start[k]) * 3
         n_cols = (src_end[k] - src_start[k]) * 3
         rank = n_entries // (n_cols + n_rows)
-        
+
         V_ptr = &packed_blocks[block_starts[k]]
         U_ptr = &V_ptr[n_cols * rank]
-        
+
         thread_id = openmp.omp_get_thread_num()
         thread_buffer_ptr = &temp_buffer_view[thread_id * max_rank]
         for i in range(rank):
             thread_buffer_ptr[i] = 0.0
-        
+
         single_block_dot(
-            rank, n_cols, 
-            V_ptr, &x_tree[src_start[k] * 3], 
+            rank, n_cols,
+            V_ptr, &x_tree[src_start[k] * 3],
             thread_buffer_ptr
         )
         single_block_dot(
-            n_rows, rank, 
+            n_rows, rank,
             U_ptr, thread_buffer_ptr,
             &y_tree[obs_start[k] * 3]
         )
@@ -1152,16 +1152,16 @@ And that's it! The H-matrix implementation works, is using 9x less memory and is
 
 A quick performance note: Even thought the H-matrix vector product is faster and uses less memory, this comparison is a bit unfair to the H-matrix algorithm for two reasons:
 1. This is a pretty small problem for using H-matrices. If we had ten times as many elements, the H-matrix implementations would be a slam dunk!
-2. The BLAS implementation behind the numpy matrix-vector product has been optimized to the hilt. On my machine, it's using OpenBLAS which should be achieving something near the peak possible performance for a dense matrix-vector. On the other hand, the  Cython code above is not optimized to that level. Many improvements are possible -- explicit vectorization (AVX, AVX-512), loop unrolling, removing the atomic operations, arranging the memory better etc, etc, etc. There's probably another factor of 2-3x on the table. So, the fact that, despite this disadvantage, the H-matrix implementation is several times faster than the dense matrix-vector product is super exciting! 
+2. The BLAS implementation behind the numpy matrix-vector product has been optimized to the hilt. On my machine, it's using OpenBLAS which should be achieving something near the peak possible performance for a dense matrix-vector. On the other hand, the  Cython code above is not optimized to that level. Many improvements are possible -- explicit vectorization (AVX, AVX-512), loop unrolling, removing the atomic operations, arranging the memory better etc, etc, etc. There's probably another factor of 2-3x on the table. So, the fact that, despite this disadvantage, the H-matrix implementation is several times faster than the dense matrix-vector product is super exciting!
 
 ## Potential extensions
 
 There are a lot of improvements that we could make here:
 * Moving the matrix-vector production evaluation onto the GPU. Dense matrix-vector products are perfect for GPUs and would likely run several times faster than the parallel CPU version here. However, I wanted to have a fair comparison with the CPU dense matrix-vector product here. This might be a good section to add in here later!
 * Performance optimization of the SVD recompression.
-* There are many other $O(n)$ sparsification methods for these types of problems. 
+* There are many other $O(n)$ sparsification methods for these types of problems.
   * The fast multipole method is extremely fast and effective.
   * $\mathcal{H}^2$ methods are an extension of H-matrices and further improve both memory usage and runtime.
 * There's plenty of room for improvement in the tree construction to do a better job deciding which blocks can be approximated.
-* It's possible to perform efficient LU decomposition of an H-matrix {cite:p}`Bebendorf2004`. That would be super useful for problems where we're solving many problems using the same left hand side matrix (e.g. time dependent problem). 
+* It's possible to perform efficient LU decomposition of an H-matrix {cite:p}`Bebendorf2004`. That would be super useful for problems where we're solving many problems using the same left hand side matrix (e.g. time dependent problem).
 * And many more!

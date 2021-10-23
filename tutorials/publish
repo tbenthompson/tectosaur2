@@ -33,4 +33,3 @@ fi
 git status
 
 echo "Please run git commit here."
-

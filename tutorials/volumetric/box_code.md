@@ -19,7 +19,7 @@ kernelspec:
 The basic method I'm implementing here is from {cite:p}`ethridgeNewFastMultipoleAccelerated2001`.
 
 Also:
-{cite:p}`langstonFreespaceAdaptiveFMMBased2011` extended the method to 3D and {cite:p}`malhotraPVFMMParallelKernel2015b` made it distributed and fast. 
+{cite:p}`langstonFreespaceAdaptiveFMMBased2011` extended the method to 3D and {cite:p}`malhotraPVFMMParallelKernel2015b` made it distributed and fast.
 
 {cite:p}`gholamiFFTFMMMultigrid2016a` demonstrates that an FMM method based on these ideas can be very competitive with other state of the art volumetric Poisson solver
 
@@ -369,7 +369,7 @@ def calculate_leaves(tree):
     for i in range(len(tree.levels)):
         L = tree.levels[i]
         leaves.append((L.fhigh[L.is_leaf], L.centers[L.is_leaf], L.sizes[L.is_leaf], L.parents[L.is_leaf]))
-    
+
     leaf_data = [
         np.concatenate([L[i] for L in leaves])
         for i in range(4)
@@ -531,7 +531,7 @@ plt.show()
 def balance_21(tree, f, plot_progress=False):
     i = 0
     while i <= len(tree.levels) - 3:
-        # We can skip splitting the level above because those cells all satisfy the 
+        # We can skip splitting the level above because those cells all satisfy the
         # 2:1 criteria already
         did_refine = False
         for j in range(i + 2, len(tree.levels)):
@@ -592,13 +592,13 @@ def balance_21(tree, f, plot_progress=False):
                 plt.axis('equal')
                 plt.show()
             # If cells were refined in this level, then there may be cells in
-            # the parent's level that now need to be refined, so we back up a step to 
+            # the parent's level that now need to be refined, so we back up a step to
             # check.
             i -= 1
         else:
             # If no cells were refined, then proceed down the tree to the next level
             i += 1
-            
+
 ```
 
 ```{code-cell} ipython3
@@ -722,7 +722,7 @@ boxes = {
 def nearfield_box(I, Fv, flipx, flipy, rotxy):
     # NOTE: The transpose is necessary simply because the definition of the basis functions here is the transpose of the definition in precompute. I should fix this!
     Fv = Fv.reshape((N,N)).T
-    
+
     n_rot = {
         (1, 1): 0,
         (1, -1): 1,
@@ -730,7 +730,7 @@ def nearfield_box(I, Fv, flipx, flipy, rotxy):
         (-1, 1): 3
     }[(flipx, flipy)]
     n_transpose = ((n_rot % 2) == 1) + rotxy
-    
+
     # Rotate from input coordinates into position
     Fv = np.rot90(Fv, n_rot)
     if n_transpose % 2 == 1:
@@ -795,7 +795,7 @@ obs_s = new_tree.leaves.sizes[obs_i]
 print(f'point contained in box {i}\n  with center: {obs_c}\n  and size: {obs_s}')
 obs_pts = q2[0] * 0.5 * obs_s + obs_c
 print(obs_c, obs_s)
-        
+
 src_cs = new_tree.leaves.centers
 src_ss = new_tree.leaves.sizes
 transformed_obs_center = np.round(2 * (obs_c[None,:] - src_cs) / src_ss[:,None], decimals=1)
@@ -827,7 +827,7 @@ for j in range(src_cs.shape[0]):
         I = nearfield_box(nearfield_integrals[integral_type], F, flipx, flipy, rotxy)
         basis_I = basis_integrals.ravel().dot(F.ravel())
         scaled_I = scale_integral(I, basis_I, src_ss[j])
-        
+
         src_terms[:, j] = scaled_I.ravel()
         nearfield += 1
 ```
@@ -862,7 +862,7 @@ print(f'naive eval at {obs_test} error is: {correct_pt - result_naive:.3e}')
 +++
 
 There are two sources of error here:
-1. The integration error for the values of the integrals at the interpolation points. 
+1. The integration error for the values of the integrals at the interpolation points.
 2. The interpolation error for the values of the integrals away from the interpolation points.
 
 Based on the previous demonstration, the first type of error is almost zero. The red points in the error figure above show the location of the interpolation points. You can see that the error oscillates around these points crossing zero at the points themselves.
@@ -913,15 +913,15 @@ Based on the previous demonstration, the first type of error is almost zero. The
 #     F = new_tree.leaves.fhigh[j]
 #     transformed_obs_center = np.round(2 * (obs_c - src_c) / src_s, decimals=1)
 #     transformed_obs_size = np.round(obs_s / src_s, decimals=1)
-    
+
 #     nearfield_info = boxes.get((transformed_obs_size, *transformed_obs_center), None)
-    
+
 #     if nearfield_info is not None:
 #         integral_type, flipx, flipy, rotxy = nearfield_info
 #         I = nearfield_box(nearfield_integrals[integral_type], F, flipx, flipy, rotxy)
 #         basis_I = basis_integrals.ravel().dot(F.ravel())
 #         scaled_I = scale_integral(I, basis_I, src_s)
-        
+
 #         result += scaled_I.ravel()
 #         nearfield += 1
 #     else:
@@ -932,7 +932,7 @@ Based on the previous demonstration, the first type of error is almost zero. The
 #             * box_quad_wts[j].ravel()
 #         )
 #         result += G.dot(F)
-        
+
 # print(f'there were {nearfield} nearfield cells')
 
 # correct_cell = ethridge_soln_fnc(obs_pts[:,0], obs_pts[:,1])

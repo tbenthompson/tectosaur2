@@ -12,9 +12,9 @@ kernelspec:
   name: python3
 ---
 
-One approach for defining the nearfield/farfield boundary is to set an error threshold for a low order quadrature rule. If the error incurred at a point by that quadrature rule is above the threshold, then the point is part of the nearfield. If the error is below the threshold, then the point is farfield. 
+One approach for defining the nearfield/farfield boundary is to set an error threshold for a low order quadrature rule. If the error incurred at a point by that quadrature rule is above the threshold, then the point is part of the nearfield. If the error is below the threshold, then the point is farfield.
 
-Here, I determine the near/far boundary based on a 7th order Clenshaw-Curtis quadrature rule. 
+Here, I determine the near/far boundary based on a 7th order Clenshaw-Curtis quadrature rule.
 
 This is directly relevant for the box code implementation.
 

@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def single_layer_matrix(obs_pts, src):
 
     dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
@@ -57,7 +58,7 @@ def hypersingular_matrix(obs_pts, src):
 
     A = 2 * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1]) / r2
     C = 1.0 / (2 * np.pi * r2)
-    C[r2==0] = 0
+    C[r2 == 0] = 0
     out = np.empty((obs_pts.shape[0], 2, src.n_pts))
 
     # The definition of the hypersingular kernel.

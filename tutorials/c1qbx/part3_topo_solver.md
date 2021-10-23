@@ -40,20 +40,20 @@ where $H$ is the surface, $F$ is the fault, $t$ is traction, $u$ is displacement
 u(\mathbf{p}) = -\int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
 \end{equation}
 
-So, this equation says that we can calculate displacement anywhere if we know displacement on $H$ and slip on $F$. But, we don't know the displacement on $H$! So, step one is going to be solving for the unknown displacement on the surface $H$. 
+So, this equation says that we can calculate displacement anywhere if we know displacement on $H$ and slip on $F$. But, we don't know the displacement on $H$! So, step one is going to be solving for the unknown displacement on the surface $H$.
 
-To solve for surface displacement, intuitively, we need to reduce from two unknowns to one unknown in this equation. Currently we have both the unknown displacement on $H$ and the unknown displacement at an arbitrary point in the volume, $u(\mathbf{p})$. To remedy this situation, we will simply choose to only enforce the integral equation at boundary points $\mathbf{p} \in H$. This can be proven sufficient for the equation to hold everywhere and is the fundamental basis of boundary value problems in potential theory and elastostatics. Because $u$ is now only evaluated on the boundary, this equation is solvable for $u(\mathbf{p})$ given $s$. 
+To solve for surface displacement, intuitively, we need to reduce from two unknowns to one unknown in this equation. Currently we have both the unknown displacement on $H$ and the unknown displacement at an arbitrary point in the volume, $u(\mathbf{p})$. To remedy this situation, we will simply choose to only enforce the integral equation at boundary points $\mathbf{p} \in H$. This can be proven sufficient for the equation to hold everywhere and is the fundamental basis of boundary value problems in potential theory and elastostatics. Because $u$ is now only evaluated on the boundary, this equation is solvable for $u(\mathbf{p})$ given $s$.
 
 ```{note}
-**Uniqueness**: In informal terms, the uniqueness theorems state that for a linear elastic boundary value problem, if we know displacement and traction on the boundary of the domain, then we can calculate displacement and traction everywhere in the volume. 
+**Uniqueness**: In informal terms, the uniqueness theorems state that for a linear elastic boundary value problem, if we know displacement and traction on the boundary of the domain, then we can calculate displacement and traction everywhere in the volume.
 ```
 
-Re-arranging to put the unknown displacement on the left hand side: 
+Re-arranging to put the unknown displacement on the left hand side:
 \begin{equation}
 u(\mathbf{p}) + \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} = -\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}  ~~~~~~ \forall \mathbf{p} \in H
 \end{equation}
 
-Note that the integrals are now being evaluated in their singular limits. Previously, we have only evaluated nearly singular integrals that arise when the observation point is very close to the source surface. Fortunately, QBX works just as well in the limit to the boundary and as a result, nothing about our integration procedures will need to change. 
+Note that the integrals are now being evaluated in their singular limits. Previously, we have only evaluated nearly singular integrals that arise when the observation point is very close to the source surface. Fortunately, QBX works just as well in the limit to the boundary and as a result, nothing about our integration procedures will need to change.
 
 Once discretized using our QBX-based quadrature tools from the previous sections, this will look like:
 \begin{equation}
@@ -74,7 +74,7 @@ For the first section, we're going to reproduce analytical solutions for the dis
 u_z = \frac{-s}{2\pi}\bigg[\tan^{-1}(\frac{x}{y + d_1}) - \tan^{-1}(\frac{x}{y - d_1}) - \tan^{-1}(\frac{x}{y + d_2}) + \tan^{-1}(\frac{x}{y - d_2}) \bigg]
 \end{equation}
 
-To start with the numerical implementation, we'll define two surfaces. The `fault_fnc` function will define a fault extending from 0.5 units depth to 1.5 units depth and the `flat_fnc` function will define a free surface extending from -25 to 25 units along the x axis. 
+To start with the numerical implementation, we'll define two surfaces. The `fault_fnc` function will define a fault extending from 0.5 units depth to 1.5 units depth and the `flat_fnc` function will define a free surface extending from -25 to 25 units along the x axis.
 
 Note that while we're trying to approximate a free surface, we won't attempt to actually have an infinite surface here. It will turn out that 25 units in both directions is enough to get a very good match with the analytical solution. If we truly wanted to model an infinite surface numerically, I could imagine achieving that via an adaptive quadrature method combined with something like [Gauss-Laguerre quadrature](https://en.wikipedia.org/wiki/Gauss%E2%80%93Laguerre_quadrature). I would enjoy trying that out some day! However, the goal here isn't to actually model an infinite domain. The Earth is not infinite! Instead, the goal is simply to demonstrate that our numerical methods work on an analytically tractable problem before moving on to problems that are not analytically intractable.
 
@@ -120,7 +120,7 @@ Im = interp_matrix(build_interpolator(flat.quad_pts), flat_interp.quad_pts)
 A = A_raw.dot(Im)
 ```
 
-For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directly perform the boundary integrals. This is because the observation points are sufficiently far away from the source fault surface that there are no nearly-singular or singular integrals. Note that we apply unit slip along the entire fault. In many models, this would be problematic because the fault tip displacement discontinuities introduce stress singularities into the model. However, for the sake of comparing with the analytical solution, we can accept the stress singularities for now. And because we are not evaluating stress near the fault, we don't need to worry about the issue. 
+For the $\mathbf{B}$ term, we don't need to bother with QBX and can just directly perform the boundary integrals. This is because the observation points are sufficiently far away from the source fault surface that there are no nearly-singular or singular integrals. Note that we apply unit slip along the entire fault. In many models, this would be problematic because the fault tip displacement discontinuities introduce stress singularities into the model. However, for the sake of comparing with the analytical solution, we can accept the stress singularities for now. And because we are not evaluating stress near the fault, we don't need to worry about the issue.
 
 For the same reason, we don't need many quadrature points for the fault. We can achieve machine precision with just 25 quadrature points.
 
@@ -196,7 +196,7 @@ ys = np.linspace(*zoomy, nobs)
 obs_pts = pts_grid(xs, ys)
 ```
 
-Now that we have the surface displacement, we can return to the integral form of the interior displacement: 
+Now that we have the surface displacement, we can return to the integral form of the interior displacement:
 
 \begin{equation}
 u(\mathbf{p}) = \int_{H} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) u(\mathbf{q}) d\mathbf{q} +\int_{F} \frac{\partial G}{\partial n_q}(\mathbf{p}, \mathbf{q}) s(\mathbf{q}) d\mathbf{q}
@@ -257,7 +257,7 @@ plt.show()
 
 +++
 
-In the rest of this section, we'll replicate the calculation above except for a free surface with topography. The calculations will be identical except for the construction of the surface itself. 
+In the rest of this section, we'll replicate the calculation above except for a free surface with topography. The calculations will be identical except for the construction of the surface itself.
 
 First, I'll construct a mesh with a Gaussian shaped hill above the fault.
 

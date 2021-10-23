@@ -1,3 +1,10 @@
+from dataclasses import dataclass
+
+import numpy as np
+import scipy.spatial
+import sympy as sp
+
+
 @dataclass()
 class PanelSurface:
     # A panel consists of a quadrature rule defined over a subset of a parametrized curve.
@@ -54,6 +61,7 @@ class PanelSurface:
     def n_panels(self):
         return self.panel_bounds.shape[0]
 
+
 def gauss_rule(n):
     """
     The n-point gauss quadrature rule on [-1, 1].
@@ -73,6 +81,7 @@ def trapezoidal_rule(n):
     Returns tuple of (points, weights)
     """
     return np.linspace(-1.0, 1.0, n + 1)[:-1], np.full(n, 2.0 / n)
+
 
 def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     """
@@ -142,6 +151,7 @@ def refine_panels(panels, which):
     new_panels = np.array(new_panels)
     return new_panels
 
+
 def stage1_refine(
     sym_surfs,
     quad_rule,
@@ -160,7 +170,7 @@ def stage1_refine(
         for s in sym_surfs:
             cur_panels.append(np.array([[-1, 1]]))
     else:
-        cur_panels = [I.copy() for I in initial_panels]
+        cur_panels = [ps.copy() for ps in initial_panels]
 
     # Construct KDtrees from any "other_surfaces" so that we can quickly
     # determine how far away their panels are from our surfaces of interest.
@@ -349,7 +359,6 @@ def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
     refinement_plan = np.array(
         [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
     ).T
-    panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
     expansion_tree = scipy.spatial.KDTree(obs_pts)
 
     for i in range(max_iter):
@@ -404,12 +413,12 @@ def build_interpolator(in_xhat):
     permuted_in_xhat = in_xhat[permutation]
     C = (np.max(permuted_in_xhat) - np.min(permuted_in_xhat)) / 4.0
     Cinv = 1.0 / C
-    I = scipy.interpolate.BarycentricInterpolator(
+    interp = scipy.interpolate.BarycentricInterpolator(
         Cinv * permuted_in_xhat, np.zeros_like(in_xhat)
     )
-    I.Cinv = Cinv
-    I.permutation = permutation
-    return I
+    interp.Cinv = Cinv
+    interp.permutation = permutation
+    return interp
 
 
 def interpolate_fnc(interpolator, f, out_xhat):
@@ -442,20 +451,6 @@ def build_interp_matrix(interpolator, out_xhat):
     return interp_matrix[:, inv_permutation]
 
 
-def interpolate_surface(in_surf, out_quad_pts, out_quad_wts):
-    """
-    Interpolate each component of a surface: the pts, normals and jacobians
-    """
-    interpolator = build_interpolator(in_surf.quad_pts)
-    return Surface(
-        out_quad_pts,
-        out_quad_wts,
-        interp_fnc(interpolator, in_surf.pts, out_quad_pts),
-        interp_fnc(interpolator, in_surf.normals, out_quad_pts),
-        interp_fnc(interpolator, in_surf.jacobians, out_quad_pts),
-    )
-
-
 def symbolic_eval(t, tvals, e):
     result = sp.lambdify(t, e, "numpy")(tvals)
     if isinstance(result, float) or isinstance(result, int):
@@ -486,6 +481,7 @@ def apply_interp_mat(mat, interp_mat):
     else:
         return out
 
+
 def upsample(src, kappa):
     stage2_panels = np.empty((src.n_panels, 3))
     stage2_panels[:, 0] = np.arange(src.n_panels)
@@ -496,6 +492,7 @@ def upsample(src, kappa):
     )
     return src_refined, interp_mat
 
+
 def pts_grid(xs, ys):
     """
     Takes two 1D arrays specifying X and Y values and returns a
@@ -503,4 +500,3 @@ def pts_grid(xs, ys):
     product of `xs` and `ys`.
     """
     return np.hstack([v.ravel()[:, None] for v in np.meshgrid(xs, ys)])
-

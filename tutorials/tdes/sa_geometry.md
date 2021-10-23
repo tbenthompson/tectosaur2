@@ -28,9 +28,9 @@ import matplotlib.pyplot as plt
 
 ## Looking at the fault model.
 
-First off, I'm not going to explain how to build the fault geometry. That's already been built! I'm using the same triangular subduction zone mesh used by [Shannon Graham in her Global Block model papers](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2017GC007391). That mesh was built using the [Slab 1.0 subduction zone contours](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2011JB008524). 
+First off, I'm not going to explain how to build the fault geometry. That's already been built! I'm using the same triangular subduction zone mesh used by [Shannon Graham in her Global Block model papers](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2017GC007391). That mesh was built using the [Slab 1.0 subduction zone contours](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2011JB008524).
 
-```{margin} 
+```{margin}
 The link in the Slab 1.0 paper is dead and the [first Google search for Slab 1.0 is a portable cutting board](https://store.overlandbound.com/products/slab): "Who knew the cutting surface industry needed disrupting?  And disrupt it, the SLAB 1.0 does."
 ```
 
@@ -145,7 +145,7 @@ new_tris = np.transpose(new_tris, (2, 0, 1)).reshape((-1, 3))
 
 ## Downloading DEM data
 
-Now, let's add surface topography and Earth curvature to this geometry. Why? Because, we can! And because we're interested in the influence of realistic geometry. Also, I'll end up projecting to geocentric coordinates where (X, Y, Z) = (0, 0, 0) is the center of the Earth. 
+Now, let's add surface topography and Earth curvature to this geometry. Why? Because, we can! And because we're interested in the influence of realistic geometry. Also, I'll end up projecting to geocentric coordinates where (X, Y, Z) = (0, 0, 0) is the center of the Earth.
 
 Let's start by Long ago I was using Mapzen for easily downloading DEM data. But Mapzen has gone out of business. So, I was sad and forlorn and had no easy source of DEM data... Until I discovered that Mapzen had [exported their entire terrain tiles dataset to Amazon S3!](https://aws.amazon.com/public-datasets/terrain/). So, I replaced the old Mapzen API with some calls to AWS S3 using `boto3`. The basic API call is
 
@@ -187,7 +187,7 @@ plt.show()
 
 ## Building the surface mesh.
 
-The next step is to build the surface mesh. However, not just any surface mesh. I need a surface mesh that "conforms" to the fault trace. To be precise, any fault mesh edge that intersects the surface should also be an edge in the surface mesh. 
+The next step is to build the surface mesh. However, not just any surface mesh. I need a surface mesh that "conforms" to the fault trace. To be precise, any fault mesh edge that intersects the surface should also be an edge in the surface mesh.
 
 To do this, I'll first identify the outer edges of the fault. This `mesh_fncs` module has a few handy functions for working with fault meshes like the `get_boundary_loop` function which returns the external edges of a surface mesh.
 
@@ -291,9 +291,9 @@ plt.ylim([surf_center[1] - vW, surf_center[1] + vW])
 plt.show()
 ```
 
-Great, that's exactly what I was going for. A mesh that conforms to the fault trace and also gets smoothly coarser moving away from the fault trace. 
+Great, that's exactly what I was going for. A mesh that conforms to the fault trace and also gets smoothly coarser moving away from the fault trace.
 
-The final step is to set elevation: 
+The final step is to set elevation:
 
 * the elevation for the surface mesh. It's currently zero everywhere.
 * I also offset the fault model based on the surface elevation since the Slab 1.0 models are defined in terms of depth below the surface.

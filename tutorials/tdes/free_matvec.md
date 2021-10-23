@@ -12,13 +12,13 @@ kernelspec:
   name: python3
 ---
 
- 
+
 # Minimizing memory usage: a matrix-free iterative solver
 ## How to deal with dense BEM matrices?
 
 +++
 
-[In the previous section, I explained how to directly discretize a free surface using TDEs](sa_tdes). A downside of this approach is that the surface matrix can get very large very quickly. If I make the width of an element half as large, then there will be 2x many elements per dimension and 4x as many elements overall. And because the interaction matrix is dense, 4x as many elements leads to 16x as many matrix entries. In other words, $n$, the number of elements, scales like $O(h^2)$ in terms of the element width $h$. And the number of matrix rows or columns is exactly $3n$ (the 3 comes from the vector nature of the problem). That requires storing $9n^2$ entries. And, even worse, using a direct solver (LU decomposition, Gaussian elimination, etc) with such a matrix requires time like $O(n^3)$. Even for quite small problems with 10,000 elements, the cost of storage and solution get very large. And without an absolutely enormous machine or a distributed parallel implementation, solving a problem with 200,000 elements will just not be possible. On the other hand, in an ideal world, it would be nice to be able to solve problems with millions or even tens or hundreds of millions of elements. 
+[In the previous section, I explained how to directly discretize a free surface using TDEs](sa_tdes). A downside of this approach is that the surface matrix can get very large very quickly. If I make the width of an element half as large, then there will be 2x many elements per dimension and 4x as many elements overall. And because the interaction matrix is dense, 4x as many elements leads to 16x as many matrix entries. In other words, $n$, the number of elements, scales like $O(h^2)$ in terms of the element width $h$. And the number of matrix rows or columns is exactly $3n$ (the 3 comes from the vector nature of the problem). That requires storing $9n^2$ entries. And, even worse, using a direct solver (LU decomposition, Gaussian elimination, etc) with such a matrix requires time like $O(n^3)$. Even for quite small problems with 10,000 elements, the cost of storage and solution get very large. And without an absolutely enormous machine or a distributed parallel implementation, solving a problem with 200,000 elements will just not be possible. On the other hand, in an ideal world, it would be nice to be able to solve problems with millions or even tens or hundreds of millions of elements.
 
 Fundamentally, the problem is that the interaction matrix is dense. There are two approaches for resolving this problem:
 1. Don't store the matrix!
@@ -103,7 +103,7 @@ surf_tri_pts_xyz_conv = surf_tri_pts_xyz.astype(ft)
 surf_tdcs_to_xyz_R = np.transpose(surf_xyz_to_tdcs_R, (0, 2, 1)).astype(ft)
 ```
 
-Proceeding like the previous section, the next step would be to construct our surface to surface left hand side matrix. But, instead, I'm just going to compute the action of that matrix without ever storing the entire matrix. Essentially, each matrix entry will be recomputed whenever it is needed. The `cutde.disp_free` and `cutde.strain_free` were written for this purpose. 
+Proceeding like the previous section, the next step would be to construct our surface to surface left hand side matrix. But, instead, I'm just going to compute the action of that matrix without ever storing the entire matrix. Essentially, each matrix entry will be recomputed whenever it is needed. The `cutde.disp_free` and `cutde.strain_free` were written for this purpose.
 
 First, let's check that the `cutde.disp_free` matrix free TDE computation is doing what I said it does. That is, it should be computing a matrix vector product. Since our problem is too big to generate the full matrix in memory, I'll just use the first 100 elements for this test.
 
@@ -277,7 +277,7 @@ plt.show()
 
 ## Performance and convergence
 
-An important thing to note about the solution above is that only a few matrix-vector products are required to get to a high-level of accuracy. GMRES (and many other iterative linear and nonlinear optimization algorithms) converges at a rate proportional to the condition number of the matrix {cite:p}`Saad1986`. So in order to productively use an iterative linear solver, we need to have a matrix with a small condition number. It turns out that these free surface self-interaction matrices have condition numbers that are very close to 1.0, meaning that all the eigenvalues are very similar in magnitude. As a result, a highly accurate solution with GMRES requires less than ten matrix-vector products even for very large matrices. 
+An important thing to note about the solution above is that only a few matrix-vector products are required to get to a high-level of accuracy. GMRES (and many other iterative linear and nonlinear optimization algorithms) converges at a rate proportional to the condition number of the matrix {cite:p}`Saad1986`. So in order to productively use an iterative linear solver, we need to have a matrix with a small condition number. It turns out that these free surface self-interaction matrices have condition numbers that are very close to 1.0, meaning that all the eigenvalues are very similar in magnitude. As a result, a highly accurate solution with GMRES requires less than ten matrix-vector products even for very large matrices.
 
 Because of this dependence on the condition number, in the worst case, iterative solvers are not faster than a direct solver. However, suppose that we need only 10 matrix-vector products. Then, the runtime is approximately $10(2n^2)$ because each matrix-vector product requires $2n^2$ operations (one multiplication and one addition per matrix entry). As a result, GMRES is solving the problem in $O(n^2)$ instead of the $O(n^3)$ asymptotic runtime of direct methods like LU decomposition. So, in addition to requiring less memory, the matrix free method here forced us into actually using a faster linear solver. Of course, LU decomposition comes out ahead again if we need to solve many linear systems with the same left hand side and different right hand sides. That is not the case here but would be relevant for many other problems (e.g. problems involving time stepping).
 

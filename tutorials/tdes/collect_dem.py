@@ -13,11 +13,12 @@ from itertools import product
 import boto3
 import botocore
 
+
 def mercator(lat, lon, zoom):
-    ''' Convert latitude, longitude to z/x/y tile coordinate at given zoom.'''
+    """Convert latitude, longitude to z/x/y tile coordinate at given zoom."""
     print(lat, lon)
     # convert to radians
-    x1, y1 = lon * np.pi/180, lat * np.pi/180
+    x1, y1 = lon * np.pi / 180, lat * np.pi / 180
 
     # project to mercator
     x2, y2 = x1, np.log(np.tan(0.25 * np.pi + 0.5 * y1))
@@ -28,11 +29,12 @@ def mercator(lat, lon, zoom):
 
     return zoom, x3, y3
 
+
 def get_dem_bounds(lonlat_pts):
-    minlat = np.min(lonlat_pts[:,1])
-    minlon = np.min(lonlat_pts[:,0])
-    maxlat = np.max(lonlat_pts[:,1])
-    maxlon = np.max(lonlat_pts[:,0])
+    minlat = np.min(lonlat_pts[:, 1])
+    minlon = np.min(lonlat_pts[:, 0])
+    maxlat = np.max(lonlat_pts[:, 1])
+    maxlon = np.max(lonlat_pts[:, 0])
     latrange = maxlat - minlat
     lonrange = maxlon - minlon
     bounds = [
@@ -42,13 +44,14 @@ def get_dem_bounds(lonlat_pts):
         maxlon + lonrange * 0.1,
     ]
 
-    assert(-180 < bounds[1] < 180)
-    assert(-180 < bounds[3] < 180)
+    assert -180 < bounds[1] < 180
+    assert -180 < bounds[3] < 180
 
     return bounds
 
+
 def tiles(zoom, lat1, lon1, lat2, lon2):
-    ''' Convert geographic bounds into a list of tile coordinates at given zoom.'''
+    """Convert geographic bounds into a list of tile coordinates at given zoom."""
 
     # convert to geographic bounding box
     minlat, minlon = min(lat1, lat2), min(lon1, lon2)
@@ -59,66 +62,70 @@ def tiles(zoom, lat1, lon1, lat2, lon2):
     _, xmax, ymax = mercator(minlat, maxlon, zoom)
 
     # generate a list of tiles
-    xs, ys = range(xmin, xmax+1), range(ymin, ymax+1)
+    xs, ys = range(xmin, xmax + 1), range(ymin, ymax + 1)
     tiles = [(zoom, x, y) for (y, x) in product(ys, xs)]
 
     return tiles
 
-def download_file(x, y, z, save_path):
-    BUCKET_NAME = 'elevation-tiles-prod'
-    KEY = 'geotiff/{z}/{x}/{y}.tif'.format(x = x, y = y, z = z)
 
-    s3 = boto3.resource('s3')
+def download_file(x, y, z, save_path):
+    BUCKET_NAME = "elevation-tiles-prod"
+    KEY = "geotiff/{z}/{x}/{y}.tif".format(x=x, y=y, z=z)
+
+    s3 = boto3.resource("s3")
 
     try:
         bucket = s3.Bucket(BUCKET_NAME)
         bucket.download_file(KEY, save_path)
     except botocore.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == "404":
+        if e.response["Error"]["Code"] == "404":
             print("The object does not exist.")
         else:
             raise
 
+
 def download(output_path, tiles, verbose=True):
-    ''' Download list of tiles to a temporary directory and return its name.
-    '''
-    dir = tempfile.mkdtemp(prefix='collected-')
+    """Download list of tiles to a temporary directory and return its name."""
+    dir = tempfile.mkdtemp(prefix="collected-")
     try:
         files = []
 
         for (z, x, y) in tiles:
-            save_path = os.path.join(dir, '{}-{}-{}.tif'.format(z, x, y))
-            print('Downloading', save_path)
+            save_path = os.path.join(dir, "{}-{}-{}.tif".format(z, x, y))
+            print("Downloading", save_path)
             download_file(x, y, z, save_path)
             files.append(save_path)
 
-        print('Combining', len(files), 'into', output_path, '...', file=sys.stderr)
-        temp_tif = os.path.join(dir, 'temp.tif')
-        subprocess.check_call(['gdal_merge.py', '-o', temp_tif] + files)
+        print("Combining", len(files), "into", output_path, "...", file=sys.stderr)
+        temp_tif = os.path.join(dir, "temp.tif")
+        subprocess.check_call(["gdal_merge.py", "-o", temp_tif] + files)
         shutil.move(temp_tif, output_path)
     finally:
         if os.path.exists(dir):
             shutil.rmtree(dir)
 
 
-def get_pt_elevations(lonlat_pts, zoom, n_interp = 100):
+def get_pt_elevations(lonlat_pts, zoom, n_interp=100):
     bounds = get_dem_bounds(lonlat_pts)
     LON, LAT, DEM = get_dem(zoom, bounds, n_interp)
     return scipy.interpolate.griddata(
-        (LON, LAT), DEM, (lonlat_pts[:,0], lonlat_pts[:,1])
+        (LON, LAT), DEM, (lonlat_pts[:, 0], lonlat_pts[:, 1])
     )
 
-def get_dem(zoom, bounds, n_width, dest_dir = 'dem_download'):
-    print('downloading dem data for bounds = ' + str(bounds) + ' and zoom = ' + str(zoom))
+
+def get_dem(zoom, bounds, n_width, dest_dir="dem_download"):
+    print(
+        "downloading dem data for bounds = " + str(bounds) + " and zoom = " + str(zoom)
+    )
     if os.path.exists(dest_dir):
         shutil.rmtree(dest_dir)
     os.makedirs(dest_dir)
-    dest = os.path.join(dest_dir, 'raw_merc.tif')
-    download(dest, tiles(zoom, *bounds), verbose = False)
+    dest = os.path.join(dest_dir, "raw_merc.tif")
+    download(dest, tiles(zoom, *bounds), verbose=False)
     filebase, fileext = os.path.splitext(dest)
     dataset_merc = gdal.Open(dest)
-    filename_latlon = os.path.join(dest_dir, 'latlon.tif')
-    dataset_latlon = gdal.Warp(filename_latlon, dataset_merc, dstSRS = 'EPSG:4326')
+    filename_latlon = os.path.join(dest_dir, "latlon.tif")
+    dataset_latlon = gdal.Warp(filename_latlon, dataset_merc, dstSRS="EPSG:4326")
     dem = dataset_latlon.ReadAsArray().astype(np.float64)
     width = dataset_latlon.RasterXSize
     height = dataset_latlon.RasterYSize
@@ -128,17 +135,16 @@ def get_dem(zoom, bounds, n_width, dest_dir = 'dem_download'):
     X, Y = np.meshgrid(xs, ys)
     lon = gt[0] + X * gt[1] + Y * gt[2]
     lat = gt[3] + X * gt[4] + Y * gt[5]
-    assert(gt[2] == 0)
-    assert(gt[4] == 0)
+    assert gt[2] == 0
+    assert gt[4] == 0
     minlat, minlon = bounds[0], bounds[1]
     maxlat, maxlon = bounds[2], bounds[3]
     expand = 0
     LON, LAT = np.meshgrid(
         np.linspace(minlon - expand, maxlon + expand, n_width),
-        np.linspace(minlat - expand, maxlat + expand, n_width)
+        np.linspace(minlat - expand, maxlat + expand, n_width),
     )
     DEM = scipy.interpolate.griddata(
-        (lon.flatten(), lat.flatten()), dem.flatten(),
-        (LON, LAT)
+        (lon.flatten(), lat.flatten()), dem.flatten(), (LON, LAT)
     )
     return LON.flatten(), LAT.flatten(), DEM.flatten()

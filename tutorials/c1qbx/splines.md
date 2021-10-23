@@ -22,7 +22,7 @@ $$ u(x) = \int_{S} K(x, y) \phi(y) dy $$
 
 So far, we've implicitly assumed that we have a parameterized description of the surface. Let's make that more explicit. The quadrature formula
 
-we've been implicitly approximating both the surface and the  with very higher order polynomials by using a Gauss quadrature formula directly. 
+we've been implicitly approximating both the surface and the  with very higher order polynomials by using a Gauss quadrature formula directly.
 
 ```{code-cell} ipython3
 import numpy as np
@@ -40,7 +40,7 @@ el_normals = np.array([D[:,1], -D[:,0]]).T
 el_normals /= np.linalg.norm(el_normals, axis = 1)[:,None]
 
 pt_normals = np.empty((n + 1, 2))
-pt_normals[1:-1] = el_normals[:-1] + el_normals[1:] 
+pt_normals[1:-1] = el_normals[:-1] + el_normals[1:]
 pt_normals[0] = el_normals[0]
 pt_normals[-1] = el_normals[-1]
 pt_normals /= np.linalg.norm(pt_normals, axis = 1)[:,None]

@@ -30,14 +30,14 @@ A basic result in linear elastic earthquake modeling is the representation of di
 0 & 0 & \epsilon_{23}\\
  \epsilon_{13}    &    \epsilon_{23}      & 0\end{bmatrix}
 \end{equation}
- 
+
 This special state is called "antiplane shear". We can simplify the equations of linear elasticity to be in terms of a vector strain, $\epsilon_z = (\epsilon_{xz}, \epsilon_{yz})$ and vector stress, $\sigma_z = (2\mu\epsilon_{xz}, 2\mu\epsilon_{yz})$. Combined with Newtons law, we get the result that $u_z$ is a solution to the Laplace equation:
 
 \begin{equation}
 \nabla^2 u_z = 0
 \end{equation}
 
-As a result, we can describe the elastic behavior of infinitely long strike-slip faults (aka a "screw dislocation") in terms of solutions to the Laplace equation. 
+As a result, we can describe the elastic behavior of infinitely long strike-slip faults (aka a "screw dislocation") in terms of solutions to the Laplace equation.
 
 Below, we're going to use QBX to compute the displacements and stresses resulting from slip on infinitely long strike-slip faults with fun shapes. In particular, the "double layer" integral we computed in part 1 will compute displacement in the volume from the input slip on the fault. We'll also introduce the "hypersingular" integral to calculate stresses from slip.
 
@@ -51,7 +51,7 @@ import matplotlib.pyplot as plt
 
 +++
 
-When we compute a boundary integral, there are two sources of error: the surface approximation error and the quadrature error. We've been focusing so far on the quadrature error because it can be reduced dramatically with better algorithms, especially in the singular or near-singular case. The surface approximation error is handled simply through using a higher resolution approximation to the surface -- for example, represent a circle with 100 points instead of 50. However, below, it will be nice to be able to hold the surface approximation error constant while reducing the quadrature error to zero. But, in the integration techniques we have been using, the quadrature error and the surface error are inextricably linked. When we increase from using 50 to 100 points to integrate a function over a circle, we have been improving both the surface approximation and also using a more accurate quadrature rule. 
+When we compute a boundary integral, there are two sources of error: the surface approximation error and the quadrature error. We've been focusing so far on the quadrature error because it can be reduced dramatically with better algorithms, especially in the singular or near-singular case. The surface approximation error is handled simply through using a higher resolution approximation to the surface -- for example, represent a circle with 100 points instead of 50. However, below, it will be nice to be able to hold the surface approximation error constant while reducing the quadrature error to zero. But, in the integration techniques we have been using, the quadrature error and the surface error are inextricably linked. When we increase from using 50 to 100 points to integrate a function over a circle, we have been improving both the surface approximation and also using a more accurate quadrature rule.
 
 To separate the two components, we'll interpolate points from a low order surface approximation in order to calculate the locations of quadrature points for a higher order integral approximation. To make the difference more concrete... Before, we would calculate new point locations for a circle by calculating $(cos \theta, sin \theta)$. Now, we will calculate the new point from a polynomial interpolation of the $n$ existing points $\sum_{i}^n c_i p_i(x)$. In some sense, this is also more realistic. In a real-world application, we normally have a data-derived surface representation that we can't improve. On the other hand, even in that real world setting, we *can* add more quadrature points by interpolating on that surface. But adding more quadrature points won't make the surface itself any more accurate.
 
@@ -94,7 +94,7 @@ import_and_display_fnc('common', 'interp_surface')
 
 +++
 
-The second missing piece is a set of tools for computing stresses in the volume given an input fault slip. Continuing in the antiplane strain setting, what we want is to compute the gradient of displacement times the shear modulus. 
+The second missing piece is a set of tools for computing stresses in the volume given an input fault slip. Continuing in the antiplane strain setting, what we want is to compute the gradient of displacement times the shear modulus.
 
 \begin{equation}
 (\sigma_{xz}, \sigma_{yz}) = (\mu \frac{\partial \phi}{\partial x}, \mu \frac{\partial \phi}{\partial y})
@@ -102,18 +102,18 @@ The second missing piece is a set of tools for computing stresses in the volume 
 
 To simplify things a bit here, I'm going to just compute the first compute $\sigma_{xz}$. This is equivalent to computing a traction with the normal vector equal to $(1, 0)$.
 
-The hypersingular integral will computes $\sigma_{xz}$ for us given the source slip distribution. Since, we already built all the components of a QBX algorithm for the double layer case, we can now just write the naive integrator for a new kernel and everything works perfectly. In the cell below, I've implemented a naive integrator for the hypersingular integral. 
+The hypersingular integral will computes $\sigma_{xz}$ for us given the source slip distribution. Since, we already built all the components of a QBX algorithm for the double layer case, we can now just write the naive integrator for a new kernel and everything works perfectly. In the cell below, I've implemented a naive integrator for the hypersingular integral.
 
 ```{margin}
-As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section. 
+As a reminder, By "naive integrator", I just mean the non-QBX integration function that would be the equivalent of the `double_layer_matrix` function from the previous section.
 ```
 
-Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface. 
+Why is this kernel called "hypersingular"? Because the kernel behaves like $O(\frac{1}{r^2})$ in 2D. This makes the integral especially difficult for many traditional integration methods. As you'll see below, this is not a barrier for QBX and we are able to calculate the integral extremely accurately even right on the surface.
 
 ```{note}
 A quick summary of the common types of singular integrand behavior:
-- **Weakly singular**: the integrand behaves like $O(log(r))$ in 2D. When we integrate a weakly singular integral over a surface, the integral is well-defined in the normal sense. 
-- **Strongly singular**: The double layer potential is strongly singular. The integrand behaves like $O(\frac{1}{r})$ in 2D. When we integrate a strongly singular integral over a surface, the integral must be defined in the Cauchy principal value sense. Otherwise, the integral is divergent (more or less equal to infinity). However, when the integral is computed as an interior limit, the value is well defined because no integral along the limiting path is ever actually singular. 
+- **Weakly singular**: the integrand behaves like $O(log(r))$ in 2D. When we integrate a weakly singular integral over a surface, the integral is well-defined in the normal sense.
+- **Strongly singular**: The double layer potential is strongly singular. The integrand behaves like $O(\frac{1}{r})$ in 2D. When we integrate a strongly singular integral over a surface, the integral must be defined in the Cauchy principal value sense. Otherwise, the integral is divergent (more or less equal to infinity). However, when the integral is computed as an interior limit, the value is well defined because no integral along the limiting path is ever actually singular.
 - **Hypersingular**: The integrand behaves like $O(\frac{1}{r^2})$. The integral is so divergent that it's not even well-defined in the Cauchy principal value sense. Like strongly singular integrals, computing as an interior limit works out well.
 ```
 
@@ -122,7 +122,7 @@ import_and_display_fnc('common', 'hypersingular_matrix')
 ```
 
 ```{margin}
-By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You can just imagine that we're solving a nondimensionalized version of the problem. This is quite common because scaling the displacement and stress to lie in a similar range of values can improve the numerical conditioning of some problems. 
+By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You can just imagine that we're solving a nondimensionalized version of the problem. This is quite common because scaling the displacement and stress to lie in a similar range of values can improve the numerical conditioning of some problems.
 ```
 
 +++
@@ -131,7 +131,7 @@ By leaving out the shear modulus, I'm implicitly assuming that $\mu = 1$. You ca
 
 +++
 
-For testing purposes, it's nice to have some tools for creating a range of interesting surface. Here, I'll put together a `symbolic_surface` function that allows defining a surface via a symbolic, parameterized form. Then, the discretized points, normals and jacobians are automatically computed. 
+For testing purposes, it's nice to have some tools for creating a range of interesting surface. Here, I'll put together a `symbolic_surface` function that allows defining a surface via a symbolic, parameterized form. Then, the discretized points, normals and jacobians are automatically computed.
 
 ```{code-cell} ipython3
 import_and_display_fnc('common', 'discretize_symbolic_surface')
@@ -155,7 +155,7 @@ sp_t = sp.var('t')
 x = sp_t
 y = sp.cos(sp_t)
 
-# Convert into a discretized surface. 
+# Convert into a discretized surface.
 S = discretize_symbolic_surface(qx, qw, sp_t, x, y)
 
 plt.plot(S.pts[:,0], S.pts[:,1])
@@ -172,7 +172,7 @@ plt.show()
 Next, I'm going to combine the ideas of the last section into a single function that will calculate a surface integral for an arbitrary set of observation points. To be precise, we will compute:
 
 \begin{equation}
-f(x) = \int_{S} K(x, y) \phi(y) 
+f(x) = \int_{S} K(x, y) \phi(y)
 \end{equation}
 
 where $x$ corresponds to `obs_pts`, $S$ corresponds to `surface`, $K(x,y)$ corresponds to `kernel`, and $\phi(y)$ corresponds to `density`.
@@ -219,16 +219,16 @@ def qbx_example(
     )
 
     expansions = qbx_setup(surface_low, mult=offset_mult, p=qbx_p)
-    
+
     qbx_quad_pts, qbx_quad_wts = gauss_rule(n * kappa)
     surface_qbx = interp_surface(surface_low, qbx_quad_pts, qbx_quad_wts)
     slip_qbx = interp_fnc(slip_low, surface_low.quad_pts, qbx_quad_pts)
-    
+
     plt.figure()
     plt.plot(surface_qbx.pts[:,0], surface_qbx.pts[:,1], "k-")
     plt.plot(expansions.pts[:,0], expansions.pts[:,1], "r.")
     plt.show()
-    
+
     qbx_vals = interior_matrix(
         kernel,
         surface_qbx,
@@ -244,7 +244,7 @@ def qbx_example(
 
     obsx = obs_pts[:,0].reshape((nobs, nobs))
     obsy = obs_pts[:,1].reshape((nobs, nobs))
-    
+
     plt.figure(figsize=(16, 12))
     plt.subplot(2, 3, 1)
     plt.title("Naive solution")
@@ -372,9 +372,9 @@ def qbx_example(
 
 ## Displacement from a line source
 
-For the remainder of this part, we'll compute displacements and stresses for a three simple geometries of increasing difficulty. 
+For the remainder of this part, we'll compute displacements and stresses for a three simple geometries of increasing difficulty.
 
-For each plot, there will be a geometry summary that's just a black line showing the location of the "fault" and red dots showing the location of the QBX expansions. 
+For each plot, there will be a geometry summary that's just a black line showing the location of the "fault" and red dots showing the location of the QBX expansions.
 
 Then, we'll plot three solutions: the naive solution, a high accuracy naive solution (from 2000 points) and a QBX solution. We'll also plot the $\log_{10}$ error for both the naive and QBX solutions.
 
@@ -426,10 +426,10 @@ qbx_example(
 ```{code-cell} ipython3
 def wavy(n):
     qx, qw = gauss_rule(n)
-    
+
     sp_t = sp.var('t')
     x, y = sp_t, sp.sin((sp_t + 1) * 2 * sp.pi)
-    
+
     return discretize_symbolic_surface(qx, qw, sp_t, x, y)
 
 qbx_example(

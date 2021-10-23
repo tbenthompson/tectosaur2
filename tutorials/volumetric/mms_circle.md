@@ -16,10 +16,10 @@ kernelspec:
 
 +++
 
-## TODO: 
+## TODO:
 
 * The remaining fundamental issue is the singularity in the volume integral. Set up a way of testing the accuracy of this integral.
-* There's something preventing convergence in the L2 and Linf norms that isn't preventing convergence in the L1 norm. That suggests that the problem is some kind of outlier. The problem might be the scalloping in the QBX zone!!! 
+* There's something preventing convergence in the L2 and Linf norms that isn't preventing convergence in the L1 norm. That suggests that the problem is some kind of outlier. The problem might be the scalloping in the QBX zone!!!
 * Fix the scalloping issue!
 * Measure the error just inside r < 0.99.
 * Getting an exterior solution would be nice!
@@ -82,7 +82,7 @@ x, y = sp.symbols('x, y')
 sym_soln = 2 + x + y + x**2 + y*sp.cos(6*x) + x*sp.sin(6*y)
 
 sym_laplacian = (
-    sp.diff(sp.diff(sym_soln, x), x) + 
+    sp.diff(sp.diff(sym_soln, x), x) +
     sp.diff(sp.diff(sym_soln, y), y)
 )
 soln_fnc = sp.lambdify((x, y), sym_soln, "numpy")
@@ -356,7 +356,7 @@ for i, to_plot in enumerate([u_homog, u_homog, correct - u_particular]):
         levels = np.linspace(np.min(to_plot), np.max(to_plot), 21)
     else:
         levels = np.linspace(np.min(correct - u_particular), np.max(correct - u_particular), 21)
-    
+
     cntf = plt.contourf(obsx, obsy, to_plot, levels=levels, extend="both")
     plt.contour(
         obsx,
@@ -423,7 +423,7 @@ for i, to_plot in enumerate([correct, u_full]):
     plt.xlim(zoomx)
     plt.ylim(zoomy)
     plt.title(['correct', 'u'][i])
-    
+
 plt.subplot(1,3,3)
 to_plot = np.abs(correct - u_full)
 levels = np.linspace(0, 1.0, 21)
