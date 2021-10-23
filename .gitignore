@@ -1,8 +1,21 @@
+# editors
+.vscode
+*.swp
+
+# ignore ipynb, use MyST Markdown files instead!
+**/*.ipynb
+
+# tutorial stuff
 dem_download
 .ipynb_checkpoints
 __pycache__
 _build
-# ignore ipynb, use MyST Markdown files instead!
-*/*.ipynb
-.vscode
 .virtual_documents
+
+# other
+.eggs
+build
+
+# cython
+*.cpp
+*.so

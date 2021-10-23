@@ -14,8 +14,8 @@ kernelspec:
 
 ## TODO:
 
+- local qbx using single_layer, adjoint_double_layer, hypersingular
 - make sure this works for fault-surface intersection and the like where historically i've needed to make sure the expansion centers were exactly the same.
-- implement single_layer, adjoint_double_layer, hypersingular
 - try a fault with a singular tip!
 - optimize! later!
 
@@ -39,190 +39,8 @@ from common import (
     hypersingular_matrix,
     stage1_refine,
     build_stage2_panel_surf,
-    apply_interp_mat
+    apply_interp_mat,
 )
-```
-
-```{code-cell} ipython3
-%load_ext cython
-```
-
-```{code-cell} ipython3
-%%cython --compile-args=-fopenmp --link-args=-fopenmp --verbose --cplus
-#cython: boundscheck=False, wraparound=False, cdivision=True
-
-import numpy as np
-from cython.parallel import prange
-
-cimport numpy as np
-from libc.math cimport pi, fabs
-from libcpp cimport bool
-from libcpp.pair cimport pair
-
-cdef extern from "<complex.h>" namespace "std" nogil:
-    double real(double complex z)
-    
-cdef double complex I = 1j
-cdef double C = 1.0 / (2 * pi)
-
-cdef pair[int, bool] single_obs(
-    double[:,:,::1] qbx_mat, double[:,::1] obs_pts, 
-    double[:,::1] src_pts, double[:,::1] src_normals,
-    double[::1] src_jacobians, double[::1] src_quad_wts,
-    int src_panel_order,
-    double[:,::1] exp_centers, double[::1] exp_rs, 
-    int max_p, double tol,
-    long[:] panels, int obs_pt_idx, int exp_idx
-) nogil:
-    if len(panels) == 0:
-        return pair[int, bool](-1, False)
-    
-    cdef double complex z = obs_pts[obs_pt_idx, 0] + (obs_pts[obs_pt_idx, 1] * I)
-    cdef double complex z0 = exp_centers[exp_idx,0] + (exp_centers[exp_idx, 1] * I)
-    cdef double r = exp_rs[exp_idx]
-    cdef double complex zz0_div_r = (z - z0) / r
-      
-    cdef int n_panels
-    cdef int n_srcs
-    cdef double complex[:] r_inv_wz0
-    cdef double complex[:] exp_t
-    cdef double[:] qbx_terms
-
-    with gil:
-        n_panels = panels.shape[0]
-        n_srcs = n_panels * src_panel_order
-        r_inv_wz0 = np.empty(n_panels * src_panel_order, dtype=np.complex128)
-        exp_t = np.empty(n_panels * src_panel_order, dtype=np.complex128)
-        qbx_terms = np.zeros(n_panels * src_panel_order)
-    
-    
-    cdef double am, am_sum
-    cdef double complex w, nw, inv_wz0
-
-    cdef double mag_a0 = 0
-    cdef double complex eval_t = 1.0
-    
-    cdef int pt_start, pt_end, pt_idx, panel_idx, src_pt_idx, j, m
-    for panel_idx in range(n_panels):
-        pt_start = panels[panel_idx] * src_panel_order
-        pt_end = (panels[panel_idx] + 1) * src_panel_order
-        for pt_idx in range(pt_end - pt_start):
-            src_pt_idx = pt_start + pt_idx
-            j = panel_idx * src_panel_order + pt_idx
-            w = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
-            nw = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
-            inv_wz0 = 1.0 / (w - z0)
-            
-            r_inv_wz0[j] = r * inv_wz0
-            exp_t[j] = nw * inv_wz0 * C * src_quad_wts[src_pt_idx] * src_jacobians[src_pt_idx]
-            qbx_terms[j] = 0.0
-            mag_a0 += fabs(real(exp_t[j] * eval_t))
-    
-    cdef double am_sum_prev = 0.0
-    cdef int divergences = 0
-    for m in range(max_p+1):
-        am_sum = 0
-        for j in range(n_srcs):
-            am = real(exp_t[j] * eval_t)
-            am_sum += am
-            qbx_terms[j] += am
-            exp_t[j] *= r_inv_wz0[j]
-        # We use the sum of the last two terms to avoid issues with
-        # common sequences where every terms alternate in magnitude
-        # See Klinteberg and Tornberg 2018 at the end of page 5
-        if (fabs(am_sum) + fabs(am_sum_prev)) < 2 * tol * mag_a0:
-            divergences = 0
-            break
-        if (fabs(am_sum) > fabs(am_sum_prev)):
-            divergences += 1
-        else:
-            divergences = 0
-        am_sum_prev = am_sum
-        eval_t *= zz0_div_r
-    
-    for panel_idx in range(n_panels):
-        pt_start = panels[panel_idx] * src_panel_order
-        pt_end = (panels[panel_idx] + 1) * src_panel_order
-        for pt_idx in range(pt_end - pt_start):
-            src_pt_idx = pt_start + pt_idx
-            j = panel_idx * src_panel_order + pt_idx
-            qbx_mat[obs_pt_idx, 0, src_pt_idx] += qbx_terms[j]
-    
-    return pair[int, bool](m, divergences > 1)
-    
-def local_qbx_integrals(
-    double[:,:,::1] qbx_mat, double[:,::1] obs_pts, src, 
-    double[:,::1] exp_centers, double[::1] exp_rs, 
-    int max_p, double tol,
-    qbx_panels
-):
-        
-    cdef double[:,::1] src_pts = src.pts
-    cdef double[:,::1] src_normals = src.normals
-    cdef double[::1] src_jacobians = src.jacobians
-    cdef double[::1] src_quad_wts = src.quad_wts
-    cdef int src_panel_order = src.panel_order
-    
-    cdef int i
-    cdef np.ndarray p = np.empty(obs_pts.shape[0], dtype=np.int32)
-    cdef np.ndarray kappa_too_small = np.empty(obs_pts.shape[0], dtype=np.bool_)
-    
-    cdef pair[int,bool] result
-    for i in range(obs_pts.shape[0]):
-        panel_set = qbx_panels[i]
-        result = single_obs(
-            qbx_mat, obs_pts, 
-            src_pts, src_normals, src_jacobians, src_quad_wts, src_panel_order,
-            exp_centers, exp_rs, max_p, tol, panel_set, i, i
-        )
-        p[i], kappa_too_small[i] = result
-    return p, kappa_too_small
-
-def nearfield_integrals(
-    double[:,:,::1] mat, double[:,::1] obs_pts, src,
-    nearfield_panels, double mult
-):
-    
-    cdef double[:,::1] src_pts = src.pts
-    cdef double[:,::1] src_normals = src.normals
-    cdef double[::1] src_jacobians = src.jacobians
-    cdef double[::1] src_quad_wts = src.quad_wts
-    cdef int src_panel_order = src.panel_order
-    
-    cdef long[:] panels
-    cdef int n_panels
-    
-    cdef int i, panel_idx, pt_idx, pt_start, pt_end, j, src_pt_idx
-    cdef double obsx, obsy, r2, dx, dy, G, integral
-    
-    for i in range(obs_pts.shape[0]):
-        with nogil:
-            obsx = obs_pts[i,0]
-            obsy = obs_pts[i,1]
-            
-            with gil:
-                panels = nearfield_panels[i]
-            
-            if panels.shape[0] == 0:
-                continue
-            n_panels = panels.shape[0]
-            n_srcs = n_panels * src_panel_order
-                
-            for panel_idx in range(n_panels):
-                pt_start = panels[panel_idx] * src_panel_order
-                pt_end = (panels[panel_idx] + 1) * src_panel_order
-                for pt_idx in range(pt_end - pt_start):
-                    src_pt_idx = pt_start + pt_idx
-                    j = panel_idx * src_panel_order + pt_idx
-                    dx = obsx - src_pts[src_pt_idx, 0]
-                    dy = obsy - src_pts[src_pt_idx, 1]
-                    r2 = dx*dx + dy*dy
-                    G = -C * (dx * src_normals[src_pt_idx,0] + dy * src_normals[src_pt_idx,1]) / r2
-                    if r2 == 0:
-                        G = 0.0
-                    integral = G * src_jacobians[src_pt_idx] * src_quad_wts[src_pt_idx]
-                    
-                    mat[i, 0, src_pt_idx] += mult * integral
 ```
 
 ```{code-cell} ipython3
@@ -236,6 +54,81 @@ t = sp.var("t")
     max_curvature=max_curvature,
     control_points=np.array([[1,0,0,0.1]])
 )
+```
+
+```{code-cell} ipython3
+density=np.cos(circle.pts[:,0])
+obs_pts=np.array([[0.1,0.1]])
+exp_c = np.array([[0.1,0.0]])
+exp_r = np.array([1.0])
+p = 5
+```
+
+```{code-cell} ipython3
+def base_expand(exp_centers, src_pts, r, m):
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, 0, None] + exp_centers[:, 1, None] * 1j
+    if m == 0:
+        return np.log(w - z0) / (2 * np.pi)
+    else:
+        return -(r ** m) / (m * (2 * np.pi) * (w - z0) ** m)
+    
+def deriv_expand(exp_centers, src_pts, src_normals, r, m):
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, 0, None] + exp_centers[:, 1, None] * 1j
+    nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
+    return (nw * (r[:, None] ** m) / ((2 * np.pi) * (w - z0) ** (m + 1)))
+
+def base_eval(obs_pts, exp_centers, r, m):
+    z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
+    z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
+    return (z - z0) ** m / (r ** m)
+
+def deriv_eval(obs_pts, exp_centers, r, m):
+    z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
+    z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
+    return -m * (z - z0) ** (m - 1) / (r ** m)
+```
+
+```{code-cell} ipython3
+hypersingular_matrix(circle, obs_pts).dot(density)
+```
+
+```{code-cell} ipython3
+out = np.zeros((1,2,circle.n_pts))
+for m in range(p):
+    exp_t = deriv_expand(exp_c, circle.pts, circle.normals, exp_r, m)
+    eval_t = deriv_eval(obs_pts, exp_c, exp_r, m)
+    out[:,0,:] += np.real(exp_t * eval_t * circle.jacobians * circle.quad_wts)
+    out[:,1,:] -= np.imag(exp_t * eval_t * circle.jacobians * circle.quad_wts)
+out.dot(density)
+```
+
+```{code-cell} ipython3
+single_layer_matrix(circle, obs_pts).dot(density)
+```
+
+```{code-cell} ipython3
+out = 0
+for m in range(p):
+    exp_t = base_expand(exp_c, circle.pts, exp_r, m)
+    eval_t = base_eval(obs_pts, exp_c, exp_r, m)
+    out += np.real(exp_t * eval_t * circle.jacobians * circle.quad_wts)
+out.dot(density)
+```
+
+```{code-cell} ipython3
+adjoint_double_layer_matrix(circle, obs_pts).dot(density)
+```
+
+```{code-cell} ipython3
+out = np.zeros((1,2,circle.n_pts))
+for m in range(p):
+    exp_t = base_expand(exp_c, circle.pts, exp_r, m)
+    eval_t = deriv_eval(obs_pts, exp_c, exp_r, m)
+    out[:,0,:] += np.real(exp_t * eval_t * circle.jacobians * circle.quad_wts)
+    out[:,1,:] -= np.imag(exp_t * eval_t * circle.jacobians * circle.quad_wts)
+out.dot(density)
 ```
 
 ```{code-cell} ipython3
@@ -307,209 +200,6 @@ The prep parameters will be fixed as a function of `(max_curvature, tolerance, k
 - $\kappa$ is the upsampling ratio
 
 ```{code-cell} ipython3
-# prep step 1: find d_cutoff and kappa
-# The goal is to estimate the error due to the QBX local patch
-# The local surface will have singularities at the tips where it is cut off
-# These singularities will cause error in the QBX expansion. We want to make
-# the local patch large enough that these singularities are irrelevant.
-# To isolate the QBX patch cutoff error, we will use a very high upsampling.
-# We'll also choose p to be the minimum allowed value since that will result in
-# the largest cutoff error. Increasing p will reduce the cutoff error guaranteeing that
-# we never need to worry about cutoff error.
-```
-
-```{code-cell} ipython3
-d_tol = 5e-14
-density = np.ones_like(src.pts[:, 0])  # np.cos(src.pts[:,0] * src.pts[:,1])
-plt.figure(figsize=(9, 13))
-
-params = []
-d_cutoffs = [1.1, 1.3, 1.6, 2.0]
-ps = np.arange(1, 55, 3)
-for di, direction in enumerate([-1.0, 1.0]):
-    baseline = global_qbx_self(src, p=15, kappa=10, direction=direction)
-    baseline_v = baseline[:, 0, :].dot(density)
-
-    # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
-    d_cutoff = 100.0
-    local_baseline = local_qbx_self(
-        src, d_cutoff=100.0, tol=d_tol, max_p=10, kappa=10, direction=direction
-    )
-    local_baseline_v = local_baseline.dot(density)
-    assert np.max(np.abs(baseline_v - local_baseline_v)) < 5e-14
-
-    n_qbx_panels = []
-    kappa_optimal = []
-    p_for_full_accuracy = []
-    plt.subplot(3, 2, 1 + di)
-    for i_d, d_cutoff in enumerate(d_cutoffs):
-        errs = []
-        for i_p, p in enumerate(ps):
-            # print(p, d_cutoff)
-            kappa_temp = 8
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                test, report = local_qbx_self(
-                    src,
-                    d_cutoff,
-                    tol=d_tol,
-                    max_p=p,
-                    direction=direction,
-                    kappa=kappa_temp,
-                    return_report=True,
-                )
-                testv = test[:, 0, :].dot(density)
-                err = np.max(np.abs(baseline_v - testv))
-                errs.append(err)
-                if err < d_tol:
-                    for kappa_decrease in range(1, kappa_temp + 1):
-                        kappa_test, kappa_report = local_qbx_self(
-                            src,
-                            d_cutoff,
-                            tol=d_tol * 0.8, # Increase d_tol to have a safety margin.
-                            max_p=p + 20,  # Increase p here to have a kappa safety margin
-                            direction=direction,
-                            kappa=kappa_decrease,
-                            return_report=True,
-                        )
-                        kappa_testv = kappa_test[:, 0, :].dot(density)
-                        kappa_err = np.max(np.abs(baseline_v - kappa_testv))
-                        if kappa_err < d_tol:
-                            kappa_optimal.append(kappa_decrease)
-                            n_qbx_panels.append(kappa_report["n_qbx_panels"])
-                            p_for_full_accuracy.append(p)
-                            break
-                    if len(n_qbx_panels) <= i_d:
-                        print(f"Failed to find parameters for {d_cutoff}")
-                        kappa_optimal.append(1000)
-                        n_qbx_panels.append(1e6)
-                        p_for_full_accuracy.append(1e3)
-                    break
-        print(d_cutoff, errs)
-        plt.plot(ps[: i_p + 1], np.log10(errs), label=str(d_cutoff))
-
-    params.append((direction, n_qbx_panels, kappa_optimal, p_for_full_accuracy))
-
-    plt.legend()
-    plt.title("interior" if direction > 0 else "exterior")
-    plt.xlabel(r"$p_{\textrm{max}}$")
-    if di == 0:
-        plt.ylabel(r"$\log_{10}(\textrm{error})$")
-    plt.yticks(-np.arange(0, 16, 3))
-    plt.xticks(np.arange(0, 61, 10))
-    plt.ylim([-15, 0])
-
-    plt.subplot(3, 2, 3 + di)
-    plt.plot(d_cutoffs, np.array(n_qbx_panels) / src.n_pts, "k-*")
-    plt.xlabel(r"$d_{\textrm{cutoff}}$")
-    plt.ylim([0, 8])
-    if di == 0:
-        plt.ylabel("QBX panels per point")
-
-    plt.subplot(3, 2, 5 + di)
-    plt.plot(d_cutoffs, np.array(kappa_optimal), "k-*")
-    plt.xlabel(r"$d_{\textrm{cutoff}}$")
-    plt.ylim([0, 6])
-    if di == 0:
-        plt.ylabel(r"$\kappa_{\textrm{optimal}}$")
-plt.tight_layout()
-plt.show()
-```
-
-```{code-cell} ipython3
-total_cost = 0
-for i in [0, 1]:
-    direction, n_qbx_panels, kappa_optimal, p_for_full_accuracy = params[i]
-    appx_cost = (
-        np.array(p_for_full_accuracy) * np.array(n_qbx_panels) * np.array(kappa_optimal)
-    )
-    print(direction, appx_cost)
-    total_cost += appx_cost
-plt.plot(d_cutoffs, total_cost, "k-o")
-plt.show()
-```
-
-```{code-cell} ipython3
-best_idx = np.argmin(total_cost)
-d_cutoff = d_cutoffs[best_idx]
-kappa_qbx = kappa_optimal[best_idx]
-```
-
-```{code-cell} ipython3
-from common import panelize_symbolic_surface
-
-# prep step 2: find the minimum distance at which integrals are computed
-# to the required tolerance for each kappa in [1, kappa_qbx]
-def find_safe_direct_distance(nq, max_curvature, start_d, tol, kappa):
-    t = sp.var("t")
-
-    n_panels = 2
-    while True:
-        panel_edges = np.linspace(-1, 1, n_panels + 1)
-        panel_bounds = np.stack((panel_edges[:-1], panel_edges[1:]), axis=1)
-        circle = panelize_symbolic_surface(
-            t, sp.cos(sp.pi * t), sp.sin(sp.pi * t), panel_bounds, *gauss_rule(nq)
-        )
-        n_panels_new = np.max(circle.panel_length / max_curvature * circle.panel_radius)
-        if n_panels_new <= n_panels:
-            break
-        n_panels = np.ceil(n_panels_new).astype(int)
-    #print(f"\nusing {n_panels} panels with max_curvature={max_curvature}")
-
-    L = np.repeat(circle.panel_length, circle.panel_order)
-
-    circle_high, interp_mat_high = upsample(circle, kappa)
-    circle_higher, interp_mat_higher = upsample(circle, 8)
-    # test_density = np.cos(circle.pts[:,0] * circle.pts[:,1])
-    test_density = np.ones_like(circle.pts[:, 0])
-    d = start_d
-    for i in range(50):
-        dist = L * d
-        # In actuality, we only need to test interior points because the curvature
-        # of the surface ensures that more source panels are near the observation
-        # points and, as a result, the error will be higher for any given value of d.
-        test_pts = np.concatenate(
-            (
-                circle.pts + circle.normals * dist[:, None],
-                circle.pts - circle.normals * dist[:, None],
-            )
-        )
-
-        # Check to make sure that the closest distance to a source point is truly `dist`.
-        # This check might fail if the interior test_pts are crossing over into the other half of the circle.
-        min_src_dist = np.min(
-            np.linalg.norm((test_pts[:, None] - circle.pts[None, :]), axis=2), axis=1
-        )
-        if not np.allclose(min_src_dist, np.concatenate((dist, dist))):
-            return False, d
-
-        higher_mat = apply_interp_mat(
-            kernel(circle_higher, test_pts), interp_mat_higher
-        )
-        high_mat = apply_interp_mat(kernel(circle_high, test_pts), interp_mat_high)
-
-        # Use the absolute value of the matrix coefficients in order to compute an upper bound on the error
-        err = np.max(np.abs(higher_mat - high_mat).dot(test_density))
-        if err < tol:
-            return True, d
-        d *= 1.2
-
-
-d_up = np.zeros(kappa_qbx)
-for k in range(kappa_qbx, 0, -1):
-    max_iter = 20
-    d_up[k - 1] = d_up[k] if k < kappa_qbx else 0.05
-    for i in range(max_iter):
-        result = find_safe_direct_distance(
-            nq, max_curvature * (0.8) ** i, d_up[k - 1], d_tol, k
-        )
-        d_up[k - 1] = result[1]
-        if result[0]:
-            print('done', k, d_up[k-1])
-            break
-```
-
-```{code-cell} ipython3
 print(f"using d_cutoff={d_cutoff}")
 print(f"using kappa={kappa_qbx}")
 print(f"using d_up = {d_up}")
@@ -525,38 +215,7 @@ import time
 ```
 
 ```{code-cell} ipython3
-%%time
-density = np.ones_like(circle.pts[:, 0])  # np.cos(source.pts[:,0] * src.pts[:,1])
-baseline = global_qbx_self(circle, p=50, kappa=10, direction=1.0)
-baseline_v = baseline.dot(density)
-tols = 10.0 ** np.arange(0, -15, -1)
-errs = []
-runtimes = []
-for tol in tols:
-    runs = []
-    for i in range(10):
-        start = time.time()
-        local_baseline, report = local_qbx_self(
-            circle,
-            d_cutoff=d_cutoff,
-            tol=tol,
-            kappa=kappa_qbx,
-            direction=1.0,
-            return_report=True,
-        )
-        runs.append(time.time() - start)
-    runtimes.append(np.min(runs))
-    local_baseline_v = local_baseline.dot(density)
-    errs.append(np.max(np.abs(baseline_v - local_baseline_v)))
-    # print(tol, errs[-1], runtime)
-    # assert(np.max(np.abs(baseline_v-local_baseline_v)) < 5e-14)
-plt.figure(figsize=(9, 5))
-plt.subplot(1, 2, 1)
-plt.plot(-np.log10(tols), np.log10(errs))
-plt.subplot(1, 2, 2)
-plt.plot(-np.log10(tols), runtimes)
-plt.tight_layout()
-plt.show()
+
 ```
 
 ## Interior Evaluation
