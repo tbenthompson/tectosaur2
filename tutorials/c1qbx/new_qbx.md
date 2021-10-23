@@ -59,7 +59,7 @@ t = sp.var("t")
 ```{code-cell} ipython3
 density=np.cos(circle.pts[:,0])
 obs_pts=np.array([[0.1,0.1]])
-exp_c = np.array([[0.1,0.0]])
+exp_c = np.array([[0.1,0.1]])
 exp_r = np.array([1.0])
 p = 5
 ```
@@ -85,6 +85,8 @@ def base_eval(obs_pts, exp_centers, r, m):
     return (z - z0) ** m / (r ** m)
 
 def deriv_eval(obs_pts, exp_centers, r, m):
+    if m == 0:
+        return np.zeros(obs_pts.shape[0])
     z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
     z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
     return -m * (z - z0) ** (m - 1) / (r ** m)

@@ -9,20 +9,25 @@ from .mesh import apply_interp_mat, stage2_refine
 
 
 def local_qbx(
+    exp_deriv,
+    eval_deriv,
     obs_pts,
     src,
     tol,
     d_cutoff,
     kappa,
-    d_up,
+    d_up=None,
     on_src_direction=1,
     max_p=50,
     return_report=False,
 ):
     # step 1: construct the farfield matrix!
-    mat = double_layer_matrix(src, obs_pts)
+    mat = double_layer_matrix(obs_pts, src)
 
     # step 2: identify QBX observation points.
+    if d_up is None:
+        d_up = [0.0, 0.5]
+
     src_tree = scipy.spatial.KDTree(src.pts)
     closest_dist, closest_idx = src_tree.query(obs_pts)
     closest_panel_length = src.panel_length[closest_idx // src.panel_order]
@@ -68,55 +73,65 @@ def local_qbx(
 
     # step 5: QBX integrals
     # TODO: This could be replaced by a sparse local matrix.
-    qbx_mat = np.zeros((qbx_obs_pts.shape[0], 1, refined_src.n_pts))
-    p, kappa_too_small = local_qbx_integrals(
-        qbx_mat,
-        qbx_obs_pts,
-        refined_src,
-        exp_centers,
-        exp_rs,
-        max_p,
-        tol,
-        qbx_src_panels_refined,
-    )
-    if np.any(kappa_too_small):
-        warnings.warn("Some integrals diverged because kappa is too small.")
-    qbx_mat = np.ascontiguousarray(apply_interp_mat(qbx_mat, interp_mat))
+    n_qbx = np.sum(use_qbx)
+    if n_qbx > 0:
+        qbx_mat = np.zeros((qbx_obs_pts.shape[0], 1, refined_src.n_pts))
+        p, kappa_too_small = local_qbx_integrals(
+            exp_deriv,
+            eval_deriv,
+            qbx_mat,
+            qbx_obs_pts,
+            refined_src,
+            exp_centers,
+            exp_rs,
+            max_p,
+            tol,
+            qbx_src_panels_refined,
+        )
+        if np.any(kappa_too_small):
+            warnings.warn("Some integrals diverged because kappa is too small.")
+        qbx_mat = np.ascontiguousarray(apply_interp_mat(qbx_mat, interp_mat))
 
-    # step 6: subtract off the direct term whenever a QBX integral is used.
-    nearfield_integrals(qbx_mat, qbx_obs_pts, src, qbx_src_panels_unrefined, -1.0)
-    mat[use_qbx] += qbx_mat
+        # step 6: subtract off the direct term whenever a QBX integral is used.
+        nearfield_integrals(qbx_mat, qbx_obs_pts, src, qbx_src_panels_unrefined, -1.0)
+        mat[use_qbx] += qbx_mat
 
     # step 7: nearfield integrals
     use_nearfield = (closest_dist < d_up[0] * closest_panel_length) & (~use_qbx)
-    print(np.sum(use_nearfield))
-    print(np.sum(use_qbx))
-    nearfield_obs_pts = obs_pts[use_nearfield]
-    nearfield_L = closest_panel_length[use_nearfield]
-    nearfield_src_pts_unrefined = src_tree.query_ball_point(
-        nearfield_obs_pts, d_up[0] * nearfield_L
-    )
-
-    nearfield_src_panels_refined = []
-    nearfield_src_panels_unrefined = []
-    for i in range(nearfield_obs_pts.shape[0]):
-        unrefined_panels = np.unique(
-            np.array(nearfield_src_pts_unrefined[i]) // src.panel_order
-        )
-        nearfield_src_panels_unrefined.append(unrefined_panels)
-        nearfield_src_panels_refined.append(
-            np.concatenate([refinement_map[p] for p in unrefined_panels])
+    n_nearfield = np.sum(use_nearfield)
+    if n_nearfield > 0:
+        nearfield_obs_pts = obs_pts[use_nearfield]
+        nearfield_L = closest_panel_length[use_nearfield]
+        nearfield_src_pts_unrefined = src_tree.query_ball_point(
+            nearfield_obs_pts, d_up[0] * nearfield_L
         )
 
-    nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], 1, refined_src.n_pts))
-    nearfield_integrals(
-        nearfield_mat, nearfield_obs_pts, refined_src, nearfield_src_panels_refined, 1.0
-    )
-    nearfield_mat = np.ascontiguousarray(apply_interp_mat(nearfield_mat, interp_mat))
-    nearfield_integrals(
-        nearfield_mat, nearfield_obs_pts, src, nearfield_src_panels_unrefined, -1.0
-    )
-    mat[use_nearfield] += nearfield_mat
+        nearfield_src_panels_refined = []
+        nearfield_src_panels_unrefined = []
+        for i in range(nearfield_obs_pts.shape[0]):
+            unrefined_panels = np.unique(
+                np.array(nearfield_src_pts_unrefined[i]) // src.panel_order
+            )
+            nearfield_src_panels_unrefined.append(unrefined_panels)
+            nearfield_src_panels_refined.append(
+                np.concatenate([refinement_map[p] for p in unrefined_panels])
+            )
+
+        nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], 1, refined_src.n_pts))
+        nearfield_integrals(
+            nearfield_mat,
+            nearfield_obs_pts,
+            refined_src,
+            nearfield_src_panels_refined,
+            1.0,
+        )
+        nearfield_mat = np.ascontiguousarray(
+            apply_interp_mat(nearfield_mat, interp_mat)
+        )
+        nearfield_integrals(
+            nearfield_mat, nearfield_obs_pts, src, nearfield_src_panels_unrefined, -1.0
+        )
+        mat[use_nearfield] += nearfield_mat
 
     if return_report:
         report = dict()

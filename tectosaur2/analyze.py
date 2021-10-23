@@ -33,7 +33,13 @@ def find_dcutoff_kappa(src, tol):
         # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
         d_cutoff = 100.0
         local_baseline = local_qbx(
-            src, d_cutoff=100.0, tol=tol, max_p=10, kappa=10, direction=direction
+            src.pts,
+            src,
+            d_cutoff=100.0,
+            tol=tol,
+            max_p=10,
+            kappa=10,
+            on_src_direction=direction,
         )
         local_baseline_v = local_baseline.dot(density)
         assert np.max(np.abs(baseline_v - local_baseline_v)) < 5e-14
@@ -50,11 +56,12 @@ def find_dcutoff_kappa(src, tol):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     test, report = local_qbx(
+                        src.pts,
                         src,
-                        d_cutoff,
+                        d_cutoff=d_cutoff,
                         tol=tol,
                         max_p=p,
-                        direction=direction,
+                        on_src_direction=direction,
                         kappa=kappa_temp,
                         return_report=True,
                     )
@@ -64,12 +71,13 @@ def find_dcutoff_kappa(src, tol):
                     if err < tol:
                         for kappa_decrease in range(1, kappa_temp + 1):
                             kappa_test, kappa_report = local_qbx(
+                                src.pts,
                                 src,
-                                d_cutoff,
+                                d_cutoff=d_cutoff,
                                 tol=tol * 0.8,  # Increase tol to have a safety margin.
                                 max_p=p
                                 + 20,  # Increase p here to have a kappa safety margin
-                                direction=direction,
+                                on_src_direction=direction,
                                 kappa=kappa_decrease,
                                 return_report=True,
                             )
@@ -181,9 +189,9 @@ def find_safe_direct_distance(kernel, nq, max_curvature, start_d, tol, kappa):
             return False, d
 
         higher_mat = apply_interp_mat(
-            kernel(circle_higher, test_pts), interp_mat_higher
+            kernel(test_pts, circle_higher), interp_mat_higher
         )
-        high_mat = apply_interp_mat(kernel(circle_high, test_pts), interp_mat_high)
+        high_mat = apply_interp_mat(kernel(test_pts, circle_high), interp_mat_high)
 
         # Use the absolute value of the matrix coefficients in order to compute an upper bound on the error
         err = np.max(np.abs(higher_mat - high_mat).dot(test_density))
@@ -192,19 +200,20 @@ def find_safe_direct_distance(kernel, nq, max_curvature, start_d, tol, kappa):
         d *= 1.2
 
 
-def find_d_up(tol, nq, max_curvature, kappa_qbx):
+def find_d_up(kernel, tol, nq, max_curvature, kappa_qbx):
     d_up = np.zeros(kappa_qbx)
     for k in range(kappa_qbx, 0, -1):
         max_iter = 20
         d_up[k - 1] = d_up[k] if k < kappa_qbx else 0.05
         for i in range(max_iter):
             result = find_safe_direct_distance(
-                nq, max_curvature * (0.8) ** i, d_up[k - 1], tol, k
+                kernel, nq, max_curvature * (0.8) ** i, d_up[k - 1], tol, k
             )
             d_up[k - 1] = result[1]
             if result[0]:
                 print("done", k, d_up[k - 1])
                 break
+    return d_up
 
 
 def final_check(src, d_cutoff, kappa_qbx):
@@ -219,11 +228,12 @@ def final_check(src, d_cutoff, kappa_qbx):
         for i in range(10):
             start = time.time()
             local_baseline, report = local_qbx(
+                src.pts,
                 src,
                 d_cutoff=d_cutoff,
                 tol=tol,
                 kappa=kappa_qbx,
-                direction=1.0,
+                on_src_direction=1.0,
                 return_report=True,
             )
             runs.append(time.time() - start)
@@ -232,6 +242,7 @@ def final_check(src, d_cutoff, kappa_qbx):
         errs.append(np.max(np.abs(baseline_v - local_baseline_v)))
         # print(tol, errs[-1], runtime)
         # assert(np.max(np.abs(baseline_v-local_baseline_v)) < 5e-14)
+
     plt.figure(figsize=(9, 5))
     plt.subplot(1, 2, 1)
     plt.plot(-np.log10(tols), np.log10(errs))
