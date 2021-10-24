@@ -6,11 +6,10 @@ import numpy as np
 import sympy as sp
 
 from .global_qbx import global_qbx_self
-from .local_qbx import local_qbx
 from .mesh import apply_interp_mat, gauss_rule, panelize_symbolic_surface, upsample
 
 
-def find_dcutoff_kappa(src, tol):
+def find_dcutoff_kappa(kernel, src, tol):
     # prep step 1: find d_cutoff and kappa
     # The goal is to estimate the error due to the QBX local patch
     # The local surface will have singularities at the tips where it is cut off
@@ -32,7 +31,7 @@ def find_dcutoff_kappa(src, tol):
 
         # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
         d_cutoff = 100.0
-        local_baseline = local_qbx(
+        local_baseline = kernel.integrate(
             src.pts,
             src,
             d_cutoff=100.0,
@@ -55,7 +54,7 @@ def find_dcutoff_kappa(src, tol):
                 kappa_temp = 8
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    test, report = local_qbx(
+                    test, report = kernel.integrate(
                         src.pts,
                         src,
                         d_cutoff=d_cutoff,
@@ -70,7 +69,7 @@ def find_dcutoff_kappa(src, tol):
                     errs.append(err)
                     if err < tol:
                         for kappa_decrease in range(1, kappa_temp + 1):
-                            kappa_test, kappa_report = local_qbx(
+                            kappa_test, kappa_report = kernel.integrate(
                                 src.pts,
                                 src,
                                 d_cutoff=d_cutoff,
@@ -189,9 +188,11 @@ def find_safe_direct_distance(kernel, nq, max_curvature, start_d, tol, kappa):
             return False, d
 
         higher_mat = apply_interp_mat(
-            kernel(test_pts, circle_higher), interp_mat_higher
+            kernel._direct(test_pts, circle_higher), interp_mat_higher
         )
-        high_mat = apply_interp_mat(kernel(test_pts, circle_high), interp_mat_high)
+        high_mat = apply_interp_mat(
+            kernel._direct(test_pts, circle_high), interp_mat_high
+        )
 
         # Use the absolute value of the matrix coefficients in order to compute an upper bound on the error
         err = np.max(np.abs(higher_mat - high_mat).dot(test_density))
@@ -216,7 +217,7 @@ def find_d_up(kernel, tol, nq, max_curvature, kappa_qbx):
     return d_up
 
 
-def final_check(src, d_cutoff, kappa_qbx):
+def final_check(kernel, src):
     density = np.ones_like(src.pts[:, 0])  # np.cos(source.pts[:,0] * src.pts[:,1])
     baseline = global_qbx_self(src, p=50, kappa=10, direction=1.0)
     baseline_v = baseline.dot(density)
@@ -227,12 +228,10 @@ def final_check(src, d_cutoff, kappa_qbx):
         runs = []
         for i in range(10):
             start = time.time()
-            local_baseline, report = local_qbx(
+            local_baseline, report = kernel.integrate(
                 src.pts,
                 src,
-                d_cutoff=d_cutoff,
                 tol=tol,
-                kappa=kappa_qbx,
                 on_src_direction=1.0,
                 return_report=True,
             )

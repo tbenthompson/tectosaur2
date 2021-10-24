@@ -161,55 +161,50 @@ def local_qbx_integrals(
         p[i], kappa_too_small[i] = result
     return p, kappa_too_small
 
+cdef extern from "nearfield.cpp":
+    cdef struct NearfieldArgs:
+        double* mat
+        int n_obs
+        int n_src
+        double* obs_pts
+        double* src_pts
+        double* src_normals
+        double* src_quad_wt_jac
+        int src_panel_order
+        long* panels
+        long* panel_starts
+        double mult
+
+    cdef void nearfield_single_layer(const NearfieldArgs&)
+    cdef void nearfield_double_layer(const NearfieldArgs&)
+    cdef void nearfield_adjoint_double_layer(const NearfieldArgs&)
+    cdef void nearfield_hypersingular(const NearfieldArgs&)
+
 def nearfield_integrals(
-    double[:,:,::1] mat, double[:,::1] obs_pts, src,
-    nearfield_panels, double mult
+    kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
+    long[::1] panels, long[::1] panel_starts, double mult
 ):
 
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
-    cdef double[::1] src_jacobians = src.jacobians
-    cdef double[::1] src_quad_wts = src.quad_wts
+    cdef double[::1] src_quad_wt_jac = src.quad_wt_jac
     cdef int src_panel_order = src.panel_order
 
-    cdef long[:] panels
-    cdef int n_panels
+    # kernel = double_layer
+    cdef NearfieldArgs args = NearfieldArgs(
+        &mat[0,0,0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
+        &src_pts[0,0], &src_normals[0,0], &src_quad_wt_jac[0],
+        src_panel_order, &panels[0], &panel_starts[0], mult
+    )
 
-    cdef int i, panel_idx, pt_idx, pt_start, pt_end, src_pt_idx
-    cdef double obsx, obsy, r2, invr2, dx, dy, kernel, integral
-    cdef double srcx, srcy, srcnx, srcny
-
-    for i in range(obs_pts.shape[0]):
-        with nogil:
-            obsx = obs_pts[i,0]
-            obsy = obs_pts[i,1]
-
-            with gil:
-                panels = nearfield_panels[i]
-
-            if panels.shape[0] == 0:
-                continue
-            n_panels = panels.shape[0]
-
-            for panel_idx in range(n_panels):
-                pt_start = panels[panel_idx] * src_panel_order
-                pt_end = (panels[panel_idx] + 1) * src_panel_order
-                for pt_idx in range(pt_end - pt_start):
-                    src_pt_idx = pt_start + pt_idx
-                    srcx = src_pts[src_pt_idx, 0]
-                    srcy = src_pts[src_pt_idx, 1]
-                    srcnx = src_normals[src_pt_idx,0]
-                    srcny = src_normals[src_pt_idx,1]
-                    dx = obsx - srcx
-                    dy = obsy - srcy
-                    r2 = dx*dx + dy*dy
-                    if r2 == 0:
-                        invr2 = 0.0
-                    else:
-                        invr2 = 1.0 / r2
-
-                    kernel = -C * (dx * srcnx + dy * srcny) * invr2
-
-                    integral = kernel * src_jacobians[src_pt_idx] * src_quad_wts[src_pt_idx]
-
-                    mat[i, 0, src_pt_idx] += mult * integral
+    if kernel_name == "single_layer":
+        kernel_fnc = nearfield_single_layer
+    elif kernel_name == "double_layer":
+        kernel_fnc = nearfield_double_layer
+    elif kernel_name == "adjoint_double_layer":
+        kernel_fnc = nearfield_adjoint_double_layer
+    elif kernel_name == "hypersingular":
+        kernel_fnc = nearfield_hypersingular
+    else:
+        raise Exception("Unknown kernel name.")
+    kernel_fnc(args)

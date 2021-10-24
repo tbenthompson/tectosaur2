@@ -15,10 +15,12 @@ class PanelSurface:
 
     quad_pts: np.ndarray
     quad_wts: np.ndarray
+    quad_wt_jac: np.ndarray
     pts: np.ndarray
     normals: np.ndarray
     jacobians: np.ndarray
     radius: np.ndarray
+
     panel_bounds: np.ndarray
     panel_start_idxs: np.ndarray
     panel_sizes: np.ndarray
@@ -32,6 +34,7 @@ class PanelSurface:
         self.qw = qw
         self.quad_pts = quad_pts
         self.quad_wts = quad_wts
+        self.quad_wt_jac = quad_wts * jacobians
         self.pts = pts
         self.normals = normals
         self.jacobians = jacobians
@@ -117,6 +120,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
     ).flatten()
     quad_wts = (panel_parameter_width[:, None] * qw[None, :] * 0.5).flatten()
+
     surf_vals = [
         symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]
     ]
@@ -305,6 +309,18 @@ def stage1_refine(
     return cur_surfs
 
 
+def unit_circle(nq=12, max_curvature=0.25):
+    t = sp.var("t")
+    return stage1_refine(
+        [
+            (t, sp.cos(sp.pi * t), sp.sin(sp.pi * t)),
+        ],
+        gauss_rule(nq),
+        max_curvature=max_curvature,
+        control_points=np.array([[1, 0, 0, 0.05]]),
+    )[0]
+
+
 def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
     in_panel_idx = stage2_panels[:, 0].astype(int)
     left_param = stage2_panels[:, 1][:, None]
@@ -473,12 +489,12 @@ def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
 
 def apply_interp_mat(mat, interp_mat):
     if mat.ndim == 3:
-        reshaped = mat.reshape((-1, mat.shape[2]))
+        reshaped = np.transpose(mat, (0, 2, 1)).reshape((-1, mat.shape[1]))
     else:
         reshaped = mat
     out = scipy.sparse.bsr_matrix.dot(reshaped, interp_mat)
     if mat.ndim == 3:
-        return out.reshape((mat.shape[0], mat.shape[1], -1))
+        return np.transpose(out.reshape((mat.shape[0], mat.shape[2], -1)), (0, 2, 1))
     else:
         return out
 

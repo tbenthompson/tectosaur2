@@ -28,10 +28,11 @@ extension_args = dict(
     extra_link_args=extra_link_args,
     language="c++",
 )
+
 ext_modules = [
     Extension(
-        name="tectosaur2._local_qbx",
-        sources=["tectosaur2/_local_qbx.pyx"],
+        name="tectosaur2._ext",
+        sources=["tectosaur2/_ext.pyx"],
         **extension_args,
     ),
 ]
