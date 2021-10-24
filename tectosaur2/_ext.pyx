@@ -173,6 +173,7 @@ cdef extern from "nearfield.cpp":
         int src_panel_order
         long* panels
         long* panel_starts
+        long* refinement_map
         double mult
 
     cdef void nearfield_single_layer(const NearfieldArgs&)
@@ -182,7 +183,8 @@ cdef extern from "nearfield.cpp":
 
 def nearfield_integrals(
     kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
-    long[::1] panels, long[::1] panel_starts, double mult
+    long[::1] panels, long[::1] panel_starts, long[::1] refinement_map,
+    double mult
 ):
 
     cdef double[:,::1] src_pts = src.pts
@@ -194,7 +196,8 @@ def nearfield_integrals(
     cdef NearfieldArgs args = NearfieldArgs(
         &mat[0,0,0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_quad_wt_jac[0],
-        src_panel_order, &panels[0], &panel_starts[0], mult
+        src_panel_order, &panels[0], &panel_starts[0], &refinement_map[0],
+        mult
     )
 
     if kernel_name == "single_layer":

@@ -52,27 +52,20 @@ class LaplaceKernel:
         qbx_src_pts_unrefined = src_tree.query_ball_point(
             exp_centers, self.d_cutoff * qbx_L
         )
+        qbx_panels = []
+        for i in range(exp_centers.shape[0]):
+            panels = np.unique(np.array(qbx_src_pts_unrefined[i]) // src.panel_order)
+            qbx_panels.append(panels)
+        qbx_panel_starts = np.zeros(exp_centers.shape[0] + 1, dtype=int)
+        qbx_panel_starts[1:] = np.cumsum([p.shape[0] for p in panels])
+        qbx_panels = np.concatenate(qbx_panels)
 
         refined_src, interp_mat, refinement_plan = stage2_refine(
             src, exp_centers, kappa=self.kappa_qbx
         )
-        orig_panel = refinement_plan[:, 0].astype(int)
-        # refinement_map = np.unique(orig_panel, return_inverse=True)
-        refinement_map = {i: [] for i in range(src.n_panels)}
-        # todo: could use np.unique here
-        for i in range(orig_panel.shape[0]):
-            refinement_map[orig_panel[i]].append(i)
-
-        qbx_src_panels_refined = []
-        qbx_src_panels_unrefined = []
-        for i in range(exp_centers.shape[0]):
-            unrefined_panels = np.unique(
-                np.array(qbx_src_pts_unrefined[i]) // src.panel_order
-            )
-            qbx_src_panels_unrefined.append(unrefined_panels)
-            qbx_src_panels_refined.append(
-                np.concatenate([refinement_map[p] for p in unrefined_panels])
-            )
+        refinement_map = np.unique(
+            refinement_plan[:, 0].astype(int), return_inverse=True
+        )
 
         # step 5: QBX integrals
         # TODO: This could be replaced by a sparse local matrix.
@@ -89,7 +82,9 @@ class LaplaceKernel:
                 exp_rs,
                 max_p,
                 tol,
-                qbx_src_panels_refined,
+                qbx_panels,
+                qbx_panel_starts,
+                refinement_map,
             )
             if np.any(kappa_too_small):
                 warnings.warn("Some integrals diverged because kappa is too small.")
@@ -164,9 +159,9 @@ class LaplaceKernel:
         else:
             return mat
 
-    def _nearfield(self, mat, obs_pts, src, panels, panel_starts, mult):
+    def _nearfield(self, mat, obs_pts, src, panels, panel_starts, refinement_map, mult):
         return nearfield_integrals(
-            self.name, mat, obs_pts, src, panels, panel_starts, mult
+            self.name, mat, obs_pts, src, panels, panel_starts, refinement_map, mult
         )
 
 
