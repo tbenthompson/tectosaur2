@@ -76,14 +76,12 @@ inline std::array<double,2> hypersingular(
 struct NearfieldArgs {
     double* mat; int n_obs; int n_src; double* obs_pts;
     double* src_pts; double* src_normals; double* src_quad_wt_jac;
-    int src_panel_order; long* panels; long* panel_starts; long* refinement_map;
+    int src_panel_order; long* panels; long* panel_starts;
     double mult;
 };
 
 template <typename K>
 void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
-    int n_src_panels = a.n_src / a.src_panel_order;
-
     for (int i = 0; i < a.n_obs; i++){
         long panel_start = a.panel_starts[i];
         long panel_end = a.panel_starts[i + 1];
@@ -96,10 +94,7 @@ void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
         double obsx = a.obs_pts[i * 2 + 0];
         double obsy = a.obs_pts[i * 2 + 1];
 
-        auto panel_idx = std::lower_bound(
-            a.refinement_map, &a.refinement_map[n_src_panels], a.panels[panel_start]
-        ) - a.refinement_map;
-        while (panel_idx < n_src_panels && a.refinement_map[panel_idx] < panel_end) {
+        for (int panel_idx = panel_start; panel_idx < panel_end; panel_idx++) {
             int pt_start = a.panels[panel_idx] * a.src_panel_order;
             int pt_end = (a.panels[panel_idx] + 1) * a.src_panel_order;
             for (int src_pt_idx = pt_start; src_pt_idx < pt_end; src_pt_idx++) {
@@ -117,8 +112,6 @@ void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
                     a.mat[i * a.n_src * ndim + src_pt_idx * ndim + dim] += I;
                 }
             }
-
-            panel_idx += 1;
         }
     }
 }

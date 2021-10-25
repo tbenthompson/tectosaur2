@@ -219,7 +219,7 @@ def find_d_up(kernel, tol, nq, max_curvature, kappa_qbx):
 
 def final_check(kernel, src):
     density = np.ones_like(src.pts[:, 0])  # np.cos(source.pts[:,0] * src.pts[:,1])
-    baseline = global_qbx_self(src, p=50, kappa=10, direction=1.0)
+    baseline = global_qbx_self(kernel, src, p=50, kappa=10, direction=1.0)
     baseline_v = baseline.dot(density)
     tols = 10.0 ** np.arange(0, -15, -1)
     errs = []

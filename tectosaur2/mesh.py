@@ -309,7 +309,7 @@ def stage1_refine(
     return cur_surfs
 
 
-def unit_circle(nq=12, max_curvature=0.25):
+def unit_circle(nq=12, max_curvature=0.5, control_points=None):
     t = sp.var("t")
     return stage1_refine(
         [
@@ -317,7 +317,7 @@ def unit_circle(nq=12, max_curvature=0.25):
         ],
         gauss_rule(nq),
         max_curvature=max_curvature,
-        control_points=np.array([[1, 0, 0, 0.05]]),
+        control_points=None,
     )[0]
 
 

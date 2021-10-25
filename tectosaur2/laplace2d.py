@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import scipy.spatial
 
-from ._ext import local_qbx_integrals, nearfield_integrals
+from ._ext import identify_nearfield_panels, local_qbx_integrals, nearfield_integrals
 from .mesh import apply_interp_mat, stage2_refine
 
 
@@ -49,29 +49,26 @@ class LaplaceKernel:
 
         # step 4: find which source panels need to use QBX
         # this information must be propagated to the refined panels.
-        qbx_src_pts_unrefined = src_tree.query_ball_point(
-            exp_centers, self.d_cutoff * qbx_L
-        )
-        qbx_panels = []
-        for i in range(exp_centers.shape[0]):
-            panels = np.unique(np.array(qbx_src_pts_unrefined[i]) // src.panel_order)
-            qbx_panels.append(panels)
-        qbx_panel_starts = np.zeros(exp_centers.shape[0] + 1, dtype=int)
-        qbx_panel_starts[1:] = np.cumsum([p.shape[0] for p in panels])
-        qbx_panels = np.concatenate(qbx_panels)
-
         refined_src, interp_mat, refinement_plan = stage2_refine(
             src, exp_centers, kappa=self.kappa_qbx
         )
         refinement_map = np.unique(
             refinement_plan[:, 0].astype(int), return_inverse=True
+        )[1]
+
+        qbx_panels, qbx_panel_starts = identify_nearfield_panels(
+            exp_centers,
+            self.d_cutoff * qbx_L,
+            src_tree,
+            src.panel_order,
+            refinement_map,
         )
 
         # step 5: QBX integrals
         # TODO: This could be replaced by a sparse local matrix.
         n_qbx = np.sum(use_qbx)
         if n_qbx > 0:
-            qbx_mat = np.zeros((qbx_obs_pts.shape[0], 1, refined_src.n_pts))
+            qbx_mat = np.zeros((qbx_obs_pts.shape[0], refined_src.n_pts, self.ndim))
             p, kappa_too_small = local_qbx_integrals(
                 self.exp_deriv,
                 self.eval_deriv,
@@ -84,14 +81,15 @@ class LaplaceKernel:
                 tol,
                 qbx_panels,
                 qbx_panel_starts,
-                refinement_map,
             )
             if np.any(kappa_too_small):
                 warnings.warn("Some integrals diverged because kappa is too small.")
             qbx_mat = np.ascontiguousarray(apply_interp_mat(qbx_mat, interp_mat))
 
             # step 6: subtract off the direct term whenever a QBX integral is used.
-            self._nearfield(qbx_mat, qbx_obs_pts, src, qbx_src_panels_unrefined, -1.0)
+            self._nearfield(
+                qbx_mat, qbx_obs_pts, src, qbx_panels, qbx_panel_starts, -1.0
+            )
             mat[use_qbx] += qbx_mat
 
         # step 7: nearfield integrals
@@ -99,30 +97,28 @@ class LaplaceKernel:
             ~use_qbx
         )
         n_nearfield = np.sum(use_nearfield)
+
+        report = dict()
         if n_nearfield > 0:
             nearfield_obs_pts = obs_pts[use_nearfield]
             nearfield_L = closest_panel_length[use_nearfield]
-            nearfield_src_pts_unrefined = src_tree.query_ball_point(
-                nearfield_obs_pts, self.d_up[0] * nearfield_L
+            nearfield_panels, nearfield_panel_starts = identify_nearfield_panels(
+                nearfield_obs_pts,
+                self.d_up[0] * nearfield_L,
+                src_tree,
+                src.panel_order,
+                refinement_map,
             )
 
-            nearfield_src_panels_refined = []
-            nearfield_src_panels_unrefined = []
-            for i in range(nearfield_obs_pts.shape[0]):
-                unrefined_panels = np.unique(
-                    np.array(nearfield_src_pts_unrefined[i]) // src.panel_order
-                )
-                nearfield_src_panels_unrefined.append(unrefined_panels)
-                nearfield_src_panels_refined.append(
-                    np.concatenate([refinement_map[p] for p in unrefined_panels])
-                )
-
-            nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], 1, refined_src.n_pts))
+            nearfield_mat = np.zeros(
+                (nearfield_obs_pts.shape[0], refined_src.n_pts, self.ndim)
+            )
             self._nearfield(
                 nearfield_mat,
                 nearfield_obs_pts,
                 refined_src,
-                nearfield_src_panels_refined,
+                nearfield_panels,
+                nearfield_panel_starts,
                 1.0,
             )
             nearfield_mat = np.ascontiguousarray(
@@ -132,41 +128,44 @@ class LaplaceKernel:
                 nearfield_mat,
                 nearfield_obs_pts,
                 src,
-                nearfield_src_panels_unrefined,
+                nearfield_panels,
+                nearfield_panel_starts,
                 -1.0,
             )
             mat[use_nearfield] += nearfield_mat
 
+            if return_report:
+                report["nearfield_panels"] = nearfield_panels
+                report["nearfield_panel_starts"] = nearfield_panel_starts
+                report["n_nearfield_panels"] = nearfield_panel_starts[-1]
+
         if return_report:
-            report = dict()
             report["refined_src"] = refined_src
             report["interp_mat"] = interp_mat
 
             report["use_qbx"] = use_qbx
-            report["n_qbx_panels"] = np.sum([len(p) for p in qbx_src_panels_refined])
-            report["qbx_src_panels"] = qbx_src_panels_unrefined
+            report["qbx_panels"] = qbx_panels
+            report["qbx_panel_starts"] = qbx_panel_starts
+            report["n_qbx_panels"] = qbx_panel_starts[-1]
             report["exp_centers"] = exp_centers
             report["exp_rs"] = exp_rs
             report["p"] = p
             report["kappa_too_small"] = kappa_too_small
 
             report["use_nearfield"] = use_nearfield
-            report["n_nearfield_panels"] = np.sum(
-                [len(p) for p in nearfield_src_panels_unrefined]
-            )
-            report["nearfield_src_panels"] = nearfield_src_panels_unrefined
-            return mat, report
+            return np.transpose(mat, (0, 2, 1)), report
         else:
-            return mat
+            return np.transpose(mat, (0, 2, 1))
 
-    def _nearfield(self, mat, obs_pts, src, panels, panel_starts, refinement_map, mult):
+    def _nearfield(self, mat, obs_pts, src, panels, panel_starts, mult):
         return nearfield_integrals(
-            self.name, mat, obs_pts, src, panels, panel_starts, refinement_map, mult
+            self.name, mat, obs_pts, src, panels, panel_starts, mult
         )
 
 
 class SingleLayer(LaplaceKernel):
     name = "single_layer"
+    ndim = 1
     exp_deriv = False
     eval_deriv = False
 
@@ -184,6 +183,7 @@ class SingleLayer(LaplaceKernel):
 
 class DoubleLayer(LaplaceKernel):
     name = "double_layer"
+    ndim = 1
     exp_deriv = True
     eval_deriv = False
 
@@ -209,6 +209,7 @@ class DoubleLayer(LaplaceKernel):
 
 class AdjointDoubleLayer(LaplaceKernel):
     name = "adjoint_double_layer"
+    ndim = 2
     exp_deriv = False
     eval_deriv = True
 
@@ -231,6 +232,7 @@ class AdjointDoubleLayer(LaplaceKernel):
 
 class Hypersingular(LaplaceKernel):
     name = "hypersingular"
+    ndim = 2
     exp_deriv = True
     eval_deriv = True
 

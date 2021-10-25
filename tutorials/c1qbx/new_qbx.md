@@ -14,7 +14,6 @@ kernelspec:
 
 ## TODO:
 
-- local qbx using single_layer, adjoint_double_layer, hypersingular
 - make sure this works for fault-surface intersection and the like where historically i've needed to make sure the expansion centers were exactly the same.
 - try a fault with a singular tip!
 - optimize! later!
