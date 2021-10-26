@@ -103,7 +103,7 @@ cdef pair[int, bool] single_obs(
     cdef int divergences = 0
     cdef int m = 1
     #TODO: currently the convergence criterion here depends only on the real component
-    for m in range(2, 21):#max_p + 1):
+    for m in range(2, max_p + 1):
         eval_t *= zz0_div_r
         eval_tm = eval_t
         if (<int>exp_deriv) + (<int>eval_deriv) == 0:

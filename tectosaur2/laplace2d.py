@@ -295,4 +295,4 @@ class Hypersingular(LaplaceKernel):
 single_layer = SingleLayer()
 double_layer = DoubleLayer()
 adjoint_double_layer = AdjointDoubleLayer()
-hypersingular = Hypersingular()
+hypersingular = Hypersingular(kappa_qbx=5)

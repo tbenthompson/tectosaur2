@@ -11,7 +11,7 @@ from tectosaur2.laplace2d import (
 from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
 # kernels = [single_layer]
-kernels = [double_layer]
+# kernels = [double_layer]
 # kernels=[adjoint_double_layer]
 # kernels = [hypersingular]
 kernels = [single_layer, double_layer, adjoint_double_layer, hypersingular]
@@ -95,32 +95,13 @@ def test_integrate_self(K):
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
 
-    global_qbx = global_qbx_self(K, src, p=50, direction=1.0, kappa=10)
+    global_qbx = global_qbx_self(K, src, p=10, direction=1.0, kappa=3)
     global_v = global_qbx.dot(density)
 
-    local_qbx, report = K.integrate(
-        src.pts, src, tol=1e-13, d_cutoff=2.5, kappa_qbx=6, return_report=True
-    )
+    local_qbx, report = K.integrate(src.pts, src, return_report=True)
     local_v = local_qbx.dot(density)
 
-    local_qbx2, report2 = K.integrate(
-        src.pts, src, tol=1e-13, d_cutoff=2.5, kappa_qbx=6, return_report=True
-    )
-    # local_v2 = local_qbx.dot(density)
-    import matplotlib.pyplot as plt
-
-    err = np.log10(
-        np.abs(report["qbx_refined_mat"][:, 0, :] - report2["qbx_refined_mat"][:, 0, :])
-    )
-    err = np.log10(np.abs(local_qbx[:, 0, :] - local_qbx2[:, 0, :]))
-    print(np.max(err))
-    plt.imshow(err)
-    plt.colorbar()
-    plt.show()
-    print(np.all(report["exp_centers"] - report2["exp_centers"] == 0))
-    # print(np.any(report['qbx_refined_panels'] - report2['qbx_refined_panels'] != 0))
-    # print(np.any(report['use_qbx'] != report2['use_qbx']))
-    # __import__('ipdb').set_trace()
-    # print(np.any((report['interp_mat'] - report2['interp_mat']).toarray() != 0))
-
-    np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
+    tol = 1e-13
+    if K is hypersingular:
+        tol = 2e-12
+    np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
