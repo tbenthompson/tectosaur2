@@ -8,7 +8,7 @@ from .mesh import apply_interp_mat, stage2_refine
 
 
 class LaplaceKernel:
-    def __init__(self, d_cutoff=1.5, d_up=[0.5, 0.0, 0.0, 4.0], kappa_qbx=4):
+    def __init__(self, d_cutoff=1.5, d_up=[4.0, 0.0, 0.0, 0.35], kappa_qbx=4):
         self.d_cutoff = d_cutoff
         self.d_up = d_up
         self.kappa_qbx = kappa_qbx
@@ -21,7 +21,16 @@ class LaplaceKernel:
         max_p=50,
         on_src_direction=1.0,
         return_report=False,
+        d_cutoff=None,
+        d_up=None,
+        kappa_qbx=None,
     ):
+        if d_cutoff is None:
+            d_cutoff = self.d_cutoff
+        if d_up is None:
+            d_up = self.d_up
+        if kappa_qbx is None:
+            kappa_qbx = self.kappa_qbx
         # step 1: construct the farfield matrix!
         mat = self._direct(obs_pts, src)
 
@@ -29,7 +38,7 @@ class LaplaceKernel:
         src_tree = scipy.spatial.KDTree(src.pts)
         closest_dist, closest_idx = src_tree.query(obs_pts)
         closest_panel_length = src.panel_length[closest_idx // src.panel_order]
-        use_qbx = closest_dist < self.d_up[-1] * closest_panel_length
+        use_qbx = closest_dist < d_up[-1] * closest_panel_length
         qbx_closest_pts = src.pts[closest_idx][use_qbx]
         qbx_normals = src.normals[closest_idx][use_qbx]
         qbx_obs_pts = obs_pts[use_qbx]
@@ -47,64 +56,83 @@ class LaplaceKernel:
             qbx_closest_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
         )
 
-        # step 4: find which source panels need to use QBX
-        # this information must be propagated to the refined panels.
+        # step 4: refine the
         refined_src, interp_mat, refinement_plan = stage2_refine(
-            src, exp_centers, kappa=self.kappa_qbx
+            src, exp_centers, kappa=kappa_qbx
         )
         refinement_map = np.unique(
             refinement_plan[:, 0].astype(int), return_inverse=True
         )[1]
 
-        qbx_panels, qbx_panel_starts = identify_nearfield_panels(
-            exp_centers,
-            self.d_cutoff * qbx_L,
-            src_tree,
-            src.panel_order,
-            refinement_map,
-        )
-
-        # step 5: QBX integrals
-        # TODO: This could be replaced by a sparse local matrix.
         n_qbx = np.sum(use_qbx)
         if n_qbx > 0:
-            qbx_mat = np.zeros((qbx_obs_pts.shape[0], refined_src.n_pts, self.ndim))
+            # step 4: find which source panels need to use QBX
+            # this information must be propagated to the refined panels.
+            (
+                qbx_refined_panels,
+                qbx_refined_panel_starts,
+                qbx_unrefined_panels,
+                qbx_unrefined_panel_starts,
+            ) = identify_nearfield_panels(
+                exp_centers,
+                d_cutoff * qbx_L,
+                src_tree,
+                src.panel_order,
+                refinement_map,
+            )
+
+            # step 5: QBX integrals
+            # TODO: This could be replaced by a sparse local matrix.
+            qbx_refined_mat = np.zeros(
+                (qbx_obs_pts.shape[0], refined_src.n_pts, self.ndim)
+            )
             p, kappa_too_small = local_qbx_integrals(
                 self.exp_deriv,
                 self.eval_deriv,
-                qbx_mat,
+                qbx_refined_mat,
                 qbx_obs_pts,
                 refined_src,
                 exp_centers,
                 exp_rs,
                 max_p,
                 tol,
-                qbx_panels,
-                qbx_panel_starts,
+                qbx_refined_panels,
+                qbx_refined_panel_starts,
             )
             if np.any(kappa_too_small):
                 warnings.warn("Some integrals diverged because kappa is too small.")
-            qbx_mat = np.ascontiguousarray(apply_interp_mat(qbx_mat, interp_mat))
+            qbx_mat = np.ascontiguousarray(
+                apply_interp_mat(qbx_refined_mat, interp_mat)
+            )
 
             # step 6: subtract off the direct term whenever a QBX integral is used.
+            correction_mat = np.zeros((qbx_obs_pts.shape[0], src.n_pts, self.ndim))
             self._nearfield(
-                qbx_mat, qbx_obs_pts, src, qbx_panels, qbx_panel_starts, -1.0
+                correction_mat,
+                qbx_obs_pts,
+                src,
+                qbx_unrefined_panels,
+                qbx_unrefined_panel_starts,
+                -1.0,
             )
-            mat[use_qbx] += qbx_mat
+            mat[use_qbx] += qbx_mat + correction_mat
 
         # step 7: nearfield integrals
-        use_nearfield = (closest_dist < self.d_up[0] * closest_panel_length) & (
-            ~use_qbx
-        )
+        use_nearfield = (closest_dist < d_up[0] * closest_panel_length) & (~use_qbx)
         n_nearfield = np.sum(use_nearfield)
 
-        report = dict()
         if n_nearfield > 0:
             nearfield_obs_pts = obs_pts[use_nearfield]
             nearfield_L = closest_panel_length[use_nearfield]
-            nearfield_panels, nearfield_panel_starts = identify_nearfield_panels(
+
+            (
+                nearfield_refined_panels,
+                nearfield_refined_panel_starts,
+                nearfield_unrefined_panels,
+                nearfield_unrefined_panel_starts,
+            ) = identify_nearfield_panels(
                 nearfield_obs_pts,
-                self.d_up[0] * nearfield_L,
+                d_up[0] * nearfield_L,
                 src_tree,
                 src.panel_order,
                 refinement_map,
@@ -117,8 +145,8 @@ class LaplaceKernel:
                 nearfield_mat,
                 nearfield_obs_pts,
                 refined_src,
-                nearfield_panels,
-                nearfield_panel_starts,
+                nearfield_refined_panels,
+                nearfield_refined_panel_starts,
                 1.0,
             )
             nearfield_mat = np.ascontiguousarray(
@@ -128,31 +156,32 @@ class LaplaceKernel:
                 nearfield_mat,
                 nearfield_obs_pts,
                 src,
-                nearfield_panels,
-                nearfield_panel_starts,
+                nearfield_unrefined_panels,
+                nearfield_unrefined_panel_starts,
                 -1.0,
             )
             mat[use_nearfield] += nearfield_mat
 
-            if return_report:
-                report["nearfield_panels"] = nearfield_panels
-                report["nearfield_panel_starts"] = nearfield_panel_starts
-                report["n_nearfield_panels"] = nearfield_panel_starts[-1]
-
         if return_report:
+            report = dict()
             report["refined_src"] = refined_src
             report["interp_mat"] = interp_mat
 
-            report["use_qbx"] = use_qbx
-            report["qbx_panels"] = qbx_panels
-            report["qbx_panel_starts"] = qbx_panel_starts
-            report["n_qbx_panels"] = qbx_panel_starts[-1]
-            report["exp_centers"] = exp_centers
-            report["exp_rs"] = exp_rs
-            report["p"] = p
-            report["kappa_too_small"] = kappa_too_small
-
-            report["use_nearfield"] = use_nearfield
+            for k in [
+                "qbx_refined_mat",
+                "use_qbx",
+                "qbx_refined_panels",
+                "qbx_refined_panel_starts",
+                "n_qbx_panels",
+                "exp_centers",
+                "exp_rs",
+                "p",
+                "kappa_too_small",
+                "nearfield_refined_panels",
+                "nearfield_refined_panel_starts",
+                "n_nearfield_panels",
+            ]:
+                report[k] = locals().get(k, None)
             return np.transpose(mat, (0, 2, 1)), report
         else:
             return np.transpose(mat, (0, 2, 1))
@@ -174,9 +203,11 @@ class SingleLayer(LaplaceKernel):
         dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
         dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
-        r2[r2 == 0] = 1
+        too_close = r2 <= 1e-16
+        r2[too_close] = 1
+
         G = (1.0 / (4 * np.pi)) * np.log(r2)
-        G[r2 == 0] = 0
+        G[too_close] = 0
 
         return (G * src.jacobians * src.quad_wts[None, :])[:, :, None]
 
@@ -194,7 +225,8 @@ class DoubleLayer(LaplaceKernel):
         dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
         dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
-        r2[r2 == 0] = 1
+        too_close = r2 <= 1e-16
+        r2[too_close] = 1
 
         # The double layer potential
         integrand = (
@@ -202,7 +234,7 @@ class DoubleLayer(LaplaceKernel):
             / (2 * np.pi * r2)
             * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1])
         )
-        integrand[r2 == 0] = 0.0
+        integrand[too_close] = 0.0
 
         return (integrand * src.jacobians * src.quad_wts[None, :])[:, :, None]
 
@@ -217,14 +249,15 @@ class AdjointDoubleLayer(LaplaceKernel):
         dx = obs_pts[:, None, 0] - src.pts[None, :, 0]
         dy = obs_pts[:, None, 1] - src.pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
-        r2[r2 == 0] = 1
+        too_close = r2 <= 1e-16
+        r2[too_close] = 1
 
         out = np.empty((obs_pts.shape[0], src.n_pts, 2))
         out[:, :, 0] = dx
         out[:, :, 1] = dy
 
         C = -1.0 / (2 * np.pi * r2)
-        C[r2 == 0] = 0
+        C[too_close] = 0
 
         # multiply by the scaling factor, jacobian and quadrature weights
         return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, :, None]
@@ -240,11 +273,13 @@ class Hypersingular(LaplaceKernel):
         dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
         dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
-        r2[r2 == 0] = 1
+        too_close = r2 <= 1e-16
+        r2[too_close] = 1
 
         A = 2 * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1]) / r2
         C = 1.0 / (2 * np.pi * r2)
-        C[r2 == 0] = 0
+        C[too_close] = 0
+
         out = np.empty((obs_pts.shape[0], src.n_pts, 2))
 
         # The definition of the hypersingular kernel.

@@ -52,19 +52,19 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
     src_high, interp_mat_high = upsample(src, kappa)
 
     exp_terms = []
-    for i in range(p):
-        K = exp_fnc(exp_centers, src_high.pts, src_high.normals, exp_rs, i)
+    for m in range(p + 1):
+        K = exp_fnc(exp_centers, src_high.pts, src_high.normals, exp_rs, m)
         integral = K * (src_high.quad_wts[None, :] * src_high.jacobians[None, :])
         exp_terms.append(integral)
 
     eval_terms = []
-    for i in range(p):
-        eval_terms.append(eval_fnc(obs_pts, exp_centers, exp_rs, i))
+    for m in range(p + 1):
+        eval_terms.append(eval_fnc(obs_pts, exp_centers, exp_rs, m))
 
     out = np.zeros((obs_pts.shape[0], src_high.n_pts, kernel.ndim), dtype=np.float64)
-    for i in range(p):
-        out[:, :, 0] += np.real(exp_terms[i] * eval_terms[i][:, None])
+    for m in range(p + 1):
+        out[:, :, 0] += np.real(exp_terms[m] * eval_terms[m][:, None])
         if kernel.ndim == 2:
-            out[:, :, 1] -= np.imag(exp_terms[i] * eval_terms[i][:, None])
+            out[:, :, 1] -= np.imag(exp_terms[m] * eval_terms[m][:, None])
 
     return np.transpose(apply_interp_mat(out, interp_mat_high), (0, 2, 1))

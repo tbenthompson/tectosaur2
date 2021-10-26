@@ -6,6 +6,7 @@
 
 constexpr double C = 1.0 / (2 * M_PI);
 constexpr double C2 = 1.0 / (4 * M_PI);
+constexpr double too_close = 1e-16;
 
 inline std::array<double,1> single_layer(
     double obsx, double obsy,
@@ -16,7 +17,7 @@ inline std::array<double,1> single_layer(
     double r2 = dx*dx + dy*dy;
 
     double G = C2 * log(r2);
-    if (r2 == 0.0) {
+    if (r2 <= too_close) {
         G = 0.0;
     }
     return {G};
@@ -31,7 +32,7 @@ inline std::array<double,1> double_layer(
     double r2 = dx*dx + dy*dy;
 
     double invr2 = 1.0 / r2;
-    if (r2 == 0.0) {
+    if (r2 <= too_close) {
         invr2 = 0.0;
     }
 
@@ -47,7 +48,7 @@ inline std::array<double,2> adjoint_double_layer(
     double r2 = dx*dx + dy*dy;
 
     double invr2 = 1.0 / r2;
-    if (r2 == 0.0) {
+    if (r2 <= too_close) {
         invr2 = 0.0;
     }
     double F = -C * invr2;
@@ -64,7 +65,7 @@ inline std::array<double,2> hypersingular(
     double r2 = dx*dx + dy*dy;
 
     double invr2 = 1.0 / r2;
-    if (r2 == 0.0) {
+    if (r2 <= too_close) {
         invr2 = 0.0;
     }
 
@@ -82,6 +83,7 @@ struct NearfieldArgs {
 
 template <typename K>
 void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
+#pragma omp parallel for
     for (int i = 0; i < a.n_obs; i++){
         long panel_start = a.panel_starts[i];
         long panel_end = a.panel_starts[i + 1];
