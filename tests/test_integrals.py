@@ -11,31 +11,35 @@ from tectosaur2.laplace2d import (
 from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
 # kernels = [single_layer]
-# kernels = [double_layer]
+kernels = [double_layer]
 # kernels=[adjoint_double_layer]
 # kernels = [hypersingular]
 kernels = [single_layer, double_layer, adjoint_double_layer, hypersingular]
 
 
-def all_panels(n_obs, n_src_panels):
-    panels = [np.arange(n_src_panels, dtype=int) for i in range(n_obs)]
-    panel_starts = np.zeros(n_obs + 1, dtype=int)
-    panel_starts[1:] = np.cumsum([p.shape[0] for p in panels])
-    panels = np.concatenate(panels)
-    return panels, panel_starts
-
-
 @pytest.mark.parametrize("K", kernels)
 def test_nearfield_far(K):
-    src = unit_circle()
-    obs_pts = 2 * src.pts
+    src = unit_circle(max_curvature=1.0)
+    density = np.cos(src.pts[:, 0])
+
+    obs_pts = 2 * src.pts[:1]
     true = K._direct(obs_pts, src)
+    true_v = np.sum(true * density[None, :, None], axis=1)
 
-    est = np.zeros_like(true)
-    panels, panel_starts = all_panels(obs_pts.shape[0], src.n_panels)
-    K._nearfield(est, obs_pts, src, panels, panel_starts, 1.0)
+    for d_refine in [0.5, 3.0, 10.0]:
+        est = np.zeros_like(true)
 
-    np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
+        pts_per_panel = [
+            np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
+        ]
+        pts_starts = np.zeros(src.n_panels + 1, dtype=int)
+        pts_starts[1:] = np.cumsum([p.shape[0] for p in pts_per_panel])
+        pts_per_panel = np.concatenate(pts_per_panel)
+
+        K._nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
+        est_v = np.sum(est * density[None, :, None], axis=1)
+
+        np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
 
 @pytest.mark.parametrize("K", kernels)
@@ -47,7 +51,9 @@ def test_integrate_near(K):
         apply_interp_mat(K._direct(obs_pts, src_high), interp_mat), (0, 2, 1)
     )
 
-    est, report = K.integrate(obs_pts, src, tol=1e-14, return_report=True)
+    est, report = K.integrate(
+        obs_pts, src, d_refine=3.0, d_up=4.0, d_qbx=0.0, tol=1e-14, return_report=True
+    )
     assert report["n_qbx_panels"] is None
 
     np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
@@ -79,11 +85,17 @@ def test_integrate_can_do_global_qbx(K):
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
 
-    global_qbx = global_qbx_self(K, src, p=3, direction=1.0, kappa=10)
+    global_qbx = global_qbx_self(K, src, p=3, direction=-1.0, kappa=10)
     global_v = global_qbx.dot(density)
 
     local_qbx, report = K.integrate(
-        src.pts, src, d_cutoff=100.0, max_p=3, tol=1e-13, return_report=True
+        src.pts,
+        src,
+        d_cutoff=100.0,
+        max_p=3,
+        tol=1e-13,
+        on_src_direction=-1.0,
+        return_report=True,
     )
     local_v = local_qbx.dot(density)
 

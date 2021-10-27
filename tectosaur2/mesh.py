@@ -12,16 +12,17 @@ class PanelSurface:
 
     qx: np.ndarray
     qw: np.ndarray
+    interp_wts: np.ndarray
 
     quad_pts: np.ndarray
     quad_wts: np.ndarray
-    quad_wt_jac: np.ndarray
     pts: np.ndarray
     normals: np.ndarray
     jacobians: np.ndarray
     radius: np.ndarray
 
     panel_bounds: np.ndarray
+    panel_parameter_width: np.ndarray
     panel_start_idxs: np.ndarray
     panel_sizes: np.ndarray
     panel_centers: np.ndarray
@@ -32,19 +33,20 @@ class PanelSurface:
     ):
         self.qx = qx
         self.qw = qw
+        self.interp_wts = build_interp_wts(self.qx)
+
         self.quad_pts = quad_pts
         self.quad_wts = quad_wts
-        self.quad_wt_jac = quad_wts * jacobians
         self.pts = pts
         self.normals = normals
         self.jacobians = jacobians
         self.radius = radius
         self.panel_bounds = panel_bounds
 
-        panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
+        self.panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
         self.panel_sizes = np.full(self.panel_bounds.shape[0], self.panel_order)
         self.panel_start_idxs = np.cumsum(self.panel_sizes) - self.panel_order
-        self.panel_centers = (1.0 / panel_parameter_width[:, None]) * np.sum(
+        self.panel_centers = (1.0 / self.panel_parameter_width[:, None]) * np.sum(
             (self.quad_wts[:, None] * self.pts).reshape((-1, self.panel_order, 2)),
             axis=1,
         )
@@ -334,14 +336,15 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
         surf.n_panels, surf.qx, stage2_panels[:, 0].astype(int), out_relative_nodes
     )
 
-    in_panel_parameter_width = surf.panel_bounds[:, 1] - surf.panel_bounds[:, 0]
     quad_pts = (
         surf.panel_bounds[in_panel_idx, 0, None]
-        + in_panel_parameter_width[in_panel_idx, None] * (out_relative_nodes + 1) * 0.5
+        + surf.panel_parameter_width[in_panel_idx, None]
+        * (out_relative_nodes + 1)
+        * 0.5
     ).ravel()
     quad_wts = (
         (qw[None, :] * 0.25 * (right_param - left_param))
-        * in_panel_parameter_width[in_panel_idx, None]
+        * surf.panel_parameter_width[in_panel_idx, None]
     ).ravel()
 
     pts = interp_mat.dot(surf.pts)
@@ -353,7 +356,7 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
         surf.panel_bounds[in_panel_idx, 0, None]
         + (stage2_panels[:, 1:] + 1)
         * 0.5
-        * in_panel_parameter_width[in_panel_idx, None]
+        * surf.panel_parameter_width[in_panel_idx, None]
     )
 
     return (
@@ -372,38 +375,11 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
     )
 
 
-def stage2_refine(surf, obs_pts, max_iter=30, distance_limit=0.49, kappa=3):
-    refinement_plan = np.array(
-        [np.arange(surf.n_panels), -np.ones(surf.n_panels), np.ones(surf.n_panels)]
-    ).T
-    expansion_tree = scipy.spatial.KDTree(obs_pts)
-
-    for i in range(max_iter):
-        stage2_surf, _ = build_stage2_panel_surf(
-            surf, refinement_plan, surf.qx, surf.qw
-        )
-
-        min_panel_expansion_dist = np.min(
-            expansion_tree.query(stage2_surf.pts)[0].reshape((-1, surf.panel_order)),
-            axis=1,
-        )
-        refine = min_panel_expansion_dist < distance_limit * stage2_surf.panel_length
-
-        new_quad_panel_domains = refine_panels(refinement_plan[:, 1:], refine)
-        new_in_panel_idx = np.repeat(refinement_plan[:, 0], refine + 1)
-        new_quad_panels = np.hstack((new_in_panel_idx[:, None], new_quad_panel_domains))
-
-        if refinement_plan.shape[0] == new_quad_panels.shape[0]:
-            break
-        refinement_plan = new_quad_panels
-
-    out_order = surf.panel_order * kappa
-
-    upsampled_gauss = gauss_rule(out_order)
-    final_surf, interp_mat = build_stage2_panel_surf(
-        surf, refinement_plan, *upsampled_gauss
-    )
-    return final_surf, interp_mat, refinement_plan
+def build_interp_wts(x):
+    dist = x[:, None] - x[None, :]
+    np.fill_diagonal(dist, 1.0)
+    weights = 1.0 / np.prod(dist, axis=1)
+    return weights
 
 
 def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
