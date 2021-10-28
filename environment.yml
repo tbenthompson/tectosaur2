@@ -1,7 +1,8 @@
-name: bie_book
+name: tectosaur2
 channels:
   - conda-forge
 dependencies:
+  - clangxx
   - pre-commit
   - jupyterlab
   - cython
@@ -12,7 +13,7 @@ dependencies:
   - mamba
   - pip
   - pyproj
-  - gdal
+  # - gdal
   - gmsh
   # - pycuda
   - k3d
@@ -37,5 +38,5 @@ dependencies:
     - sphinx-sitemap
     - loopy
     - boxtree
-    - okada_wrapper
+    # - okada_wrapper
     - tanh-sinh

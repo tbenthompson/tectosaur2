@@ -19,7 +19,7 @@ kernels = [single_layer, double_layer, adjoint_double_layer, hypersingular]
 
 @pytest.mark.parametrize("K", kernels)
 def test_nearfield_far(K):
-    src = unit_circle(max_curvature=1.0)
+    src = unit_circle()
     density = np.cos(src.pts[:, 0])
 
     obs_pts = 2 * src.pts[:1]
@@ -54,7 +54,7 @@ def test_integrate_near(K):
     est, report = K.integrate(
         obs_pts, src, d_refine=3.0, d_up=4.0, d_qbx=0.0, tol=1e-14, return_report=True
     )
-    assert report["n_qbx_panels"] is None
+    assert report["n_qbx"] == 0
 
     np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
 
@@ -100,6 +100,10 @@ def test_integrate_can_do_global_qbx(K):
     local_v = local_qbx.dot(density)
 
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
+
+
+def test_hi():
+    print("HI")
 
 
 @pytest.mark.parametrize("K", kernels)

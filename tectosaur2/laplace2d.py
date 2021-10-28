@@ -94,9 +94,8 @@ class LaplaceKernel:
                 warnings.warn("Some integrals diverged because kappa is too small.")
 
             # step 6: subtract off the direct term whenever a QBX integral is used.
-            correction_mat = np.zeros((qbx_obs_pts.shape[0], src.n_pts, self.ndim))
             self._nearfield(
-                correction_mat,
+                qbx_mat,
                 qbx_obs_pts,
                 src,
                 qbx_panel_obs_pts,
@@ -104,7 +103,7 @@ class LaplaceKernel:
                 -1.0,
                 0.0,
             )
-            mat[use_qbx] += qbx_mat + correction_mat
+            mat[use_qbx] += qbx_mat
 
         # step 7: nearfield integrals
         use_nearfield = (closest_dist < d_up * closest_panel_length) & (~use_qbx)
@@ -148,21 +147,18 @@ class LaplaceKernel:
 
         if return_report:
             report = dict()
+            report["n_qbx"] = n_qbx
+            report["n_nearfield"] = n_nearfield
+            if n_nearfield > 0:
+                report["n_nearfield_panels"] = panel_obs_pts_starts[-1]
+            if n_qbx > 0:
+                report["n_qbx_panels"] = qbx_panel_obs_pt_starts[-1]
             for k in [
-                "refined_src",
-                "interp_mat",
-                "qbx_refined_mat",
-                "use_qbx",
-                "qbx_refined_panels",
-                "qbx_refined_panel_starts",
-                "n_qbx_panels",
                 "exp_centers",
                 "exp_rs",
                 "p",
                 "kappa_too_small",
-                "nearfield_refined_panels",
-                "nearfield_refined_panel_starts",
-                "n_nearfield_panels",
+                "use_qbx",
             ]:
                 report[k] = locals().get(k, None)
             return np.transpose(mat, (0, 2, 1)), report

@@ -1,3 +1,6 @@
+# mac
+.DS_Store
+
 # editors
 .vscode
 *.swp
@@ -14,6 +17,7 @@ _build
 
 # other
 .eggs
+*.egg-info
 build
 
 # cython

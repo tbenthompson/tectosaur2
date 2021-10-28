@@ -16,20 +16,26 @@ def import_and_display_fnc(module_name, fnc_name):
     display(Code(inspect.getsource(f), language="python"))
 
 
+def magic(text):
+    ipy = get_ipython()
+    if ipy is not None:
+        ipy.magic(text)
+
+
 def configure_mpl_fast():
-    get_ipython().magic("config InlineBackend.figure_format='png'")
+    magic("config InlineBackend.figure_format='png'")
 
 
 def configure_mpl_pretty():
-    get_ipython().magic("config InlineBackend.figure_format='retina'")
+    magic("config InlineBackend.figure_format='retina'")
     plt.rcParams["text.usetex"] = True
     plt.rcParams["text.latex.preamble"] = r"\usepackage{amsmath}"
 
 
 def setup(pretty=True, autoreload=True):
     if autoreload:
-        get_ipython().magic("load_ext autoreload")
-        get_ipython().magic("autoreload 2")
+        magic("load_ext autoreload")
+        magic("autoreload 2")
 
     if pretty:
         configure_mpl_pretty()

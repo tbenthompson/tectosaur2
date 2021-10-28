@@ -111,6 +111,7 @@ cdef pair[int, bool] single_obs(
     cdef int n_srcs = 0
     for pi in range(n_panels):
         n_srcs += subsets[pi].size() * nq
+
     cdef int kernel_dim = 2 if eval_deriv else 1
     cdef vector[double complex] r_inv_wz0 = vector[dcomplex](n_srcs)
     cdef vector[double complex] exp_t = vector[dcomplex](n_srcs)
@@ -433,7 +434,7 @@ def identify_nearfield_panels(obs_pts, radii, src_tree, int source_order):
         panels[i] = panels_vector[i]
 
     panel_obs_pts_np = np.empty(panel_starts[n_obs], dtype=int)
-    panel_obs_pt_starts_np = np.empty(n_src_panels, dtype=int)
+    panel_obs_pt_starts_np = np.empty(n_src_panels + 1, dtype=int)
     cdef long[:] panel_obs_pts = panel_obs_pts_np
     cdef long[:] panel_obs_pt_starts = panel_obs_pt_starts_np
     panel_obs_pt_starts[0] = 0
