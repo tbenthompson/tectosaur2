@@ -271,7 +271,18 @@ class Hypersingular(LaplaceKernel):
         return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, :, None]
 
 
-single_layer = SingleLayer()
-double_layer = DoubleLayer()
-adjoint_double_layer = AdjointDoubleLayer()
-hypersingular = Hypersingular()
+single_layer = SingleLayer(
+    d_cutoff=1.1, d_refine=2.25, d_up=0.9244212944751816, d_qbx=0.21499084799999996
+)
+
+double_layer = DoubleLayer(
+    d_cutoff=1.3, d_refine=2.25, d_up=1.1093055533702179, d_qbx=0.2579890175999999
+)
+
+adjoint_double_layer = AdjointDoubleLayer(
+    d_cutoff=1.6, d_refine=2.25, d_up=1.1093055533702179, d_qbx=0.2579890175999999
+)
+
+hypersingular = Hypersingular(
+    d_cutoff=1.3, d_refine=2.25, d_up=1.3311666640442614, d_qbx=0.3095868211199999
+)

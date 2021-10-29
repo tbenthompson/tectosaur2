@@ -187,11 +187,11 @@ cdef pair[int, bool] single_obs(
                 a1 = exp_m1 * eval_m1
                 if eval_deriv:
                     # eval_m0 is zero
-                    mag_a0 += fabs(real(a1))
+                    mag_a0 += fabs(real(a1)) + fabs(imag(a1))
                     t0 = a1
                 else:
                     a0 = exp_m0 * eval_m0
-                    mag_a0 += fabs(real(a0))
+                    mag_a0 += fabs(real(a0)) + fabs(imag(a0))
                     t0 = a0 + a1
                 qbx_terms[j * kernel_dim + 0] = real(t0)
                 if eval_deriv:
@@ -201,12 +201,13 @@ cdef pair[int, bool] single_obs(
 
     # Step 4: construct the power series.
     cdef double complex am
-    cdef double am_sum
+    cdef double am_sum_real
+    cdef double am_sum_imag
     cdef double mag_am_sum
     cdef double mag_am_sum_prev = mag_a0
     cdef int divergences = 0
     cdef int m = 1
-    #TODO: currently the convergence criterion here depends only on the real component
+
     for m in range(2, max_p + 1):
         eval_t *= zz0_div_r
         eval_tm = eval_t
@@ -215,15 +216,17 @@ cdef pair[int, bool] single_obs(
         elif (<int>exp_deriv) + (<int>eval_deriv) == 2:
             eval_tm *= m
 
-        am_sum = 0
+        am_sum_real = 0
+        am_sum_imag = 0
         for j in range(n_srcs):
             exp_t[j] *= r_inv_wz0[j]
             am = exp_t[j] * eval_tm
-            am_sum += real(am)
+            am_sum_real += real(am)
+            am_sum_imag += imag(am)
             qbx_terms[j * kernel_dim + 0] += real(am)
             if eval_deriv:
                 qbx_terms[j * kernel_dim + 1] -= imag(am)
-        mag_am_sum = fabs(am_sum)
+        mag_am_sum = fabs(am_sum_real) + fabs(am_sum_imag)
 
         # We use the sum of the last two terms to avoid issues with
         # common sequences where every terms alternate in magnitude

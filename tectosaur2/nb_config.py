@@ -50,4 +50,6 @@ def setup(pretty=True, autoreload=True):
     plt.rcParams["ytick.labelsize"] = 16
     plt.rcParams["legend.fontsize"] = 20
     plt.rcParams["figure.titlesize"] = 22
+    plt.rcParams["axes.facecolor"] = (1.0, 1.0, 1.0, 1.0)
+    plt.rcParams["figure.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["savefig.transparent"] = False

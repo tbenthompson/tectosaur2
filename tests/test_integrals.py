@@ -102,10 +102,6 @@ def test_integrate_can_do_global_qbx(K):
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
 
 
-def test_hi():
-    print("HI")
-
-
 @pytest.mark.parametrize("K", kernels)
 def test_integrate_self(K):
     src = unit_circle()
@@ -118,6 +114,4 @@ def test_integrate_self(K):
     local_v = local_qbx.dot(density)
 
     tol = 1e-13
-    if K is hypersingular:
-        tol = 2e-12
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)

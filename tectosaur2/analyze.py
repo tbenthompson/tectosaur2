@@ -20,34 +20,39 @@ def find_dcutoff_refine(kernel, src, tol, plot=False):
     # the largest cutoff error. Increasing p will reduce the cutoff error guaranteeing that
     # we never need to worry about cutoff error.
     density = np.ones_like(src.pts[:, 0])  # np.cos(src.pts[:,0] * src.pts[:,1])
-    plt.figure(figsize=(9, 13))
+    if plot:
+        plt.figure(figsize=(9, 13))
 
     params = []
     d_cutoffs = [1.1, 1.3, 1.6, 2.0]
     ps = np.arange(1, 55, 3)
     for di, direction in enumerate([-1.0, 1.0]):
-        baseline = global_qbx_self(kernel, src, p=20, kappa=10, direction=direction)
+        baseline = global_qbx_self(kernel, src, p=30, kappa=8, direction=direction)
         baseline_v = baseline.dot(density)
 
         # Check that the local qbx method matches the simple global qbx approach when d_cutoff is very large
-        d_refine_high = 5.0
-        local_baseline = kernel.integrate(
-            src.pts,
-            src,
-            d_cutoff=100.0,
-            tol=tol,
-            max_p=20,
-            d_refine=d_refine_high,
-            on_src_direction=direction,
-        )
+        d_refine_high = 8.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            local_baseline = kernel.integrate(
+                src.pts,
+                src,
+                d_cutoff=3.0,
+                tol=1e-20,
+                max_p=50,
+                d_refine=d_refine_high,
+                on_src_direction=direction,
+            )
         local_baseline_v = local_baseline.dot(density)
         err = np.max(np.abs(baseline_v - local_baseline_v))
-        assert err < 5e-14
+        print(err)
+        assert err < tol / 2
 
         n_qbx_panels = []
         drefine_optimal = []
         p_for_full_accuracy = []
-        plt.subplot(3, 2, 1 + di)
+        if plot:
+            plt.subplot(3, 2, 1 + di)
         for i_d, d_cutoff in enumerate(d_cutoffs):
             errs = []
             for i_p, p in enumerate(ps):
@@ -58,29 +63,30 @@ def find_dcutoff_refine(kernel, src, tol, plot=False):
                         src.pts,
                         src,
                         d_cutoff=d_cutoff,
-                        tol=tol,
+                        tol=1e-15,
                         max_p=p,
                         on_src_direction=direction,
                         d_refine=d_refine_high,
                         return_report=True,
                     )
-                    testv = test[:, 0, :].dot(density)
+                    testv = test.dot(density)
                     err = np.max(np.abs(baseline_v - testv))
                     errs.append(err)
+                    # print(p, err)
                     if err < tol:
                         for d_refine_decrease in np.arange(1.0, d_refine_high, 0.25):
                             refine_test, refine_report = kernel.integrate(
                                 src.pts,
                                 src,
                                 d_cutoff=d_cutoff,
-                                tol=tol * 0.8,  # decrease tol to have a safety margin.
+                                tol=1e-15,
                                 max_p=p
                                 + 10,  # Increase p here to have a refinement safety margin
                                 on_src_direction=direction,
                                 d_refine=d_refine_decrease,
                                 return_report=True,
                             )
-                            refine_testv = refine_test[:, 0, :].dot(density)
+                            refine_testv = refine_test.dot(density)
                             refine_err = np.max(np.abs(baseline_v - refine_testv))
                             if refine_err < tol:
                                 drefine_optimal.append(d_refine_decrease)
@@ -134,7 +140,8 @@ def find_dcutoff_refine(kernel, src, tol, plot=False):
             * np.array(n_qbx_panels)
             * np.array(drefine_optimal)
         )
-        print(direction, appx_cost)
+        if plot:
+            print(direction, appx_cost)
         total_cost += appx_cost
     if plot:
         plt.plot(d_cutoffs, total_cost, "k-o")
@@ -227,6 +234,7 @@ def _find_d_up_helper(kernel, nq, max_curvature, start_d, tol, kappa):
             err = np.max(
                 np.abs(upsample_mat.dot(test_density) - est_mat.dot(test_density))
             )
+
             # print(d, err)
             if err < tol:
                 d_up = max(d, d_up)
