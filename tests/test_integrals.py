@@ -114,4 +114,6 @@ def test_integrate_self(K):
     local_v = local_qbx.dot(density)
 
     tol = 1e-13
+    if K is hypersingular:
+        tol = 1e-12
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
