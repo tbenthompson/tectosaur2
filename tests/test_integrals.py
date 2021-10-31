@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from tectosaur2.global_qbx import global_qbx_self
+from tectosaur2.integrate import Integral, integrate_eqtn
 from tectosaur2.laplace2d import (
     adjoint_double_layer,
     double_layer,
@@ -23,11 +24,10 @@ def test_nearfield_far(K):
     density = np.cos(src.pts[:, 0])
 
     obs_pts = 2 * src.pts[:1]
-    true = K._direct(obs_pts, src)
-    true_v = np.sum(true * density[None, :, None], axis=1)
+    true = K.direct(obs_pts, src)
+    true_v = true.dot(density)
 
     for d_refine in [0.5, 3.0, 10.0]:
-        est = np.zeros_like(true)
 
         pts_per_panel = [
             np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
@@ -36,8 +36,9 @@ def test_nearfield_far(K):
         pts_starts[1:] = np.cumsum([p.shape[0] for p in pts_per_panel])
         pts_per_panel = np.concatenate(pts_per_panel)
 
-        K._nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
-        est_v = np.sum(est * density[None, :, None], axis=1)
+        est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
+        K.nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
+        est_v = np.transpose(est, (0,2,1)).dot(density)
 
         np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
@@ -47,13 +48,10 @@ def test_integrate_near(K):
     src = unit_circle(control_points=np.array([[1, 0, 0, 0.05]]))
     obs_pts = 1.14 * src.pts[1:4]
     src_high, interp_mat = upsample(src, 5)
-    true = np.transpose(
-        apply_interp_mat(K._direct(obs_pts, src_high), interp_mat), (0, 2, 1)
-    )
+    true = apply_interp_mat(K.direct(obs_pts, src_high), interp_mat)
 
-    est, report = K.integrate(
-        obs_pts, src, d_refine=3.0, d_up=4.0, d_qbx=0.0, tol=1e-14, return_report=True
-    )
+    term = Integral(K=K, src=src, d_refine=3.0, d_up = 4.0, d_qbx = 0.0)
+    est, report = integrate_eqtn(obs_pts, term, tol=1e-14, return_reports=True)
     assert report["n_qbx"] == 0
 
     np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
@@ -67,7 +65,7 @@ def test_global_qbx(K):
     true = apply_interp_mat(K._direct(obs_pts, src_high), interp_mat)
 
     density = np.cos(src.pts[:, 0])
-    true_v = np.transpose(true, (0, 2, 1)).dot(density)
+    true_v = true.dot(density)
 
     # p = 16, kappa = 4 are the minimal parameters for rtol=1e-13
     est = global_qbx_self(

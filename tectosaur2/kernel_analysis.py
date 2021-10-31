@@ -53,29 +53,27 @@ t = sp.var("t")
 # %%
 Ms = []
 for p in range(10, 30):
-    Ms.append(
-        hypersingular.integrate(
-            circle.pts,
-            circle,
-            d_cutoff=2.0,
-            tol=1e-25,
-            max_p=p,
-            d_refine=4.5,
-            on_src_direction=1.0,
-        )
-    )
+    Ms.append(hypersingular.integrate(
+        circle.pts,
+        circle,
+        d_cutoff=2.0,
+        tol=1e-25,
+        max_p=p,
+        d_refine=4.5,
+        on_src_direction=1.0
+    ))
 
 # %%
-density = np.cos(circle.pts[:, 0])
+density = np.cos(circle.pts[:,0])
 vs = []
 for i in range(len(Ms)):
     vs.append(Ms[i].dot(density))
 
 # %%
-for i in range(len(Ms) - 1):
-    diff = vs[i + 1] - vs[i]
+for i in range(len(Ms)-1):
+    diff = (vs[i+1] - vs[i])
     print(np.max(np.abs(diff)))
-    plt.plot(diff[:, 0], label=str(10 + i))
+    plt.plot(diff[:,0], label=str(10+i))
 plt.legend()
 plt.show()
 
@@ -85,10 +83,10 @@ circle.n_pts
 # %%
 # final_check(kernel, circle)
 for K in [
-    # single_layer,
-    # double_layer,
+    #single_layer,
+    #double_layer,
     adjoint_double_layer,
-    # hypersingular,
+    #hypersingular,
 ]:
     d_up = find_d_up(K, nq, max_curvature, 0.05, tol, 1)
     d_qbx = find_d_up(K, nq, max_curvature, 0.05, tol, 3)
@@ -104,9 +102,9 @@ for K in [
 
 # final_check(kernel, circle)
 for k_name, tol in [
-    # ("single_layer", 1e-13),
-    # ("double_layer", 1e-13),
-    # ("adjoint_double_layer", 1e-13),
+    #("single_layer", 1e-13),
+    #("double_layer", 1e-13),
+    #("adjoint_double_layer", 1e-13),
     ("hypersingular", 1e-13)
 ]:
     K = locals()[k_name]

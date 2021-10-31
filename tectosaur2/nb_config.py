@@ -53,3 +53,4 @@ def setup(pretty=True, autoreload=True):
     plt.rcParams["axes.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["figure.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["savefig.transparent"] = False
+    plt.rcParams['image.cmap'] = 'plasma'

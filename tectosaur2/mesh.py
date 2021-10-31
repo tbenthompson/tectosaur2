@@ -175,7 +175,7 @@ def stage1_refine(
     if initial_panels is None:
         cur_panels = []
         for s in sym_surfs:
-            cur_panels.append(np.array([[-1, 1]]))
+            cur_panels.append(np.array([[-1.0, 1.0]]))
     else:
         cur_panels = [ps.copy() for ps in initial_panels]
 
@@ -465,12 +465,12 @@ def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
 
 def apply_interp_mat(mat, interp_mat):
     if mat.ndim == 3:
-        reshaped = np.transpose(mat, (0, 2, 1)).reshape((-1, mat.shape[1]))
+        reshaped = mat.reshape((-1, mat.shape[2]))
     else:
         reshaped = mat
     out = scipy.sparse.bsr_matrix.dot(reshaped, interp_mat)
     if mat.ndim == 3:
-        return np.transpose(out.reshape((mat.shape[0], mat.shape[2], -1)), (0, 2, 1))
+        return out.reshape((mat.shape[0], mat.shape[1], -1))
     else:
         return out
 
@@ -493,3 +493,4 @@ def pts_grid(xs, ys):
     product of `xs` and `ys`.
     """
     return np.hstack([v.ravel()[:, None] for v in np.meshgrid(xs, ys)])
+
