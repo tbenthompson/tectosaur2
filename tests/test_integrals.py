@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from tectosaur2.global_qbx import global_qbx_self
-from tectosaur2.integrate import Integral, integrate_eqtn
+from tectosaur2.integrate import Integral, integrate
 from tectosaur2.laplace2d import (
     adjoint_double_layer,
     double_layer,
@@ -38,7 +38,7 @@ def test_nearfield_far(K):
 
         est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
         K.nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
-        est_v = np.transpose(est, (0,2,1)).dot(density)
+        est_v = np.transpose(est, (0, 2, 1)).dot(density)
 
         np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
@@ -50,11 +50,11 @@ def test_integrate_near(K):
     src_high, interp_mat = upsample(src, 5)
     true = apply_interp_mat(K.direct(obs_pts, src_high), interp_mat)
 
-    term = Integral(K=K, src=src, d_refine=3.0, d_up = 4.0, d_qbx = 0.0)
-    est, report = integrate_eqtn(obs_pts, term, tol=1e-14, return_reports=True)
-    assert report["n_qbx"] == 0
+    term = Integral(K=K, src=src, d_refine=3.0, d_up=4.0, d_qbx=0.0)
+    mats, report = integrate(obs_pts, term, tol=1e-14, return_reports=True)
+    assert report[0]["n_qbx"] == 0
 
-    np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(mats[0], true, rtol=1e-14, atol=1e-14)
 
 
 @pytest.mark.parametrize("K", kernels)
@@ -62,8 +62,7 @@ def test_global_qbx(K):
     src = unit_circle()
     obs_pts = 1.07 * src.pts
     src_high, interp_mat = upsample(src, 10)
-    true = apply_interp_mat(K._direct(obs_pts, src_high), interp_mat)
-
+    true = apply_interp_mat(K.direct(obs_pts, src_high), interp_mat)
     density = np.cos(src.pts[:, 0])
     true_v = true.dot(density)
 
@@ -86,16 +85,20 @@ def test_integrate_can_do_global_qbx(K):
     global_qbx = global_qbx_self(K, src, p=3, direction=-1.0, kappa=10)
     global_v = global_qbx.dot(density)
 
-    local_qbx, report = K.integrate(
+    local_qbx, reports = integrate(
         src.pts,
-        src,
-        d_cutoff=100.0,
-        max_p=3,
-        tol=1e-13,
-        on_src_direction=-1.0,
-        return_report=True,
+        Integral(
+            src=src,
+            K=K,
+            d_cutoff=100.0,
+            max_p=3,
+            on_src_direction=-1.0,
+        ),
+        return_reports=True,
     )
-    local_v = local_qbx.dot(density)
+    # from tectosaur2.integrate import integrate_term
+    # integrate_term(K, obs_pts, )
+    local_v = local_qbx[0].dot(density)
 
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
 
@@ -104,12 +107,17 @@ def test_integrate_can_do_global_qbx(K):
 def test_integrate_self(K):
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
+    print("HI")
+    print("HI")
+    print("HI")
+    print("HI")
+    print("HI")
 
     global_qbx = global_qbx_self(K, src, p=10, direction=1.0, kappa=3)
     global_v = global_qbx.dot(density)
 
-    local_qbx, report = K.integrate(src.pts, src, return_report=True)
-    local_v = local_qbx.dot(density)
+    local_qbx, report = integrate(src.pts, (src, K), return_reports=True)
+    local_v = local_qbx[0].dot(density)
 
     tol = 1e-13
     if K is hypersingular:

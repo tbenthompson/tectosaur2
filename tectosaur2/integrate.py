@@ -1,104 +1,99 @@
+import warnings
 from dataclasses import dataclass
+
+import numpy as np
+import scipy.spatial
 
 from tectosaur2.laplace2d import LaplaceKernel
 from tectosaur2.mesh import PanelSurface
 
+from ._ext import identify_nearfield_panels, local_qbx_integrals
+
+
 @dataclass()
 class Integral:
-    K: LaplaceKernel
     src: PanelSurface
+    K: LaplaceKernel
     on_src_direction: float = 1.0
     d_cutoff: float = None
     d_up: float = None
     d_qbx: float = None
     d_refine: float = None
     max_p: int = None
-    
 
-def integrate(obs_pts, *integrals, tol=1e-13, return_reports=False):
-    # step 1: figure out which observation points need to use QBX
-    all_src_surfs = [p[0] for p in surf_K_pairs]
-    src_tree = scipy.spatial.KDTree(src.pts)
-    closest_dist, closest_idx = src_tree.query(obs_pts)
-    closest_panel_length = src.panel_length[closest_idx // src.panel_order]
-    use_qbx = closest_dist < d_qbx * closest_panel_length
+    def get_d_cutoff(self):
+        return self.d_cutoff if self.d_cutoff is not None else self.K.d_cutoff
 
-    n_qbx = np.sum(use_qbx)
-    if n_qbx > 0:
-        qbx_closest_pts = src.pts[closest_idx][use_qbx]
-        qbx_normals = src.normals[closest_idx][use_qbx]
-        qbx_obs_pts = obs_pts[use_qbx]
-        qbx_L = closest_panel_length[use_qbx]
+    def get_d_up(self):
+        return self.d_up if self.d_up is not None else self.K.d_up
 
-        # step 3: find expansion centers
-        # TODO: account for singularities
+    def get_d_qbx(self):
+        return self.d_qbx if self.d_qbx is not None else self.K.d_qbx
+
+    def get_d_refine(self):
+        return self.d_refine if self.d_refine is not None else self.K.d_refine
+
+    def get_max_p(self):
+        return self.max_p if self.max_p is not None else self.K.max_p
 
 
-        exp_rs = qbx_L * 0.5
+def to_integrals(integrals):
+    out = []
+    for t in integrals:
+        if isinstance(t, Integral):
+            out.append(t)
+        else:
+            out.append(Integral(src=t[0], K=t[1]))
+    return out
 
-        direction_dot = (
-            np.sum(qbx_normals * (qbx_obs_pts - qbx_closest_pts), axis=1) / exp_rs
-        )
-        direction = np.sign(direction_dot)
-        direction[np.abs(direction) < 1e-13] = on_src_direction
 
-        for j in range(30):
-            exp_centers = (
-                qbx_closest_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
-            )
-            dist_to_nearest_panel = src_tree.query(exp_centers)[0]
-            # TODO: WRITE A TEST THAT HAS VIOLATIONS
-            # The fudge factor helps avoid numerical precision issues. For example,
-            # when we offset an expansion center 1.0 away from a surface node,
-            # without the fudge factor this test will be checking 1.0 < 1.0, but
-            # that is fragile in the face of small 1e-15 sized numerical errors.
-            # By simply multiplying by 1.0001, we avoid this issue without
-            # introducing any other problems.
-            fudge_factor = 1.0001
-            which_violations = dist_to_nearest_panel * fudge_factor < np.abs(exp_rs)
-            if not which_violations.any():
-                break
-            exp_rs[which_violations] *= 0.75
+def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
+    terms = to_integrals(terms)
 
-def direct(kernel, obs_pts, src):
-    return np.transpose(kernel._direct(obs_pts,src), (0,2,1))
-
-def integrate_term(
-    kernel,
-    obs_pts,
-    term,
-    tol=1e-13,
-    return_report=False
-):
-    if d_cutoff is None:
-        d_cutoff = self.d_cutoff
-    if d_up is None:
-        d_up = self.d_up
-    if d_qbx is None:
-        d_qbx = self.d_qbx
-    if d_refine is None:
-        d_refine = self.d_refine
+    n_terms = len(terms)
+    n_obs = obs_pts.shape[0]
 
     # step 1: construct the farfield matrix!
-    mat = self._direct(obs_pts, src)
+    mats = [t.K.direct(obs_pts, t.src) for t in terms]
 
-    # step 2: identify QBX observation points.
-    src_tree = scipy.spatial.KDTree(src.pts)
-    closest_dist, closest_idx = src_tree.query(obs_pts)
-    closest_panel_length = src.panel_length[closest_idx // src.panel_order]
-    use_qbx = closest_dist < d_qbx * closest_panel_length
+    # step 1: figure out which observation points need to use QBX
+    src_trees = [scipy.spatial.KDTree(t.src.pts) for t in terms]
+    closest_dist = np.full(n_obs, np.finfo(np.float64).max)
+    closest_idx = np.empty(n_obs, dtype=int)
+    closest_src = np.empty_like(closest_idx)
+    closest_panel_length = np.empty_like(closest_dist)
+    use_qbx = np.zeros(n_obs, dtype=bool)
+    use_nearfield = np.zeros(n_obs, dtype=bool)
+    for i in range(n_terms):
+        src = terms[i].src
+
+        this_closest_dist, this_closest_idx = src_trees[i].query(obs_pts)
+        closer = this_closest_dist < closest_dist
+        closest_dist[closer] = this_closest_dist[closer]
+        closest_src[closer] = i
+        closest_idx[closer] = this_closest_idx[closer]
+        closest_panel_length[closer] = src.panel_length[closer // src.panel_order]
+        use_qbx |= closest_dist < terms[i].get_d_qbx() * closest_panel_length
+        use_nearfield |= closest_dist < terms[i].get_d_up() * closest_panel_length
 
     n_qbx = np.sum(use_qbx)
+    print(n_qbx)
+    qbx_obs_pts = obs_pts[use_qbx]
     if n_qbx > 0:
-        qbx_closest_pts = src.pts[closest_idx][use_qbx]
-        qbx_normals = src.normals[closest_idx][use_qbx]
-        qbx_obs_pts = obs_pts[use_qbx]
-        qbx_L = closest_panel_length[use_qbx]
+        qbx_closest_pts = np.empty((n_qbx, 2))
+        qbx_normals = np.empty((n_qbx, 2))
+        qbx_L = np.empty(n_qbx)
+        on_src_direction = np.empty(n_qbx)
+        for i, t in enumerate(terms):
+            which_pts = closest_src[use_qbx] == i
+            pt_indices = closest_idx[use_qbx][which_pts]
+            qbx_closest_pts[which_pts] = t.src.pts[pt_indices]
+            qbx_normals[which_pts] = t.src.normals[pt_indices]
+            qbx_L[which_pts] = closest_panel_length[use_qbx][which_pts]
+            on_src_direction[which_pts] = t.on_src_direction
 
         # step 3: find expansion centers
         # TODO: account for singularities
-
-
         exp_rs = qbx_L * 0.5
 
         direction_dot = (
@@ -111,118 +106,120 @@ def integrate_term(
             exp_centers = (
                 qbx_closest_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
             )
-            dist_to_nearest_panel = src_tree.query(exp_centers)[0]
-            # TODO: WRITE A TEST THAT HAS VIOLATIONS
-            # The fudge factor helps avoid numerical precision issues. For example,
-            # when we offset an expansion center 1.0 away from a surface node,
-            # without the fudge factor this test will be checking 1.0 < 1.0, but
-            # that is fragile in the face of small 1e-15 sized numerical errors.
-            # By simply multiplying by 1.0001, we avoid this issue without
-            # introducing any other problems.
-            fudge_factor = 1.0001
-            which_violations = dist_to_nearest_panel * fudge_factor < np.abs(exp_rs)
+            which_violations = np.zeros(exp_centers.shape[0], dtype=bool)
+            for i in range(n_terms):
+                dist_to_nearest_panel = src_trees[i].query(exp_centers)[0]
+                # TODO: WRITE A TEST THAT HAS VIOLATIONS
+                # The fudge factor helps avoid numerical precision issues. For example,
+                # when we offset an expansion center 1.0 away from a surface node,
+                # without the fudge factor this test will be checking 1.0 < 1.0, but
+                # that is fragile in the face of small 1e-15 sized numerical errors.
+                # By simply multiplying by 1.0001, we avoid this issue without
+                # introducing any other problems.
+                fudge_factor = 1.0001
+                which_violations |= dist_to_nearest_panel * fudge_factor < np.abs(
+                    exp_rs
+                )
+
             if not which_violations.any():
                 break
             exp_rs[which_violations] *= 0.75
 
-        # step 4: find which source panels need to use QBX
-        (
-            qbx_panels,
-            qbx_panel_starts,
-            qbx_panel_obs_pts,
-            qbx_panel_obs_pt_starts,
-        ) = identify_nearfield_panels(
-            exp_centers, d_cutoff * qbx_L, src_tree, src.panel_order
-        )
+        for i in range(n_terms):
+            mats[i][use_qbx] += np.transpose(
+                _integrate_qbx(
+                    qbx_obs_pts, terms[i], exp_centers, exp_rs, qbx_L, src_trees[i], tol
+                ),
+                (0, 2, 1),
+            )
 
-        # step 5: QBX integrals
-        # TODO: This could be replaced by a sparse local matrix.
-        qbx_mat = np.zeros((qbx_obs_pts.shape[0], src.n_pts, self.ndim))
-        p, kappa_too_small = local_qbx_integrals(
-            self.exp_deriv,
-            self.eval_deriv,
-            qbx_mat,
-            qbx_obs_pts,
-            src,
-            exp_centers,
-            exp_rs,
-            max_p,
-            tol,
-            d_refine,
-            qbx_panels,
-            qbx_panel_starts,
-        )
-        if np.any(kappa_too_small):
-            warnings.warn("Some integrals diverged because kappa is too small.")
-
-        # step 6: subtract off the direct term whenever a QBX integral is used.
-        self._nearfield(
-            qbx_mat,
-            qbx_obs_pts,
-            src,
-            qbx_panel_obs_pts,
-            qbx_panel_obs_pt_starts,
-            -1.0,
-            0.0,
-        )
-        mat[use_qbx] += qbx_mat
-
-    # step 7: nearfield integrals
-    use_nearfield = (closest_dist < d_up * closest_panel_length) & (~use_qbx)
     n_nearfield = np.sum(use_nearfield)
-
     if n_nearfield > 0:
         nearfield_obs_pts = obs_pts[use_nearfield]
-        nearfield_L = closest_panel_length[use_nearfield]
+        for i in range(n_terms):
+            src = terms[i].src
 
-        obs_tree = scipy.spatial.KDTree(nearfield_obs_pts)
-        panel_obs_pts = obs_tree.query_ball_point(
-            src.panel_centers, d_up * src.panel_length
-        )
-        panel_obs_pts_starts = np.zeros(src.n_panels + 1, dtype=int)
-        panel_obs_pts_starts[1:] = np.cumsum([len(p) for p in panel_obs_pts])
-        panel_obs_pts = np.concatenate(panel_obs_pts, dtype=int, casting="unsafe")
+            obs_tree = scipy.spatial.KDTree(nearfield_obs_pts)
+            panel_obs_pts = obs_tree.query_ball_point(
+                src.panel_centers, terms[i].get_d_up() * src.panel_length
+            )
 
-        nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], src.n_pts, self.ndim))
-        self._nearfield(
-            nearfield_mat,
-            nearfield_obs_pts,
-            src,
-            panel_obs_pts,
-            panel_obs_pts_starts,
-            1.0,
-            d_refine,
-        )
+            panel_obs_pts_starts = np.zeros(src.n_panels + 1, dtype=int)
+            panel_obs_pts_starts[1:] = np.cumsum([len(p) for p in panel_obs_pts])
+            panel_obs_pts = np.concatenate(panel_obs_pts, dtype=int, casting="unsafe")
 
-        # setting d_refine=0.0 prevents refinement which is what we want to
-        # cancel out the direct component terms
-        self._nearfield(
-            nearfield_mat,
-            nearfield_obs_pts,
-            src,
-            panel_obs_pts,
-            panel_obs_pts_starts,
-            -1.0,
-            0.0,
-        )
-        mat[use_nearfield] += nearfield_mat
+            K = terms[i].K
+            nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], src.n_pts, K.ndim))
+            K.nearfield(
+                nearfield_mat,
+                nearfield_obs_pts,
+                src,
+                panel_obs_pts,
+                panel_obs_pts_starts,
+                1.0,
+                terms[i].get_d_refine(),
+            )
 
-    if return_report:
-        report = dict()
-        report["n_qbx"] = n_qbx
-        report["n_nearfield"] = n_nearfield
-        if n_nearfield > 0:
-            report["n_nearfield_panels"] = panel_obs_pts_starts[-1]
-        if n_qbx > 0:
-            report["n_qbx_panels"] = qbx_panel_obs_pt_starts[-1]
-        for k in [
-            "exp_centers",
-            "exp_rs",
-            "p",
-            "kappa_too_small",
-            "use_qbx",
-        ]:
-            report[k] = locals().get(k, None)
-        return np.transpose(mat, (0, 2, 1)), report
-    else:
-        return np.transpose(mat, (0, 2, 1))
+            # setting d_refine=0.0 prevents refinement which is what we want to
+            # cancel out the direct component terms
+            K.nearfield(
+                nearfield_mat,
+                nearfield_obs_pts,
+                src,
+                panel_obs_pts,
+                panel_obs_pts_starts,
+                -1.0,
+                0.0,
+            )
+            mats[i][use_nearfield] += np.transpose(nearfield_mat, (0, 2, 1))
+
+    return mats, [dict(n_qbx=n_qbx)]
+
+
+def _integrate_qbx(obs_pts, term, exp_centers, exp_rs, exp_panel_L, src_tree, tol):
+    # step 4: find which source panels need to use QBX
+    (
+        qbx_panels,
+        qbx_panel_starts,
+        qbx_panel_obs_pts,
+        qbx_panel_obs_pt_starts,
+    ) = identify_nearfield_panels(
+        exp_centers, term.get_d_cutoff() * exp_panel_L, src_tree, term.src.panel_order
+    )
+
+    # step 5: QBX integrals
+    # TODO: This could be replaced by a sparse local matrix.
+    qbx_mat = np.zeros((obs_pts.shape[0], term.src.n_pts, term.K.ndim))
+    p, kappa_too_small = local_qbx_integrals(
+        term.K.exp_deriv,
+        term.K.eval_deriv,
+        qbx_mat,
+        obs_pts,
+        term.src,
+        exp_centers,
+        exp_rs,
+        term.get_max_p(),
+        tol,
+        term.get_d_refine(),
+        qbx_panels,
+        qbx_panel_starts,
+    )
+    if np.any(kappa_too_small):
+        warnings.warn("Some integrals diverged because kappa is too small.")
+
+    # step 6: subtract off the direct term whenever a QBX integral is used.
+    term.K.nearfield(
+        qbx_mat,
+        obs_pts,
+        term.src,
+        qbx_panel_obs_pts,
+        qbx_panel_obs_pt_starts,
+        -1.0,
+        0.0,
+    )
+
+    return qbx_mat
+
+
+def direct(kernel, obs_pts, src):
+    return np.transpose(kernel._direct(obs_pts, src), (0, 2, 1))

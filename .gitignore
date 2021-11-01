@@ -8,6 +8,9 @@
 # ignore ipynb, use MyST Markdown files instead!
 **/*.ipynb
 
+# ignore png outputs unless overidden.
+**/*.png
+
 # tutorial stuff
 dem_download
 .ipynb_checkpoints
