@@ -1,13 +1,10 @@
-import warnings
-
 import numpy as np
-import scipy.spatial
 
-from ._ext import identify_nearfield_panels, local_qbx_integrals, nearfield_integrals
+from ._ext import nearfield_integrals
 
 
 class LaplaceKernel:
-    def __init__(self, d_cutoff=2.0, d_up=4.0, d_qbx=0.5, d_refine=2.5, max_p = 50):
+    def __init__(self, d_cutoff=2.0, d_up=4.0, d_qbx=0.5, d_refine=2.5, max_p=50):
         self.d_cutoff = d_cutoff
         self.d_up = d_up
         self.d_qbx = d_qbx

@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import sympy as sp
 
 from tectosaur2.global_qbx import global_qbx_self
 from tectosaur2.integrate import Integral, integrate
@@ -9,10 +10,16 @@ from tectosaur2.laplace2d import (
     hypersingular,
     single_layer,
 )
-from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
+from tectosaur2.mesh import (
+    apply_interp_mat,
+    gauss_rule,
+    stage1_refine,
+    unit_circle,
+    upsample,
+)
 
 # kernels = [single_layer]
-kernels = [double_layer]
+# kernels = [double_layer]
 # kernels=[adjoint_double_layer]
 # kernels = [hypersingular]
 kernels = [single_layer, double_layer, adjoint_double_layer, hypersingular]
@@ -123,3 +130,13 @@ def test_integrate_self(K):
     if K is hypersingular:
         tol = 1e-12
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
+
+
+def test_fault_surface():
+    t = sp.var("t")
+    fault, free = stage1_refine(
+        [(t, t * 0, (t + 1) * -0.5), (t, -t, 0 * t)],
+        gauss_rule(6),
+        control_points=np.array([(0, 0, 0, 0.5)]),
+    )
+    (A, B) = integrate(free.pts, (free, double_layer), (fault, double_layer))

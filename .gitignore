@@ -6,7 +6,8 @@
 *.swp
 
 # ignore ipynb, use MyST Markdown files instead!
-**/*.ipynb
+# temporarily turned off until i figure out vscode
+# **/*.ipynb
 
 # ignore png outputs unless overidden.
 **/*.png

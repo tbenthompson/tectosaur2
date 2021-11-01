@@ -55,6 +55,8 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
 
     # step 1: construct the farfield matrix!
     mats = [t.K.direct(obs_pts, t.src) for t in terms]
+    if return_reports:
+        reports = [dict() for t in terms]
 
     # step 1: figure out which observation points need to use QBX
     src_trees = [scipy.spatial.KDTree(t.src.pts) for t in terms]
@@ -72,9 +74,14 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
         closest_dist[closer] = this_closest_dist[closer]
         closest_src[closer] = i
         closest_idx[closer] = this_closest_idx[closer]
-        closest_panel_length[closer] = src.panel_length[closer // src.panel_order]
-        use_qbx |= closest_dist < terms[i].get_d_qbx() * closest_panel_length
-        use_nearfield |= closest_dist < terms[i].get_d_up() * closest_panel_length
+        closest_panel_length[closer] = src.panel_length[
+            closest_idx[closer] // src.panel_order
+        ]
+        this_use_qbx = closest_dist < terms[i].get_d_qbx() * closest_panel_length
+        use_qbx |= this_use_qbx
+        use_nearfield |= (closest_dist < terms[i].get_d_up() * closest_panel_length) & (
+            ~this_use_qbx
+        )
 
     n_qbx = np.sum(use_qbx)
     print(n_qbx)
@@ -124,14 +131,18 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
             if not which_violations.any():
                 break
             exp_rs[which_violations] *= 0.75
+        exp_rs *= 0.9
 
         for i in range(n_terms):
-            mats[i][use_qbx] += np.transpose(
-                _integrate_qbx(
-                    qbx_obs_pts, terms[i], exp_centers, exp_rs, qbx_L, src_trees[i], tol
-                ),
-                (0, 2, 1),
+            qbx_mat, p, kappa_too_small = _integrate_qbx(
+                qbx_obs_pts, terms[i], exp_centers, exp_rs, qbx_L, src_trees[i], tol
             )
+            mats[i][use_qbx] += np.transpose(qbx_mat, (0, 2, 1))
+            reports[i]["p"] = p
+            reports[i]["kappa_too_small"] = kappa_too_small
+            reports[i]["use_qbx"] = use_qbx
+            reports[i]["exp_centers"] = exp_centers
+            reports[i]["exp_rs"] = exp_rs
 
     n_nearfield = np.sum(use_nearfield)
     if n_nearfield > 0:
@@ -173,18 +184,30 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
             )
             mats[i][use_nearfield] += np.transpose(nearfield_mat, (0, 2, 1))
 
-    return mats, [dict(n_qbx=n_qbx)]
+    if return_reports:
+        return mats, reports
+    else:
+        return mats
 
 
 def _integrate_qbx(obs_pts, term, exp_centers, exp_rs, exp_panel_L, src_tree, tol):
     # step 4: find which source panels need to use QBX
+
+    # TODO: use ckdtree directly to avoid python
+    qbx_panel_src_pts = src_tree.query_ball_point(
+        exp_centers, term.get_d_cutoff() * exp_panel_L, return_sorted=True
+    )
+
     (
         qbx_panels,
         qbx_panel_starts,
         qbx_panel_obs_pts,
         qbx_panel_obs_pt_starts,
     ) = identify_nearfield_panels(
-        exp_centers, term.get_d_cutoff() * exp_panel_L, src_tree, term.src.panel_order
+        exp_centers,
+        qbx_panel_src_pts,
+        term.src.n_panels,
+        term.src.panel_order,
     )
 
     # step 5: QBX integrals
@@ -218,7 +241,7 @@ def _integrate_qbx(obs_pts, term, exp_centers, exp_rs, exp_panel_L, src_tree, to
         0.0,
     )
 
-    return qbx_mat
+    return qbx_mat, p, kappa_too_small
 
 
 def direct(kernel, obs_pts, src):

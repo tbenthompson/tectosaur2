@@ -383,13 +383,8 @@ def nearfield_integrals(
     kernel_fnc(args)
 
 
-def identify_nearfield_panels(obs_pts, radii, src_tree, int source_order):
+def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_order):
     cdef int n_obs = obs_pts.shape[0]
-
-    # TODO: use ckdtree directly to avoid python
-    src_pts = src_tree.query_ball_point(
-        obs_pts, radii, return_sorted=True
-    )
 
     cdef long[:] src_pts_starts = np.zeros(n_obs + 1, dtype=int)
     cdef long sum = 0
@@ -397,12 +392,11 @@ def identify_nearfield_panels(obs_pts, radii, src_tree, int source_order):
     for i in range(n_obs):
         sum += len(src_pts[i])
         src_pts_starts[1 + i] = sum
-    cdef long[:] all_src_pts = np.concatenate(src_pts)
+    cdef long[:] all_src_pts = np.concatenate(src_pts, dtype=int, casting='unsafe')
 
     cdef long start, end
 
     cdef vector[vector[int]] panel_obs_pts_vecs
-    cdef int n_src_panels = src_tree.n // source_order
     cdef vector[int] empty
     for i in range(n_src_panels):
         panel_obs_pts_vecs.push_back(empty)
