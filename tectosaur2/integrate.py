@@ -12,8 +12,8 @@ from ._ext import identify_nearfield_panels, local_qbx_integrals
 
 @dataclass()
 class Integral:
-    src: PanelSurface
     K: LaplaceKernel
+    src: PanelSurface
     on_src_direction: float = 1.0
     d_cutoff: float = None
     d_up: float = None
@@ -55,8 +55,7 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
 
     # step 1: construct the farfield matrix!
     mats = [t.K.direct(obs_pts, t.src) for t in terms]
-    if return_reports:
-        reports = [dict() for t in terms]
+    reports = [dict() for t in terms]
 
     # step 1: figure out which observation points need to use QBX
     src_trees = [scipy.spatial.KDTree(t.src.pts) for t in terms]
@@ -86,6 +85,7 @@ def integrate(obs_pts, *terms, tol=1e-13, return_reports=False):
     n_qbx = np.sum(use_qbx)
     print(n_qbx)
     qbx_obs_pts = obs_pts[use_qbx]
+    reports[0]["n_qbx"] = n_qbx
     if n_qbx > 0:
         qbx_closest_pts = np.empty((n_qbx, 2))
         qbx_normals = np.empty((n_qbx, 2))
@@ -242,7 +242,3 @@ def _integrate_qbx(obs_pts, term, exp_centers, exp_rs, exp_panel_L, src_tree, to
     )
 
     return qbx_mat, p, kappa_too_small
-
-
-def direct(kernel, obs_pts, src):
-    return np.transpose(kernel._direct(obs_pts, src), (0, 2, 1))
