@@ -19,6 +19,8 @@ else:
         "-O3",
         "-ffast-math",
         "--std=c++17",
+        "-Wno-unreachable-code",
+        "-Wno-sign-compare",
     ]
     extra_link_args = ["-fopenmp"]
 

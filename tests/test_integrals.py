@@ -3,8 +3,12 @@ import pytest
 import sympy as sp
 
 from tectosaur2.global_qbx import global_qbx_self
-from tectosaur2.integrate import Integral, integrate
+from tectosaur2.integrate import integrate_term
 from tectosaur2.laplace2d import (
+    AdjointDoubleLayer,
+    DoubleLayer,
+    Hypersingular,
+    SingleLayer,
     adjoint_double_layer,
     double_layer,
     hypersingular,
@@ -18,15 +22,17 @@ from tectosaur2.mesh import (
     upsample,
 )
 
-# kernels = [single_layer]
-# kernels = [double_layer]
-# kernels=[adjoint_double_layer]
-# kernels = [hypersingular]
-kernels = [single_layer, double_layer, adjoint_double_layer, hypersingular]
+# kernel_types = [SingleLayer]
+kernel_types = [DoubleLayer]
+# kernel_types = [AdjointDoubleLayer]
+# kernel_types = [Hypersingular]
+# kernel_types = [SingleLayer, DoubleLayer, AdjointDoubleLayer, Hypersingular]
 
 
-@pytest.mark.parametrize("K", kernels)
-def test_nearfield_far(K):
+@pytest.mark.parametrize("K_type", kernel_types)
+def test_nearfield_far(K_type):
+    K = K_type()
+
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
 
@@ -50,57 +56,56 @@ def test_nearfield_far(K):
         np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
 
-@pytest.mark.parametrize("K", kernels)
-def test_integrate_near(K):
+@pytest.mark.parametrize("K_type", kernel_types)
+def test_integrate_near(K_type):
     src = unit_circle(control_points=np.array([[1, 0, 0, 0.05]]))
-    obs_pts = 1.14 * src.pts[1:4]
-    src_high, interp_mat = upsample(src, 5)
-    true = apply_interp_mat(K.direct(obs_pts, src_high), interp_mat)
+    obs_pts = 1.04 * src.pts[1:4]
+    src_high, interp_mat = upsample(src, 7)
+    true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
 
-    term = Integral(K=K, src=src, d_refine=3.0, d_up=4.0, d_qbx=0.0)
-    mats, report = integrate(obs_pts, term, tol=1e-14, return_reports=True)
-    assert report[0]["n_qbx"] == 0
+    K = K_type(d_up=4.0, d_qbx=0.0)
+    mats, report = integrate_term(K, obs_pts, src, tol=1e-14, return_reports=True)
+    assert report["n_qbx"] == 0
 
     np.testing.assert_allclose(mats[0], true, rtol=1e-14, atol=1e-14)
 
 
-@pytest.mark.parametrize("K", kernels)
-def test_global_qbx(K):
+@pytest.mark.parametrize("K_type", kernel_types)
+def test_global_qbx(K_type):
     src = unit_circle()
     obs_pts = 1.07 * src.pts
     src_high, interp_mat = upsample(src, 10)
-    true = apply_interp_mat(K.direct(obs_pts, src_high), interp_mat)
+    true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
     density = np.cos(src.pts[:, 0])
     true_v = true.dot(density)
 
     # p = 16, kappa = 4 are the minimal parameters for rtol=1e-13
     est = global_qbx_self(
-        K, src, p=16, direction=-1.0, kappa=4, obs_pt_normal_offset=-0.07
+        K_type(), src, p=16, direction=-1.0, kappa=4, obs_pt_normal_offset=-0.07
     )
     est_v = est.dot(density)
     np.testing.assert_allclose(est_v, true_v, rtol=1e-13, atol=1e-13)
 
 
-@pytest.mark.parametrize("K", kernels)
-def test_integrate_can_do_global_qbx(K):
+@pytest.mark.parametrize("K_type", kernel_types)
+def test_integrate_can_do_global_qbx(K_type):
     # If we set d_cutoff very large, then integrate does a global QBX
     # integration. Except the order adaptive criterion fails. So, this
     # test only works for p<=3
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
 
-    global_qbx = global_qbx_self(K, src, p=3, direction=-1.0, kappa=10)
+    global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
     global_v = global_qbx.dot(density)
 
-    local_qbx, reports = integrate(
-        src.pts,
-        Integral(
-            src=src,
-            K=K,
+    local_qbx, reports = integrate_term(
+        K_type(
             d_cutoff=100.0,
             max_p=3,
             on_src_direction=-1.0,
         ),
+        src.pts,
+        src,
         return_reports=True,
     )
     # from tectosaur2.integrate import integrate_term
@@ -110,8 +115,8 @@ def test_integrate_can_do_global_qbx(K):
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
 
 
-@pytest.mark.parametrize("K", kernels)
-def test_integrate_self(K):
+@pytest.mark.parametrize("K_type", kernel_types)
+def test_integrate_self(K_type):
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
     print("HI")
@@ -120,14 +125,14 @@ def test_integrate_self(K):
     print("HI")
     print("HI")
 
-    global_qbx = global_qbx_self(K, src, p=10, direction=1.0, kappa=3)
+    global_qbx = global_qbx_self(K_type(), src, p=10, direction=1.0, kappa=3)
     global_v = global_qbx.dot(density)
 
-    local_qbx, report = integrate(src.pts, (src, K), return_reports=True)
+    local_qbx, report = integrate_term(K_type(), src.pts, src, return_reports=True)
     local_v = local_qbx[0].dot(density)
 
     tol = 1e-13
-    if K is hypersingular:
+    if K_type is Hypersingular:
         tol = 1e-12
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
 
@@ -139,4 +144,4 @@ def test_fault_surface():
         gauss_rule(6),
         control_points=np.array([(0, 0, 0, 0.5)]),
     )
-    (A, B) = integrate(free.pts, (free, double_layer), (fault, double_layer))
+    (A, B) = integrate_term(double_layer, free.pts, free, fault)

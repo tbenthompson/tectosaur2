@@ -11,9 +11,9 @@ class LaplaceKernel:
         self.d_refine = d_refine
         self.max_p = max_p
 
-    def nearfield(self, mat, obs_pts, src, panels, panel_starts, mult, distance_limit):
+    def nearfield(self, mat, obs_pts, src, panels, panel_starts, mult, tol):
         return nearfield_integrals(
-            self.name, mat, obs_pts, src, panels, panel_starts, mult, distance_limit
+            self.name, mat, obs_pts, src, panels, panel_starts, mult, tol
         )
 
 

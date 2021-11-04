@@ -29,7 +29,7 @@ cdef pair[int, bool] single_obs(
     double[::1] src_param_width,
     double[::1] qx, double[::1] qw, double[::1] interp_wts, int nq,
     double[:,::1] exp_centers, double[::1] exp_rs,
-    int max_p, double tol, double d_refine,
+    int max_p, double tol,
     long[:] panels, long[:] panel_starts, int obs_pt_idx, int exp_idx
 ) nogil:
 
@@ -61,9 +61,10 @@ cdef pair[int, bool] single_obs(
         new_subsets.push_back(empty_vector)
 
     cdef bool any_refinement = True
-    cdef int pi, subset_idx
+    cdef unsigned int panel_offset, subset_idx
     cdef double r2
     cdef double appx_panel_L, panel_L2
+    cdef double d_refine=2.5
     cdef double d_refine2 = d_refine * d_refine
     cdef bool subset_refined
     cdef int depth = 0
@@ -82,12 +83,12 @@ cdef pair[int, bool] single_obs(
             panel_idx = panels[panel_list_idx]
             pt_start = panel_idx * nq
             pt_end = (panel_idx + 1) * nq
-            pi = panel_list_idx - panel_start
+            panel_offset = panel_list_idx - panel_start
 
-            new_subsets[pi].push_back(subsets[pi][0])
-            for subset_idx in range(subsets[pi].size() - 1):
-                xhat_left = subsets[pi][subset_idx]
-                xhat_right = subsets[pi][subset_idx + 1]
+            new_subsets[panel_offset].push_back(subsets[panel_offset][0])
+            for subset_idx in range(subsets[panel_offset].size() - 1):
+                xhat_left = subsets[panel_offset][subset_idx]
+                xhat_right = subsets[panel_offset][subset_idx + 1]
                 appx_panel_L = (xhat_right - xhat_left) * 0.5 * src_panel_lengths[panel_idx]
                 panel_L2 = appx_panel_L * appx_panel_L
                 subset_refined = False
@@ -96,21 +97,21 @@ cdef pair[int, bool] single_obs(
                     r2 = norm(w - z0)
                     if r2 < d_refine2 * panel_L2:
                         midpt = (xhat_left + xhat_right) * 0.5
-                        new_subsets[pi].push_back(midpt)
-                        new_subsets[pi].push_back(xhat_right)
+                        new_subsets[panel_offset].push_back(midpt)
+                        new_subsets[panel_offset].push_back(xhat_right)
                         subset_refined = True
                         any_refinement = True
                         break
                 if not subset_refined:
-                    new_subsets[pi].push_back(xhat_right)
+                    new_subsets[panel_offset].push_back(xhat_right)
 
         for i in range(n_panels):
             subsets[i] = new_subsets[i]
 
     # Step 3: construct the terms for building the QBX power series.
     cdef int n_srcs = 0
-    for pi in range(n_panels):
-        n_srcs += subsets[pi].size() * nq
+    for panel_idx in range(n_panels):
+        n_srcs += subsets[panel_idx].size() * nq
 
     cdef int kernel_dim = 2 if eval_deriv else 1
     cdef vector[double complex] r_inv_wz0 = vector[dcomplex](n_srcs)
@@ -136,14 +137,14 @@ cdef pair[int, bool] single_obs(
         panel_idx = panels[panel_list_idx]
         pt_start = panel_idx * nq
         pt_end = (panel_idx + 1) * nq
-        pi = panel_list_idx - panel_start
-        for subset_idx in range(subsets[pi].size() - 1):
-            xhat_left = subsets[pi][subset_idx]
-            xhat_right = subsets[pi][subset_idx + 1]
+        panel_offset = panel_list_idx - panel_start
+        for subset_idx in range(subsets[panel_offset].size() - 1):
+            xhat_left = subsets[panel_offset][subset_idx]
+            xhat_right = subsets[panel_offset][subset_idx + 1]
             for quad_pt_idx in range(nq):
                 qxj = xhat_left + (qx[quad_pt_idx] + 1) * 0.5 * (xhat_right - xhat_left);
 
-                if subsets[pi].size() == 2:
+                if subsets[panel_offset].size() == 2:
                     src_pt_idx = pt_start + quad_pt_idx
                     w = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
                     nw = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
@@ -248,15 +249,15 @@ cdef pair[int, bool] single_obs(
         panel_idx = panels[panel_list_idx]
         pt_start = panel_idx * nq
         pt_end = (panel_idx + 1) * nq
-        pi = panel_list_idx - panel_start
-        for subset_idx in range(subsets[pi].size() - 1):
-            xhat_left = subsets[pi][subset_idx]
-            xhat_right = subsets[pi][subset_idx + 1]
+        panel_offset = panel_list_idx - panel_start
+        for subset_idx in range(subsets[panel_offset].size() - 1):
+            xhat_left = subsets[panel_offset][subset_idx]
+            xhat_right = subsets[panel_offset][subset_idx + 1]
             for quad_pt_idx in range(nq):
                 j = subset_start + quad_pt_idx
                 qxj = xhat_left + (qx[quad_pt_idx] + 1) * 0.5 * (xhat_right - xhat_left);
 
-                if subsets[pi].size() == 2:
+                if subsets[panel_offset].size() == 2:
                     src_pt_idx = pt_start + quad_pt_idx
                     mat[obs_pt_idx, src_pt_idx, 0] += qbx_terms[j * kernel_dim + 0]
                     if eval_deriv:
@@ -286,8 +287,7 @@ def local_qbx_integrals(
     bool exp_deriv, bool eval_deriv,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
     double[:,::1] exp_centers, double[::1] exp_rs,
-    int max_p, double tol, double d_refine,
-    long[:] panels, long[:] panel_starts
+    int max_p, double tol, long[:] panels, long[:] panel_starts
 ):
 
     cdef double[:,::1] src_pts = src.pts
@@ -313,7 +313,7 @@ def local_qbx_integrals(
             exp_deriv, eval_deriv, mat, obs_pts,
             src_pts, src_normals, src_jacobians, src_panel_lengths, src_param_width,
             qx, qw, interp_wts, nq, exp_centers, exp_rs,
-            max_p, tol, d_refine, panels, panel_starts, i, i
+            max_p, tol, panels, panel_starts, i, i
         )
         p[i] = result.first
         kappa_too_small[i] = result.second
@@ -338,7 +338,7 @@ cdef extern from "nearfield.cpp":
         long* panel_obs_pts
         long* panel_obs_pts_starts
         double mult
-        double d_refine
+        double tol
 
     cdef void nearfield_single_layer(const NearfieldArgs&)
     cdef void nearfield_double_layer(const NearfieldArgs&)
@@ -348,7 +348,7 @@ cdef extern from "nearfield.cpp":
 def nearfield_integrals(
     kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
     long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
-    double mult, double d_refine
+    double mult, double tol
 ):
 
     cdef double[:,::1] src_pts = src.pts
@@ -367,7 +367,7 @@ def nearfield_integrals(
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
         &qx[0], &qw[0], &interp_wts[0], qx.shape[0],
         &panel_obs_pts[0], &panel_obs_pts_starts[0],
-        mult, d_refine
+        mult, tol
     )
 
     if kernel_name == "single_layer":
@@ -388,7 +388,7 @@ def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_ord
 
     cdef long[:] src_pts_starts = np.zeros(n_obs + 1, dtype=int)
     cdef long sum = 0
-    cdef int i
+    cdef int i, j
     for i in range(n_obs):
         sum += len(src_pts[i])
         src_pts_starts[1 + i] = sum
