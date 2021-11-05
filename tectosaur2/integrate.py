@@ -1,10 +1,8 @@
 import warnings
-from dataclasses import dataclass
 
 import numpy as np
 import scipy.spatial
 
-from tectosaur2.laplace2d import LaplaceKernel
 from tectosaur2.mesh import PanelSurface
 
 from ._ext import identify_nearfield_panels, local_qbx_integrals
@@ -30,8 +28,6 @@ def integrate_term(
         np.concatenate([s.radius for s in srcs]),
         np.concatenate([s.panel_bounds for s in srcs]),
     )
-
-    n_obs = obs_pts.shape[0]
 
     # step 1: construct the farfield matrix!
     mat = K.direct(obs_pts, combined_src)
@@ -107,9 +103,8 @@ def integrate_term(
         # step 5: QBX integrals
         # TODO: This could be replaced by a sparse local matrix.
         qbx_mat = np.zeros((obs_pts.shape[0], combined_src.n_pts, K.ndim))
-        report["p"], report["quadrature_failed"] = local_qbx_integrals(
-            K.exp_deriv,
-            K.eval_deriv,
+        report["p"], report["n_subsets"] = local_qbx_integrals(
+            K.name,
             qbx_mat,
             obs_pts,
             combined_src,
@@ -120,8 +115,12 @@ def integrate_term(
             qbx_panels,
             qbx_panel_starts,
         )
-        if np.any(report["quadrature_failed"]):
-            warnings.warn("Some integrals diverged because kappa is too small.")
+        if np.any(report["n_subsets"] > 100):
+            warnings.warn(
+                "Some integrals required a surprising amount of adaptive refinement. "
+                "This an indication of a problem in either the integration or the "
+                "problem formulation."
+            )
         if np.any(report["p"] == K.max_p):
             warnings.warn(
                 "Some expanded integrals reached maximum expansion order."
@@ -137,6 +136,7 @@ def integrate_term(
             qbx_panel_obs_pt_starts,
             -1.0,
             0.0,
+            adaptive=False,
         )
         mat[use_qbx] += np.transpose(qbx_mat, (0, 2, 1))
 
@@ -145,13 +145,14 @@ def integrate_term(
         report["exp_rs"] = exp_rs
 
     n_nearfield = np.sum(use_nearfield)
+    report["n_nearfield"] = n_nearfield
     if n_nearfield > 0:
         nearfield_obs_pts = obs_pts[use_nearfield]
+
         obs_tree = scipy.spatial.KDTree(nearfield_obs_pts)
         panel_obs_pts = obs_tree.query_ball_point(
             combined_src.panel_centers, K.d_up * combined_src.panel_length
         )
-
         panel_obs_pts_starts = np.zeros(combined_src.n_panels + 1, dtype=int)
         panel_obs_pts_starts[1:] = np.cumsum([len(p) for p in panel_obs_pts])
         panel_obs_pts = np.concatenate(panel_obs_pts, dtype=int, casting="unsafe")
@@ -167,6 +168,7 @@ def integrate_term(
             panel_obs_pts_starts,
             1.0,
             tol,
+            adaptive=True,
         )
 
         # setting d_refine=0.0 prevents refinement which is what we want to
@@ -178,7 +180,8 @@ def integrate_term(
             panel_obs_pts,
             panel_obs_pts_starts,
             -1.0,
-            10.0,
+            0.0,
+            adaptive=False,
         )
         mat[use_nearfield] += np.transpose(nearfield_mat, (0, 2, 1))
 

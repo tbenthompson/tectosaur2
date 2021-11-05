@@ -1,323 +1,84 @@
 #cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 
 import numpy as np
-from cython.parallel import prange
 
 cimport numpy as np
-from libc.math cimport fabs, pi
 from libcpp cimport bool
-from libcpp.pair cimport pair
 from libcpp.vector cimport vector
 
 
-cdef extern from "<complex.h>" namespace "std" nogil:
-    double norm(double complex z)
-    double real(double complex z)
-    double imag(double complex z)
-    double complex log(double complex z)
+cdef extern from "local_qbx.cpp":
+    cdef struct LocalQBXArgs:
+        double* mat
+        int* p
+        int* n_subsets
+        int n_obs
+        int n_src
+        double* obs_pts
+        double* src_pts
+        double* src_normals
+        double* src_jacobians
+        double* src_panel_lengths
+        double* src_param_width
+        int n_src_panels
+        double* qx
+        double* qw
+        double* interp_wts
+        int nq
+        double* exp_centers
+        double* exp_rs
+        int max_p
+        double tol
+        long* panels
+        long* panel_starts
 
-cdef double complex I = 1j
-cdef double C = 1.0 / (2 * pi)
-
-ctypedef double complex dcomplex
-
-cdef pair[int, bool] single_obs(
-    bool exp_deriv, bool eval_deriv,
-    double[:,:,::1] mat, double[:,::1] obs_pts,
-    double[:,::1] src_pts, double[:,::1] src_normals,
-    double[::1] src_jacobians, double[::1] src_panel_lengths,
-    double[::1] src_param_width,
-    double[::1] qx, double[::1] qw, double[::1] interp_wts, int nq,
-    double[:,::1] exp_centers, double[::1] exp_rs,
-    int max_p, double tol,
-    long[:] panels, long[:] panel_starts, int obs_pt_idx, int exp_idx
-) nogil:
-
-    cdef int panel_start = panel_starts[obs_pt_idx]
-    cdef int panel_end = panel_starts[obs_pt_idx + 1]
-    cdef int n_panels = panel_end - panel_start
-    if n_panels == 0:
-        return pair[int, bool](-1, False)
-
-    # Step 1: prepare data on the observation point
-    cdef double complex z = obs_pts[obs_pt_idx, 0] + (obs_pts[obs_pt_idx, 1] * I)
-    cdef double complex z0 = exp_centers[exp_idx,0] + (exp_centers[exp_idx, 1] * I)
-    cdef double r = exp_rs[exp_idx]
-    cdef double invr = 1.0 / r
-    cdef double complex zz0_div_r = (z - z0) * invr
-
-    cdef int pt_start, pt_end, panel_list_idx, panel_idx, src_pt_idx, j
-
-    # Step 2: Refine the source panels.
-    cdef vector[double] empty_vector
-    cdef vector[vector[double]] subsets
-    for i in range(n_panels):
-        subsets.push_back(empty_vector)
-        subsets[i].push_back(-1)
-        subsets[i].push_back(1)
-
-    cdef vector[vector[double]] new_subsets;
-    for i in range(n_panels):
-        new_subsets.push_back(empty_vector)
-
-    cdef bool any_refinement = True
-    cdef unsigned int panel_offset, subset_idx
-    cdef double r2
-    cdef double appx_panel_L, panel_L2
-    cdef double d_refine=2.5
-    cdef double d_refine2 = d_refine * d_refine
-    cdef bool subset_refined
-    cdef int depth = 0
-    cdef int max_depth = 20
-    cdef double complex w
-    while any_refinement:
-        depth += 1
-        if depth > max_depth:
-            break
-
-        any_refinement = False
-        for i in range(n_panels):
-            new_subsets[i].clear()
-
-        for panel_list_idx in range(panel_start, panel_end):
-            panel_idx = panels[panel_list_idx]
-            pt_start = panel_idx * nq
-            pt_end = (panel_idx + 1) * nq
-            panel_offset = panel_list_idx - panel_start
-
-            new_subsets[panel_offset].push_back(subsets[panel_offset][0])
-            for subset_idx in range(subsets[panel_offset].size() - 1):
-                xhat_left = subsets[panel_offset][subset_idx]
-                xhat_right = subsets[panel_offset][subset_idx + 1]
-                appx_panel_L = (xhat_right - xhat_left) * 0.5 * src_panel_lengths[panel_idx]
-                panel_L2 = appx_panel_L * appx_panel_L
-                subset_refined = False
-                for src_pt_idx in range(pt_start, pt_end):
-                    w = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
-                    r2 = norm(w - z0)
-                    if r2 < d_refine2 * panel_L2:
-                        midpt = (xhat_left + xhat_right) * 0.5
-                        new_subsets[panel_offset].push_back(midpt)
-                        new_subsets[panel_offset].push_back(xhat_right)
-                        subset_refined = True
-                        any_refinement = True
-                        break
-                if not subset_refined:
-                    new_subsets[panel_offset].push_back(xhat_right)
-
-        for i in range(n_panels):
-            subsets[i] = new_subsets[i]
-
-    # Step 3: construct the terms for building the QBX power series.
-    cdef int n_srcs = 0
-    for panel_idx in range(n_panels):
-        n_srcs += subsets[panel_idx].size() * nq
-
-    cdef int kernel_dim = 2 if eval_deriv else 1
-    cdef vector[double complex] r_inv_wz0 = vector[dcomplex](n_srcs)
-    cdef vector[double complex] exp_t = vector[dcomplex](n_srcs)
-    cdef vector[double] qbx_terms = vector[double](n_srcs * kernel_dim)
-
-    cdef double constant, jac, qxj, qxk, denom, inv_denom
-    cdef double complex w_src, nw_src
-    cdef double jac_src, interp_K
-    cdef double complex nw, inv_wz0, exp_m0, exp_m1, t0, a0, a1
-
-
-    cdef double eval_m0 = (0.0 if eval_deriv else 1.0)
-    cdef double complex eval_m1 = (-invr if eval_deriv else zz0_div_r)
-    cdef double complex eval_t = eval_m1
-    cdef double complex eval_tm
-
-    cdef double mag_a0 = 0.0
-
-    cdef int subset_start = 0
-    cdef int k, quad_pt_idx
-    for panel_list_idx in range(panel_start, panel_end):
-        panel_idx = panels[panel_list_idx]
-        pt_start = panel_idx * nq
-        pt_end = (panel_idx + 1) * nq
-        panel_offset = panel_list_idx - panel_start
-        for subset_idx in range(subsets[panel_offset].size() - 1):
-            xhat_left = subsets[panel_offset][subset_idx]
-            xhat_right = subsets[panel_offset][subset_idx + 1]
-            for quad_pt_idx in range(nq):
-                qxj = xhat_left + (qx[quad_pt_idx] + 1) * 0.5 * (xhat_right - xhat_left);
-
-                if subsets[panel_offset].size() == 2:
-                    src_pt_idx = pt_start + quad_pt_idx
-                    w = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
-                    nw = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
-                    jac = src_jacobians[src_pt_idx]
-                else:
-                    w = 0
-                    nw = 0
-                    jac = 0
-                    denom = 0
-                    for src_pt_idx in range(pt_start, pt_end):
-                        k = src_pt_idx - pt_start
-                        qxk = qx[k]
-                        w_src = src_pts[src_pt_idx,0] + src_pts[src_pt_idx,1] * I
-                        nw_src = src_normals[src_pt_idx,0] + src_normals[src_pt_idx,1] * I
-                        jac_src = src_jacobians[src_pt_idx]
-                        interp_K = interp_wts[k] / (qxj - qxk);
-                        w += w_src * interp_K
-                        nw += nw_src * interp_K
-                        jac += jac_src * interp_K
-                        denom += interp_K
-
-                    inv_denom = 1.0 / denom
-                    w *= inv_denom
-                    nw *= inv_denom
-                    jac *= inv_denom
-
-                j = subset_start + quad_pt_idx
-                inv_wz0 = 1.0 / (w - z0)
-
-                r_inv_wz0[j] = r * inv_wz0
-                constant = C * qw[quad_pt_idx] * src_param_width[panel_idx] * jac * 0.5 * (xhat_right - xhat_left) * 0.5
-
-                if exp_deriv:
-                    exp_m0 = nw * inv_wz0 * constant
-                    exp_m1 = exp_m0 * r_inv_wz0[j]
-                else:
-                    exp_m0 = log(w-z0) * constant
-                    exp_m1 = -constant * r_inv_wz0[j]
-                exp_t[j] = exp_m1
-
-                a1 = exp_m1 * eval_m1
-                if eval_deriv:
-                    # eval_m0 is zero
-                    mag_a0 += fabs(real(a1)) + fabs(imag(a1))
-                    t0 = a1
-                else:
-                    a0 = exp_m0 * eval_m0
-                    mag_a0 += fabs(real(a0)) + fabs(imag(a0))
-                    t0 = a0 + a1
-                qbx_terms[j * kernel_dim + 0] = real(t0)
-                if eval_deriv:
-                    qbx_terms[j * kernel_dim + 1] = -imag(t0)
-
-            subset_start += nq
-
-    # Step 4: construct the power series.
-    cdef double complex am
-    cdef double am_sum_real
-    cdef double am_sum_imag
-    cdef double mag_am_sum
-    cdef double mag_am_sum_prev = mag_a0
-    cdef int divergences = 0
-    cdef int m = 1
-
-    for m in range(2, max_p + 1):
-        eval_t *= zz0_div_r
-        eval_tm = eval_t
-        if (<int>exp_deriv) + (<int>eval_deriv) == 0:
-            eval_tm /= m
-        elif (<int>exp_deriv) + (<int>eval_deriv) == 2:
-            eval_tm *= m
-
-        am_sum_real = 0
-        am_sum_imag = 0
-        for j in range(n_srcs):
-            exp_t[j] *= r_inv_wz0[j]
-            am = exp_t[j] * eval_tm
-            am_sum_real += real(am)
-            am_sum_imag += imag(am)
-            qbx_terms[j * kernel_dim + 0] += real(am)
-            if eval_deriv:
-                qbx_terms[j * kernel_dim + 1] -= imag(am)
-        mag_am_sum = fabs(am_sum_real) + fabs(am_sum_imag)
-
-        # We use the sum of the last two terms to avoid issues with
-        # common sequences where every terms alternate in magnitude
-        # See Klinteberg and Tornberg 2018 at the end of page 5
-        if mag_am_sum + mag_am_sum_prev < 2 * tol * mag_a0:
-            divergences = 0
-            break
-
-        if mag_am_sum > mag_am_sum_prev:
-            divergences += 1
-        else:
-            divergences = 0
-        mag_am_sum_prev = mag_am_sum
-
-    # Step 5: Insert the results into the output matrix.
-    subset_start = 0
-    cdef vector[double] entries = vector[double](kernel_dim * nq)
-    for panel_list_idx in range(panel_start, panel_end):
-        panel_idx = panels[panel_list_idx]
-        pt_start = panel_idx * nq
-        pt_end = (panel_idx + 1) * nq
-        panel_offset = panel_list_idx - panel_start
-        for subset_idx in range(subsets[panel_offset].size() - 1):
-            xhat_left = subsets[panel_offset][subset_idx]
-            xhat_right = subsets[panel_offset][subset_idx + 1]
-            for quad_pt_idx in range(nq):
-                j = subset_start + quad_pt_idx
-                qxj = xhat_left + (qx[quad_pt_idx] + 1) * 0.5 * (xhat_right - xhat_left);
-
-                if subsets[panel_offset].size() == 2:
-                    src_pt_idx = pt_start + quad_pt_idx
-                    mat[obs_pt_idx, src_pt_idx, 0] += qbx_terms[j * kernel_dim + 0]
-                    if eval_deriv:
-                        mat[obs_pt_idx, src_pt_idx, 1] += qbx_terms[j * kernel_dim + 1]
-                else:
-                    denom = 0
-                    for src_pt_idx in range(pt_start, pt_end):
-                        k = src_pt_idx - pt_start
-                        qxk = qx[k]
-                        interp_K = interp_wts[k] / (qxj - qxk);
-                        entries[kernel_dim*k] = interp_K * qbx_terms[j * kernel_dim + 0]
-                        if eval_deriv:
-                            entries[kernel_dim*k + 1] = interp_K * qbx_terms[j * kernel_dim + 1]
-                        denom += interp_K
-                    inv_denom = 1.0 / denom
-
-                    for src_pt_idx in range(pt_start, pt_end):
-                        k = src_pt_idx - pt_start
-                        mat[obs_pt_idx, src_pt_idx, 0] += entries[k*kernel_dim] * inv_denom
-                        if eval_deriv:
-                            mat[obs_pt_idx, src_pt_idx, 1] += entries[k * kernel_dim + 1] * inv_denom
-            subset_start += nq
-
-    return pair[int, bool](m, divergences > 1)
+    cdef void local_qbx_single_layer(const LocalQBXArgs&)
+    cdef void local_qbx_double_layer(const LocalQBXArgs&)
+    cdef void local_qbx_adjoint_double_layer(const LocalQBXArgs&)
+    cdef void local_qbx_hypersingular(const LocalQBXArgs&)
 
 def local_qbx_integrals(
-    bool exp_deriv, bool eval_deriv,
+    kernel_name,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
     double[:,::1] exp_centers, double[::1] exp_rs,
     int max_p, double tol, long[:] panels, long[:] panel_starts
 ):
-
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
     cdef double[::1] src_jacobians = src.jacobians
     cdef double[::1] src_panel_lengths = src.panel_length
     cdef double[::1] src_param_width = src.panel_parameter_width
-
     cdef double[::1] qx = src.qx
     cdef double[::1] qw = src.qw
     cdef double[::1] interp_wts = src.interp_wts
-    cdef int nq = src.qx.shape[0]
 
-    cdef int i
-    cdef np.ndarray p_np = np.empty(obs_pts.shape[0], dtype=np.int32)
-    cdef int[:] p = p_np
-    cdef np.ndarray kappa_too_small_np = np.empty(obs_pts.shape[0], dtype=np.bool_)
-    cdef bool[:] kappa_too_small = kappa_too_small_np
+    p_np = np.empty(obs_pts.shape[0], dtype=np.int32)
+    cdef int[::1] p = p_np
 
-    cdef pair[int,bool] result
-    for i in prange(obs_pts.shape[0], nogil=True):
-        result = single_obs(
-            exp_deriv, eval_deriv, mat, obs_pts,
-            src_pts, src_normals, src_jacobians, src_panel_lengths, src_param_width,
-            qx, qw, interp_wts, nq, exp_centers, exp_rs,
-            max_p, tol, panels, panel_starts, i, i
-        )
-        p[i] = result.first
-        kappa_too_small[i] = result.second
-    return p_np, kappa_too_small_np
+    n_subsets_np = np.empty(obs_pts.shape[0], dtype=np.int32)
+    cdef int[::1] n_subsets = n_subsets_np
+
+    cdef LocalQBXArgs args = LocalQBXArgs(
+        &mat[0,0,0], &p[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
+        &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
+        &src_panel_lengths[0], &src_param_width[0], src.n_panels, &qx[0],
+        &qw[0], &interp_wts[0], qx.shape[0], &exp_centers[0,0], &exp_rs[0],
+        max_p, tol, &panels[0], &panel_starts[0]
+    )
+
+    if kernel_name == "single_layer":
+        local_qbx_single_layer(args)
+    elif kernel_name == "double_layer":
+        local_qbx_double_layer(args)
+    elif kernel_name == "adjoint_double_layer":
+        local_qbx_adjoint_double_layer(args)
+    elif kernel_name == "hypersingular":
+        local_qbx_hypersingular(args)
+    else:
+        raise Exception("Unknown kernel name.")
+
+    return p_np, n_subsets_np
+
 
 cdef extern from "nearfield.cpp":
     cdef struct NearfieldArgs:
@@ -339,6 +100,7 @@ cdef extern from "nearfield.cpp":
         long* panel_obs_pts_starts
         double mult
         double tol
+        bool adaptive
 
     cdef void nearfield_single_layer(const NearfieldArgs&)
     cdef void nearfield_double_layer(const NearfieldArgs&)
@@ -348,7 +110,7 @@ cdef extern from "nearfield.cpp":
 def nearfield_integrals(
     kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
     long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
-    double mult, double tol
+    double mult, double tol, bool adaptive
 ):
 
     cdef double[:,::1] src_pts = src.pts
@@ -360,27 +122,26 @@ def nearfield_integrals(
     cdef double[::1] qw = src.qw
     cdef double[::1] interp_wts = src.interp_wts
 
-    # kernel = double_layer
+
     cdef NearfieldArgs args = NearfieldArgs(
         &mat[0,0,0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
         &qx[0], &qw[0], &interp_wts[0], qx.shape[0],
         &panel_obs_pts[0], &panel_obs_pts_starts[0],
-        mult, tol
+        mult, tol, adaptive
     )
 
     if kernel_name == "single_layer":
-        kernel_fnc = nearfield_single_layer
+        nearfield_single_layer(args)
     elif kernel_name == "double_layer":
-        kernel_fnc = nearfield_double_layer
+        nearfield_double_layer(args)
     elif kernel_name == "adjoint_double_layer":
-        kernel_fnc = nearfield_adjoint_double_layer
+        nearfield_adjoint_double_layer(args)
     elif kernel_name == "hypersingular":
-        kernel_fnc = nearfield_hypersingular
+        nearfield_hypersingular(args)
     else:
         raise Exception("Unknown kernel name.")
-    kernel_fnc(args)
 
 
 def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_order):

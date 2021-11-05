@@ -9,10 +9,7 @@ from tectosaur2.laplace2d import (
     DoubleLayer,
     Hypersingular,
     SingleLayer,
-    adjoint_double_layer,
     double_layer,
-    hypersingular,
-    single_layer,
 )
 from tectosaur2.mesh import (
     apply_interp_mat,
@@ -23,10 +20,10 @@ from tectosaur2.mesh import (
 )
 
 # kernel_types = [SingleLayer]
-kernel_types = [DoubleLayer]
+# kernel_types = [DoubleLayer]
 # kernel_types = [AdjointDoubleLayer]
 # kernel_types = [Hypersingular]
-# kernel_types = [SingleLayer, DoubleLayer, AdjointDoubleLayer, Hypersingular]
+kernel_types = [SingleLayer, DoubleLayer, AdjointDoubleLayer, Hypersingular]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -98,18 +95,14 @@ def test_integrate_can_do_global_qbx(K_type):
     global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
     global_v = global_qbx.dot(density)
 
-    local_qbx, reports = integrate_term(
-        K_type(
-            d_cutoff=100.0,
-            max_p=3,
-            on_src_direction=-1.0,
-        ),
+    local_qbx, report = integrate_term(
+        K_type(d_cutoff=100.0, max_p=3),
         src.pts,
         src,
+        limit_direction=-1.0,
         return_reports=True,
     )
-    # from tectosaur2.integrate import integrate_term
-    # integrate_term(K, obs_pts, )
+    assert report["n_nearfield"] == 0
     local_v = local_qbx[0].dot(density)
 
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
@@ -119,21 +112,21 @@ def test_integrate_can_do_global_qbx(K_type):
 def test_integrate_self(K_type):
     src = unit_circle()
     density = np.cos(src.pts[:, 0])
-    print("HI")
-    print("HI")
-    print("HI")
-    print("HI")
-    print("HI")
 
     global_qbx = global_qbx_self(K_type(), src, p=10, direction=1.0, kappa=3)
     global_v = global_qbx.dot(density)
 
-    local_qbx, report = integrate_term(K_type(), src.pts, src, return_reports=True)
+    local_qbx, report = integrate_term(
+        K_type(), src.pts, src, tol=1e-13, return_reports=True
+    )
     local_v = local_qbx[0].dot(density)
 
     tol = 1e-13
     if K_type is Hypersingular:
         tol = 1e-12
+    print(report["p"])
+    print(report["n_subsets"])
+    print(local_v[:10], global_v[:10])
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
 
 

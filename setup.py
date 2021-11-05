@@ -3,6 +3,7 @@ from os import path
 
 import numpy as np
 from Cython.Build import cythonize
+from Cython.Compiler import Options
 from setuptools import Extension, find_packages, setup
 
 here = path.abspath(path.dirname(__file__))
@@ -38,6 +39,8 @@ ext_modules = [
         **extension_args,
     ),
 ]
+
+Options.warning_errors = True
 
 setup(
     name="tectosaur2",
