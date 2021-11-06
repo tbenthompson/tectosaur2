@@ -11,6 +11,7 @@ cdef extern from "local_qbx.cpp":
     cdef struct LocalQBXArgs:
         double* mat
         int* p
+        int* failed;
         int* n_subsets
         int n_obs
         int n_src
@@ -58,8 +59,11 @@ def local_qbx_integrals(
     n_subsets_np = np.empty(obs_pts.shape[0], dtype=np.int32)
     cdef int[::1] n_subsets = n_subsets_np
 
+    failed_np = np.empty(obs_pts.shape[0], dtype=np.int32)
+    cdef int[::1] failed = failed_np
+
     cdef LocalQBXArgs args = LocalQBXArgs(
-        &mat[0,0,0], &p[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
+        &mat[0,0,0], &p[0], &failed[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
         &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels, &qx[0],
         &qw[0], &interp_wts[0], qx.shape[0], &exp_centers[0,0], &exp_rs[0],
@@ -77,7 +81,7 @@ def local_qbx_integrals(
     else:
         raise Exception("Unknown kernel name.")
 
-    return p_np, n_subsets_np
+    return p_np, failed_np, n_subsets_np
 
 
 cdef extern from "nearfield.cpp":
