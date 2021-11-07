@@ -22,6 +22,7 @@ class PanelSurface:
     radius: np.ndarray
 
     panel_bounds: np.ndarray
+    panel_edges: np.ndarray
     panel_parameter_width: np.ndarray
     panel_start_idxs: np.ndarray
     panel_sizes: np.ndarray
@@ -29,7 +30,17 @@ class PanelSurface:
     panel_length: np.ndarray
 
     def __init__(
-        self, qx, qw, quad_pts, quad_wts, pts, normals, jacobians, radius, panel_bounds
+        self,
+        qx,
+        qw,
+        quad_pts,
+        quad_wts,
+        pts,
+        normals,
+        jacobians,
+        radius,
+        panel_bounds,
+        panel_edges,
     ):
         self.qx = qx
         self.qw = qw
@@ -42,7 +53,7 @@ class PanelSurface:
         self.jacobians = jacobians
         self.radius = radius
         self.panel_bounds = panel_bounds
-
+        self.panel_edges = panel_edges
         self.panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
         self.panel_sizes = np.full(self.panel_bounds.shape[0], self.panel_order)
         self.panel_start_idxs = np.cumsum(self.panel_sizes) - self.panel_order
@@ -126,6 +137,10 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     surf_vals = [
         symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]
     ]
+    panel_edge_parameters = np.concatenate((panel_bounds[:, 0], panel_bounds[-1:, 1]))
+    panel_edges = np.array(
+        [symbolic_eval(t, panel_edge_parameters, v) for v in [x, y]]
+    ).T
 
     pts = np.hstack((surf_vals[0][:, None], surf_vals[1][:, None]))
     normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
@@ -142,6 +157,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
         jacobians,
         radius_of_curvature,
         panel_bounds,
+        panel_edges,
     )
 
 
@@ -159,7 +175,7 @@ def refine_panels(panels, which):
     return new_panels
 
 
-def stage1_refine(
+def refine_surfaces(
     sym_surfs,
     quad_rule,
     other_surfaces=[],
@@ -313,7 +329,7 @@ def stage1_refine(
 
 def unit_circle(nq=12, max_curvature=0.5, control_points=None):
     t = sp.var("t")
-    return stage1_refine(
+    return refine_surfaces(
         [
             (t, sp.cos(sp.pi * t), sp.sin(sp.pi * t)),
         ],
@@ -370,6 +386,7 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
             jacobians,
             radius,
             panel_bounds,
+            None,
         ),
         interp_mat,
     )
@@ -493,4 +510,3 @@ def pts_grid(xs, ys):
     product of `xs` and `ys`.
     """
     return np.hstack([v.ravel()[:, None] for v in np.meshgrid(xs, ys)])
-

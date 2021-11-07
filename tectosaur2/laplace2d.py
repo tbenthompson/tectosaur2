@@ -4,12 +4,12 @@ from ._ext import nearfield_integrals
 
 
 class LaplaceKernel:
-    def __init__(self, d_cutoff=2.0, d_up=4.0, d_qbx=0.5, d_refine=2.5, max_p=50):
+    def __init__(self, d_cutoff=2.0, d_up=4.0, d_qbx=0.5, max_p=50, default_tol=1e-13):
         self.d_cutoff = d_cutoff
         self.d_up = d_up
         self.d_qbx = d_qbx
-        self.d_refine = d_refine
         self.max_p = max_p
+        self.default_tol = default_tol
 
     def nearfield(
         self, mat, obs_pts, src, panels, panel_starts, mult, tol, adaptive=True
@@ -119,10 +119,9 @@ class Hypersingular(LaplaceKernel):
         return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :]
 
 
-d_refine = 8.0
-single_layer = SingleLayer(d_cutoff=1.5, d_refine=2.5, d_up=1.5, d_qbx=0.3)
-double_layer = DoubleLayer(d_cutoff=1.5, d_refine=2.5, d_up=1.5, d_qbx=0.3)
+single_layer = SingleLayer(d_cutoff=1.5, d_up=1.5, d_qbx=0.3, default_tol=1e-13)
+double_layer = DoubleLayer(d_cutoff=1.5, d_up=2.0, d_qbx=0.4, default_tol=1e-13)
 adjoint_double_layer = AdjointDoubleLayer(
-    d_cutoff=1.5, d_refine=2.5, d_up=1.5, d_qbx=0.3
+    d_cutoff=1.5, d_up=2.0, d_qbx=0.4, default_tol=1e-13
 )
-hypersingular = Hypersingular(d_cutoff=2.0, d_refine=2.5, d_up=1.5, d_qbx=0.4)
+hypersingular = Hypersingular(d_cutoff=2.0, d_up=2.5, d_qbx=0.5, default_tol=1e-12)

@@ -15,7 +15,7 @@ from tectosaur2.laplace2d import (
 from tectosaur2.mesh import (
     apply_interp_mat,
     gauss_rule,
-    stage1_refine,
+    refine_surfaces,
     unit_circle,
     upsample,
 )
@@ -38,20 +38,18 @@ def test_nearfield_far(K_type):
     true = K.direct(obs_pts, src)
     true_v = true.dot(density)
 
-    for d_refine in [0.5, 3.0, 10.0]:
+    pts_per_panel = [
+        np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
+    ]
+    pts_starts = np.zeros(src.n_panels + 1, dtype=int)
+    pts_starts[1:] = np.cumsum([p.shape[0] for p in pts_per_panel])
+    pts_per_panel = np.concatenate(pts_per_panel)
 
-        pts_per_panel = [
-            np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
-        ]
-        pts_starts = np.zeros(src.n_panels + 1, dtype=int)
-        pts_starts[1:] = np.cumsum([p.shape[0] for p in pts_per_panel])
-        pts_per_panel = np.concatenate(pts_per_panel)
+    est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
+    K.nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
+    est_v = np.transpose(est, (0, 2, 1)).dot(density)
 
-        est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
-        K.nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
-        est_v = np.transpose(est, (0, 2, 1)).dot(density)
-
-        np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -65,7 +63,7 @@ def test_integrate_near(K_type):
     mats, report = integrate_term(K, obs_pts, src, tol=1e-14, return_report=True)
     assert report["n_qbx"] == 0
 
-    np.testing.assert_allclose(mats[0], true, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(mats[0], true, rtol=5e-14, atol=5e-14)
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -134,7 +132,7 @@ def test_integrate_self(K_type):
 
 def test_fault_surface():
     t = sp.var("t")
-    fault, free = stage1_refine(
+    fault, free = refine_surfaces(
         [(t, t * 0, (t + 1) * -0.5), (t, -t * 2, 0 * t)],
         gauss_rule(6),
         control_points=np.array([(0, 0, 0, 0.1)]),
@@ -144,16 +142,17 @@ def test_fault_surface():
     lhs = np.eye(A.shape[0]) + A[:, 0, :]
     surf_disp = np.linalg.inv(lhs).dot(-B[:, 0, :].dot(slip))
 
-    from tectosaur2.mesh import pts_grid
+    # from tectosaur2.mesh import pts_grid
 
-    nobs = 50
-    zoomx = [-1.5, 1.5]
-    zoomy = [-3, 0]
-    xs = np.linspace(*zoomx, nobs)
-    ys = np.linspace(*zoomy, nobs)
-    obs_pts = pts_grid(xs, ys)
-    Ai, Bi = integrate_term(double_layer, obs_pts, free, fault)
-    interior_disp = Ai[:, 0, :].dot(surf_disp) + Bi[:, 0, :].dot(slip)
+    # nobs = 50
+    # zoomx = [-1.5, 1.5]
+    # zoomy = [-3, 0]
+    # xs = np.linspace(*zoomx, nobs)
+    # ys = np.linspace(*zoomy, nobs)
+    # obs_pts = pts_grid(xs, ys)
+    # TODO: add test for interior displacement and interior stress. OR ADD THE NOTEBOOK AS A TEST.w
+    # Ai, Bi = integrate_term(double_layer, obs_pts, free, fault)
+    # interior_disp = Ai[:, 0, :].dot(surf_disp) + Bi[:, 0, :].dot(slip)
 
     (C, D) = integrate_term(hypersingular, fault.pts, free, fault)
     fault_stress = C.dot(surf_disp) + D.dot(slip)

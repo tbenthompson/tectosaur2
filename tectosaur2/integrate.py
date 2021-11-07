@@ -13,10 +13,13 @@ def integrate_term(
     obs_pts,
     *srcs,
     limit_direction=1.0,
-    tol=1e-13,
+    tol=None,
     singularities=None,
     return_report=False
 ):
+    if tol is None:
+        tol = K.default_tol
+
     for s in srcs[1:]:
         if np.any(s.qx != srcs[0].qx):
             raise ValueError(
@@ -33,6 +36,7 @@ def integrate_term(
         np.concatenate([s.jacobians for s in srcs]),
         np.concatenate([s.radius for s in srcs]),
         np.concatenate([s.panel_bounds for s in srcs]),
+        None,
     )
 
     # step 1: construct the farfield matrix!
@@ -192,7 +196,7 @@ def integrate_term(
             adaptive=True,
         )
 
-        # setting d_refine=0.0 prevents refinement which is what we want to
+        # setting adaptive=False prevents refinement which is what we want to
         # cancel out the direct component terms
         K.nearfield(
             nearfield_mat,
