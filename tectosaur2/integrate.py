@@ -215,6 +215,8 @@ def integrate_term(
     for s in srcs:
         mats.append(mat[:, :, col_idx : col_idx + s.n_pts])
         col_idx += s.n_pts
+    if len(mats) == 1:
+        mats = mats[0]
 
     if return_report:
         return mats, report
