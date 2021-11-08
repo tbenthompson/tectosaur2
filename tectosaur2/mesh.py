@@ -94,8 +94,11 @@ def gauss_rule(n):
 
 def newton_cotes_even_spaced(N):
     points = [
-        sp.Integer("-1") + sp.Integer(i) / sp.Integer(N) for i in range(2 * N + 1)
-    ][1::2]
+        sp.Integer("-1") + sp.Integer(2 * i + 1) / sp.Integer(N) for i in range(N)
+    ]
+    # points = [
+    #     sp.Integer("-1") + 2 * sp.Integer(i + 1) / sp.Integer(N) for i in range(N - 1)
+    # ]
 
     xh = sp.var("xh")
     psi = sp.prod([(xh - xk) for xk in points])

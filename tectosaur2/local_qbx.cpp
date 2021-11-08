@@ -259,7 +259,7 @@ template <typename K>
 std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
                                         const LocalQBXArgs& a, int panel_idx,
                                         const ObsInfo& obs, double tol) {
-    constexpr int max_integrals = 100;
+    constexpr int max_integrals = 200;
 
     constexpr size_t ndim =
         std::tuple_size<decltype(kernel_fnc(ObsInfo{}, 0, 0, 0, 0))>::value;
@@ -354,8 +354,14 @@ std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
     //     failed = true;
     // }
 
-    if (integral_idx == max_integrals - 1) {
-        std::cout << "max fail!" << std::endl;
+    if (integral_idx == max_integrals) {
+        double srcx = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 0];
+        double srcy = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 1];
+        std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " << srcy << " " << panel_idx << " " << integral_idx << std::endl;
+        std::cout << "max err: " << max_err <<  "    tol: " << tol << std::endl;
+        // for (int i = 0; i < next_integral.size(); i++) {
+        //     std::cout << "option " << i << " " << next_integral[i].max_err << std::endl;
+        // }
         failed = true;
     }
 
