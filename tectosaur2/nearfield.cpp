@@ -71,29 +71,30 @@ inline std::array<double, 2> hypersingular(double obsx, double obsy, double srcx
 }
 
 struct NearfieldArgs {
-    double *mat;
+    double* mat;
+    int* n_subsets;
     int n_obs;
     int n_src;
-    double *obs_pts;
-    double *src_pts;
-    double *src_normals;
-    double *src_jacobians;
-    double *src_panel_lengths;
-    double *src_param_width;
+    double* obs_pts;
+    double* src_pts;
+    double* src_normals;
+    double* src_jacobians;
+    double* src_panel_lengths;
+    double* src_param_width;
     int src_n_panels;
     double *qx;
     double *qw;
     double *interp_wts;
     int nq;
-    long *panel_obs_pts;
-    long *panel_obs_pts_starts;
+    long* panel_obs_pts;
+    long* panel_obs_pts_starts;
     double mult;
     double tol;
     bool adaptive;
 };
 
 template <typename K>
-void integrate_domain(double *out, K kernel_fnc, const NearfieldArgs &a, int panel_idx,
+void integrate_domain(double* out, K kernel_fnc, const NearfieldArgs& a, int panel_idx,
                       double obsx, double obsy, double xhat_left, double xhat_right) {
     constexpr size_t ndim =
         std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0))>::value;
@@ -132,9 +133,9 @@ void integrate_domain(double *out, K kernel_fnc, const NearfieldArgs &a, int pan
             double srcjac = 0.0;
             double denom = 0.0;
 
-            for (int k = 0; k < a.nq; k++) {
+                for (int k = 0; k < a.nq; k++) {
                 int src_pt_idx = k + pt_start;
-                double interp_K = a.interp_wts[k] / (qxj - a.qx[k]);
+                    double interp_K = a.interp_wts[k] / (qxj - a.qx[k]);
 
                 denom += interp_K;
                 srcx += interp_K * a.src_pts[src_pt_idx * 2 + 0];
@@ -171,8 +172,8 @@ void integrate_domain(double *out, K kernel_fnc, const NearfieldArgs &a, int pan
 }
 
 template <typename K>
-void adaptive_integrate(double *out, double *baseline, K kernel_fnc,
-                        const NearfieldArgs &a, int panel_idx, double obsx, double obsy,
+int adaptive_integrate(double* out, double* baseline, K kernel_fnc,
+                        const NearfieldArgs& a, int panel_idx, double obsx, double obsy,
                         double xhat_left, double xhat_right, int depth) {
     constexpr int max_depth = 10;
 
@@ -204,15 +205,16 @@ void adaptive_integrate(double *out, double *baseline, K kernel_fnc,
             double est2 = est2_left[i] + est2_right[i];
             out[i] += est2;
         }
+        return 2;
     } else {
-        adaptive_integrate(out, est2_left.data(), kernel_fnc, a, panel_idx, obsx, obsy,
-                           xhat_left, midpt, depth + 1);
-        adaptive_integrate(out, est2_right.data(), kernel_fnc, a, panel_idx, obsx, obsy,
-                           midpt, xhat_right, depth + 1);
+        return (adaptive_integrate(out, est2_left.data(), kernel_fnc, a, panel_idx,
+                                   obsx, obsy, xhat_left, midpt, depth + 1) +
+                adaptive_integrate(out, est2_right.data(), kernel_fnc, a, panel_idx,
+                                   obsx, obsy, midpt, xhat_right, depth + 1));
     }
 }
 
-template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArgs &a) {
+template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
 
     constexpr size_t ndim =
         std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0))>::value;
@@ -237,37 +239,40 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
 
             int pt_start = cur_panel * a.nq;
             int obs_i = a.panel_obs_pts[integral_idx];
-            double *out_ptr = &a.mat[obs_i * a.n_src * ndim + pt_start * ndim];
+            double* out_ptr = &a.mat[obs_i * a.n_src * ndim + pt_start * ndim];
             double obsx = a.obs_pts[obs_i * 2 + 0];
             double obsy = a.obs_pts[obs_i * 2 + 1];
 
             std::vector<double> baseline(a.nq * ndim);
+            int n_subsets = 1;
             integrate_domain(baseline.data(), kernel_fnc, a, cur_panel, obsx, obsy, -1,
                              1);
             if (a.adaptive) {
-                adaptive_integrate(out_ptr, baseline.data(), kernel_fnc, a, cur_panel,
-                                   obsx, obsy, -1, 1, 0);
+                n_subsets += adaptive_integrate(out_ptr, baseline.data(), kernel_fnc, a,
+                                                cur_panel, obsx, obsy, -1, 1, 0);
             } else {
                 for (int i = 0; i < a.nq * ndim; i++) {
                     out_ptr[i] += baseline[i];
                 }
             }
+            #pragma omp atomic
+            a.n_subsets[obs_i] += n_subsets;
         }
     }
 }
 
-void nearfield_single_layer(const NearfieldArgs &a) {
+void nearfield_single_layer(const NearfieldArgs& a) {
     _nearfield_integrals(single_layer, a);
 }
 
-void nearfield_double_layer(const NearfieldArgs &a) {
+void nearfield_double_layer(const NearfieldArgs& a) {
     _nearfield_integrals(double_layer, a);
 }
 
-void nearfield_adjoint_double_layer(const NearfieldArgs &a) {
+void nearfield_adjoint_double_layer(const NearfieldArgs& a) {
     _nearfield_integrals(adjoint_double_layer, a);
 }
 
-void nearfield_hypersingular(const NearfieldArgs &a) {
+void nearfield_hypersingular(const NearfieldArgs& a) {
     _nearfield_integrals(hypersingular, a);
 }

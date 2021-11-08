@@ -92,6 +92,22 @@ def gauss_rule(n):
     return x, w
 
 
+def newton_cotes_even_spaced(N):
+    points = [
+        sp.Integer("-1") + sp.Integer(i) / sp.Integer(N) for i in range(2 * N + 1)
+    ][1::2]
+
+    xh = sp.var("xh")
+    psi = sp.prod([(xh - xk) for xk in points])
+    psid = sp.diff(psi, xh)
+    weights = [
+        (1 / psid.subs(xh, xk))
+        * sp.integrate(psi / (xh - xk), (xh, sp.Integer(-1), sp.Integer(1)))
+        for xk in points
+    ]
+    return np.array(points, dtype=np.float64), np.array(weights, dtype=np.float64)
+
+
 def trapezoidal_rule(n):
     """
     The n-point trapezoidal rule on [-1, 1].
@@ -327,15 +343,15 @@ def refine_surfaces(
     return cur_surfs
 
 
-def unit_circle(nq=12, max_curvature=0.5, control_points=None):
+def unit_circle(quad_rule, max_curvature=0.5, control_points=None):
     t = sp.var("t")
     return refine_surfaces(
         [
             (t, sp.cos(sp.pi * t), sp.sin(sp.pi * t)),
         ],
-        gauss_rule(nq),
+        quad_rule,
         max_curvature=max_curvature,
-        control_points=None,
+        control_points=control_points,
     )[0]
 
 

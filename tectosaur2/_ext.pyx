@@ -87,6 +87,7 @@ def local_qbx_integrals(
 cdef extern from "nearfield.cpp":
     cdef struct NearfieldArgs:
         double* mat
+        int* n_subsets
         int n_obs
         int n_src
         double* obs_pts
@@ -126,9 +127,11 @@ def nearfield_integrals(
     cdef double[::1] qw = src.qw
     cdef double[::1] interp_wts = src.interp_wts
 
+    n_subsets_np = np.zeros(obs_pts.shape[0], dtype=np.int32)
+    cdef int[::1] n_subsets = n_subsets_np
 
     cdef NearfieldArgs args = NearfieldArgs(
-        &mat[0,0,0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
+        &mat[0,0,0], &n_subsets[0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
         &qx[0], &qw[0], &interp_wts[0], qx.shape[0],
@@ -146,6 +149,8 @@ def nearfield_integrals(
         nearfield_hypersingular(args)
     else:
         raise Exception("Unknown kernel name.")
+
+    return n_subsets_np
 
 
 def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_order):

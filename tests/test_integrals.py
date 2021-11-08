@@ -15,6 +15,7 @@ from tectosaur2.laplace2d import (
 from tectosaur2.mesh import (
     apply_interp_mat,
     gauss_rule,
+    newton_cotes_even_spaced,
     refine_surfaces,
     unit_circle,
     upsample,
@@ -26,12 +27,15 @@ from tectosaur2.mesh import (
 # kernel_types = [Hypersingular]
 kernel_types = [SingleLayer, DoubleLayer, AdjointDoubleLayer, Hypersingular]
 
+quad_rules = [gauss_rule(12), newton_cotes_even_spaced(8)]
+
 
 @pytest.mark.parametrize("K_type", kernel_types)
-def test_nearfield_far(K_type):
+@pytest.mark.parametrize("quad_rule", quad_rules)
+def test_nearfield_far(K_type, quad_rule):
     K = K_type()
 
-    src = unit_circle()
+    src = unit_circle(quad_rule)
     density = np.cos(src.pts[:, 0])
 
     obs_pts = 2 * src.pts[:1]
@@ -46,24 +50,39 @@ def test_nearfield_far(K_type):
     pts_per_panel = np.concatenate(pts_per_panel)
 
     est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
-    K.nearfield(est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0)
+    n_subsets = K.nearfield(
+        est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0, adaptive=False
+    )
+    assert n_subsets[0] == src.n_panels
     est_v = np.transpose(est, (0, 2, 1)).dot(density)
 
     np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
 
+quad_rules = [gauss_rule(12), newton_cotes_even_spaced(8)]
+
+
 @pytest.mark.parametrize("K_type", kernel_types)
-def test_integrate_near(K_type):
-    src = unit_circle(control_points=np.array([[1, 0, 0, 0.05]]))
+@pytest.mark.parametrize("quad_rule", quad_rules)
+def test_integrate_near(K_type, quad_rule):
+    src = unit_circle(quad_rule, control_points=np.array([[1, 0, 0.5, 0.05]]))
     obs_pts = 1.04 * src.pts[1:4]
-    src_high, interp_mat = upsample(src, 7)
+    src_high, interp_mat = upsample(src, 8)
+    # import matplotlib.pyplot as plt
+    # plt.plot(src_high.pts[:,0], src_high.pts[:,1])
+    # plt.show()
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
 
-    K = K_type(d_up=4.0, d_qbx=0.0)
-    mats, report = integrate_term(K, obs_pts, src, tol=1e-14, return_report=True)
+    print(src.n_panels, src.panel_length)
+    K = K_type(d_up=10.0, d_qbx=0.0)
+    mats, report = integrate_term(K, obs_pts, src, tol=1e-15, return_report=True)
     assert report["n_qbx"] == 0
 
-    np.testing.assert_allclose(mats[0], true, rtol=5e-14, atol=5e-14)
+    # np.testing.assert_allclose(mats[0], true, rtol=5e-14, atol=5e-14)
+    density = np.cos(src.pts[:, 0])
+    np.testing.assert_allclose(
+        mats[0].dot(density), true.dot(density), atol=1e-14, rtol=1e-14
+    )
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
