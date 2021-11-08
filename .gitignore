@@ -2,7 +2,6 @@
 .DS_Store
 
 # editors
-.vscode
 *.swp
 
 # ignore ipynb, use MyST Markdown files instead!
@@ -25,5 +24,5 @@ _build
 build
 
 # cython
-*.cpp
+_ext.cpp
 *.so
