@@ -299,9 +299,17 @@ def refine_surfaces(
                 # we can simplify the criterion to:
                 # Since the self distance metric is symmetric, we only need to check
                 # if the panel is too large.
-                refine_from_self |= (
+
+                # TODO: this is somewhat flawed, I think? I think it's possible
+                # for two panels to be a small distance apart and at an angle
+                # from each other and infinitely cycle this criterion refining
+                # themselves into oblivion
+                criterion = (
                     0.5 * nearby_panel_length + nearby_dist < cur_surfs[j].panel_length
-                ) & (nearby_panel_length < 0.5 * cur_surfs[j].panel_length)
+                )
+                if k == j:
+                    criterion &= nearby_panel_length < 0.5 * cur_surfs[j].panel_length
+                refine_from_self |= criterion
 
             refine = (
                 refine_from_control
@@ -500,13 +508,13 @@ def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
 
 
 def apply_interp_mat(mat, interp_mat):
-    if mat.ndim == 3:
-        reshaped = mat.reshape((-1, mat.shape[2]))
+    if mat.ndim == 4:
+        reshaped = mat.reshape((-1, mat.shape[2] * mat.shape[3]))
     else:
         reshaped = mat
     out = scipy.sparse.bsr_matrix.dot(reshaped, interp_mat)
-    if mat.ndim == 3:
-        return out.reshape((mat.shape[0], mat.shape[1], -1))
+    if mat.ndim == 4:
+        return out.reshape((mat.shape[0], mat.shape[1], -1, mat.shape[3]))
     else:
         return out
 

@@ -70,6 +70,59 @@ inline std::array<double, 2> hypersingular(double obsx, double obsy, double srcx
     return {B * (srcnx - A * dx), B * (srcny - A * dy)};
 }
 
+inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
+                                       double srcy, double srcnx, double srcny) {
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double disp_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
+    double disp_C2 = 3 - 4 * poisson_ratio;
+
+    double dx = obsx - srcx;
+    double dy = obsy - srcy;
+    double r2 = dx * dx + dy * dy;
+
+    double G = -0.5 * disp_C2 * log(r2);
+    double invr2 = 1.0 / r2;
+    if (r2 <= too_close) {
+        invr2 = 0.0;
+        G = 0.0;
+    }
+
+    std::array<double, 4> out{};
+    out[0] = disp_C1 * (G + dx * dx * invr2);
+    out[1] = disp_C1 * (dx * dy * invr2);
+    out[2] = out[1];
+    out[3] = disp_C1 * (G + dy * dy * invr2);
+    return out;
+}
+
+inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
+                                       double srcy, double srcnx, double srcny) {
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double trac_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
+    double trac_C2 = 3 - 4 * poisson_ratio;
+
+    double dx = obsx - srcx;
+    double dy = obsy - srcy;
+    double r2 = dx * dx + dy * dy;
+
+    double G = -0.5 * disp_C2 * log(r2);
+    double invr2 = 1.0 / r2;
+    if (r2 <= too_close) {
+        invr2 = 0.0;
+        G = 0.0;
+    }
+
+    std::array<double, 4> out{};
+    out[0] = disp_C1 * (G + dx * dx * invr2);
+    out[1] = disp_C1 * (dx * dy * invr2);
+    out[2] = out[1];
+    out[3] = disp_C1 * (G + dy * dy * invr2);
+    return out;
+}
+
+
 struct NearfieldArgs {
     double* mat;
     int* n_subsets;
@@ -133,7 +186,7 @@ void integrate_domain(double* out, K kernel_fnc, const NearfieldArgs& a, int pan
             double srcjac = 0.0;
             double denom = 0.0;
 
-                for (int k = 0; k < a.nq; k++) {
+            for (int k = 0; k < a.nq; k++) {
                 int src_pt_idx = k + pt_start;
                     double interp_K = a.interp_wts[k] / (qxj - a.qx[k]);
 
@@ -275,4 +328,8 @@ void nearfield_adjoint_double_layer(const NearfieldArgs& a) {
 
 void nearfield_hypersingular(const NearfieldArgs& a) {
     _nearfield_integrals(hypersingular, a);
+}
+
+void nearfield_elastic_U(const NearfieldArgs& a) {
+    _nearfield_integrals(elastic_U, a);
 }

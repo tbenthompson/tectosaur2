@@ -111,6 +111,7 @@ cdef extern from "nearfield.cpp":
     cdef void nearfield_double_layer(const NearfieldArgs&)
     cdef void nearfield_adjoint_double_layer(const NearfieldArgs&)
     cdef void nearfield_hypersingular(const NearfieldArgs&)
+    cdef void nearfield_elastic_U(const NearfieldArgs&)
 
 def nearfield_integrals(
     kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
@@ -147,6 +148,8 @@ def nearfield_integrals(
         nearfield_adjoint_double_layer(args)
     elif kernel_name == "hypersingular":
         nearfield_hypersingular(args)
+    elif kernel_name == "elastic_U":
+        nearfield_elastic_U(args)
     else:
         raise Exception("Unknown kernel name.")
 

@@ -165,6 +165,26 @@ std::array<double, 4> hypersingular_qbx(const ObsInfo& obs, double srcx, double 
     return result;
 }
 
+std::array<double, 8> plane_U_qbx(const ObsInfo& obs, double srcx, double srcy, double srcnx, double srcny) {
+    std::complex<double> w = {srcx, srcy};
+    std::complex<double> z0 = {obs.expx, obs.expy};
+    std::complex<double> z = {obs.x, obs.y};
+    std::array<double, 2> result{};
+
+    for (int m = obs.p_start; m < obs.p_end; m++) {
+        std::complex<double> expand;
+        if (m == 0) {
+            expand = std::log(w - z0);
+        } else {
+            expand = -1.0 / (static_cast<double>(m) * std::pow(w - z0, m));
+        }
+        std::complex<double> eval = std::pow(z - z0, m);
+
+        result[0] += result[1];
+        result[1] = std::real(expand * eval);
+    }
+}
+
 template <typename K>
 void integrate_domain(double* out, K kernel_fnc, const LocalQBXArgs& a, int panel_idx,
                       const ObsInfo& obs, double xhat_left, double xhat_right) {

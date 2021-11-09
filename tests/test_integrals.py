@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 import sympy as sp
 
+from tectosaur2 import gauss_rule, integrate_term, refine_surfaces, tensor_dot
+from tectosaur2.elastic2d import ElasticU
 from tectosaur2.global_qbx import global_qbx_self
-from tectosaur2.integrate import integrate_term
 from tectosaur2.laplace2d import (
     AdjointDoubleLayer,
     DoubleLayer,
@@ -14,27 +15,25 @@ from tectosaur2.laplace2d import (
     double_layer,
     hypersingular,
 )
-from tectosaur2.mesh import (
-    apply_interp_mat,
-    gauss_rule,
-    refine_surfaces,
-    unit_circle,
-    upsample,
-)
+from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
-kernel_types = [SingleLayer, DoubleLayer, AdjointDoubleLayer, Hypersingular]
+kernel_types = [
+    SingleLayer,
+    DoubleLayer,
+    AdjointDoubleLayer,
+    Hypersingular,
+]  # , ElasticU]
+# kernel_types = [ElasticU]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_nearfield_far(K_type):
-    K = K_type()
-
-    src = unit_circle(gauss_rule(12))
+    src = unit_circle(gauss_rule(12), max_curvature=100)
     density = np.cos(src.pts[:, 0])
 
     obs_pts = 2 * src.pts[:1]
-    true = K.direct(obs_pts, src)
-    true_v = true.dot(density)
+    true = K_type().direct(obs_pts, src)
+    true_v = tensor_dot(true, density)
 
     pts_per_panel = [
         np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
@@ -43,12 +42,28 @@ def test_nearfield_far(K_type):
     pts_starts[1:] = np.cumsum([p.shape[0] for p in pts_per_panel])
     pts_per_panel = np.concatenate(pts_per_panel)
 
-    est = np.zeros((obs_pts.shape[0], src.n_pts, K.ndim))
-    n_subsets = K.nearfield(
-        est, obs_pts, src, pts_per_panel, pts_starts, 1.0, 3.0, adaptive=False
+    K = K_type()
+    est_compact = np.zeros((obs_pts.shape[0], src.n_pts, K.obs_dim * K.src_dim))
+    from tectosaur2._ext import nearfield_integrals
+
+    n_subsets = nearfield_integrals(
+        K.name,
+        est_compact,
+        obs_pts,
+        src,
+        pts_per_panel,
+        pts_starts,
+        1.0,
+        3.0,
+        adaptive=False,
     )
+    est = np.transpose(
+        est_compact.reshape((obs_pts.shape[0], src.n_pts, K.obs_dim, K.src_dim)),
+        (0, 2, 1, 3),
+    )
+
     assert n_subsets[0] == src.n_panels
-    est_v = np.transpose(est, (0, 2, 1)).dot(density)
+    est_v = tensor_dot(est, density)
 
     np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
 
@@ -75,13 +90,13 @@ def test_global_qbx(K_type):
     src_high, interp_mat = upsample(src, 10)
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
     density = np.cos(src.pts[:, 0])
-    true_v = true.dot(density)
+    true_v = tensor_dot(true, density)
 
     # p = 16, kappa = 4 are the minimal parameters for rtol=1e-13
     est = global_qbx_self(
         K_type(), src, p=16, direction=-1.0, kappa=4, obs_pt_normal_offset=-0.07
     )
-    est_v = est.dot(density)
+    est_v = tensor_dot(est, density)
     np.testing.assert_allclose(est_v, true_v, rtol=1e-13, atol=1e-13)
 
 
@@ -94,7 +109,7 @@ def test_integrate_can_do_global_qbx(K_type):
     density = np.cos(src.pts[:, 0])
 
     global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
-    global_v = global_qbx.dot(density)
+    global_v = tensor_dot(global_qbx, density)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -106,7 +121,7 @@ def test_integrate_can_do_global_qbx(K_type):
             return_report=True,
         )
     assert report["n_nearfield"] == 0
-    local_v = local_qbx.dot(density)
+    local_v = tensor_dot(local_qbx, density)
 
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
 
@@ -117,7 +132,7 @@ def test_integrate_self(K_type):
     density = np.cos(src.pts[:, 0])
 
     global_qbx = global_qbx_self(K_type(), src, p=10, direction=1.0, kappa=3)
-    global_v = global_qbx.dot(density)
+    global_v = tensor_dot(global_qbx, density)
 
     tol = 1e-13
     if K_type is Hypersingular:
@@ -125,7 +140,7 @@ def test_integrate_self(K_type):
     local_qbx, report = integrate_term(
         K_type(d_cutoff=4.0), src.pts, src, tol=tol, return_report=True
     )
-    local_v = local_qbx.dot(density)
+    local_v = tensor_dot(local_qbx, density)
 
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
 
@@ -142,8 +157,8 @@ def test_fault_surface():
         double_layer, free.pts, free, fault, singularities=singularities
     )
     slip = np.ones(B.shape[2])
-    lhs = np.eye(A.shape[0]) + A[:, 0, :]
-    surf_disp = np.linalg.inv(lhs).dot(-B[:, 0, :].dot(slip))
+    lhs = np.eye(A.shape[0]) + A[:, 0, :, 0]
+    surf_disp = np.linalg.inv(lhs).dot(-B[:, 0, :, 0].dot(slip))
 
     # from tectosaur2.mesh import pts_grid
 
@@ -160,7 +175,7 @@ def test_fault_surface():
     (C, D) = integrate_term(
         hypersingular, fault.pts, free, fault, tol=1e-10, singularities=singularities
     )
-    fault_stress = C.dot(surf_disp) + D.dot(slip)
+    fault_stress = tensor_dot(C, surf_disp) + tensor_dot(D, slip)
 
     # np.save('tests/test_fault_surface.npy', (surf_disp, fault_stress))
 

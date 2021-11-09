@@ -1,27 +1,12 @@
 import numpy as np
 
-from ._ext import nearfield_integrals
+from .integrate import Kernel
 
 
-class LaplaceKernel:
-    def __init__(self, d_cutoff=2.0, d_up=4.0, d_qbx=0.5, max_p=50, default_tol=1e-13):
-        self.d_cutoff = d_cutoff
-        self.d_up = d_up
-        self.d_qbx = d_qbx
-        self.max_p = max_p
-        self.default_tol = default_tol
-
-    def nearfield(
-        self, mat, obs_pts, src, panels, panel_starts, mult, tol, adaptive=True
-    ):
-        return nearfield_integrals(
-            self.name, mat, obs_pts, src, panels, panel_starts, mult, tol, adaptive
-        )
-
-
-class SingleLayer(LaplaceKernel):
+class SingleLayer(Kernel):
     name = "single_layer"
-    ndim = 1
+    src_dim = 1
+    obs_dim = 1
     exp_deriv = False
     eval_deriv = False
 
@@ -36,12 +21,13 @@ class SingleLayer(LaplaceKernel):
         G = (1.0 / (4 * np.pi)) * np.log(r2)
         G[too_close] = 0
 
-        return (G * src.jacobians * src.quad_wts[None, :])[:, None, :]
+        return (G * src.jacobians * src.quad_wts[None, :])[:, None, :, None]
 
 
-class DoubleLayer(LaplaceKernel):
+class DoubleLayer(Kernel):
     name = "double_layer"
-    ndim = 1
+    src_dim = 1
+    obs_dim = 1
     exp_deriv = True
     eval_deriv = False
 
@@ -63,12 +49,13 @@ class DoubleLayer(LaplaceKernel):
         )
         integrand[too_close] = 0.0
 
-        return (integrand * src.jacobians * src.quad_wts[None, :])[:, None, :]
+        return (integrand * src.jacobians * src.quad_wts[None, :])[:, None, :, None]
 
 
-class AdjointDoubleLayer(LaplaceKernel):
+class AdjointDoubleLayer(Kernel):
     name = "adjoint_double_layer"
-    ndim = 2
+    src_dim = 1
+    obs_dim = 2
     exp_deriv = False
     eval_deriv = True
 
@@ -79,20 +66,21 @@ class AdjointDoubleLayer(LaplaceKernel):
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
-        out = np.empty((obs_pts.shape[0], 2, src.n_pts))
-        out[:, 0, :] = dx
-        out[:, 1, :] = dy
+        out = np.empty((obs_pts.shape[0], 2, src.n_pts, 1))
+        out[:, 0, :, 0] = dx
+        out[:, 1, :, 0] = dy
 
         C = -1.0 / (2 * np.pi * r2)
         C[too_close] = 0
 
         # multiply by the scaling factor, jacobian and quadrature weights
-        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :]
+        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :, None]
 
 
-class Hypersingular(LaplaceKernel):
+class Hypersingular(Kernel):
     name = "hypersingular"
-    ndim = 2
+    src_dim = 1
+    obs_dim = 2
     exp_deriv = True
     eval_deriv = True
 
@@ -107,16 +95,16 @@ class Hypersingular(LaplaceKernel):
         C = 1.0 / (2 * np.pi * r2)
         C[too_close] = 0
 
-        out = np.empty((obs_pts.shape[0], 2, src.n_pts))
+        out = np.empty((obs_pts.shape[0], 2, src.n_pts, 1))
 
         # The definition of the hypersingular kernel.
         # unscaled sigma_xz component
-        out[:, 0, :] = src.normals[None, :, 0] - A * dx
+        out[:, 0, :, 0] = src.normals[None, :, 0] - A * dx
         # unscaled sigma_xz component
-        out[:, 1, :] = src.normals[None, :, 1] - A * dy
+        out[:, 1, :, 0] = src.normals[None, :, 1] - A * dy
 
         # multiply by the scaling factor, jacobian and quadrature weights
-        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :]
+        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :, None]
 
 
 single_layer = SingleLayer(d_cutoff=1.5, d_up=1.5, d_qbx=0.3, default_tol=1e-13)

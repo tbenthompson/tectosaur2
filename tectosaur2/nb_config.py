@@ -42,15 +42,17 @@ def setup(pretty=True, autoreload=True):
     else:
         configure_mpl_fast()
 
-    plt.rcParams["lines.linewidth"] = 2.0
-    plt.rcParams["font.size"] = 20
-    plt.rcParams["axes.labelsize"] = 18
-    plt.rcParams["axes.titlesize"] = 20
-    plt.rcParams["xtick.labelsize"] = 16
-    plt.rcParams["ytick.labelsize"] = 16
-    plt.rcParams["legend.fontsize"] = 20
-    plt.rcParams["figure.titlesize"] = 22
     plt.rcParams["axes.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["figure.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["savefig.transparent"] = False
-    plt.rcParams['image.cmap'] = 'plasma'
+    plt.rcParams["image.cmap"] = "plasma"
+
+
+def scale_features(factor=1.0):
+    plt.rcParams["font.size"] = 20 * factor
+    plt.rcParams["axes.labelsize"] = 18 * factor
+    plt.rcParams["axes.titlesize"] = 20 * factor
+    plt.rcParams["xtick.labelsize"] = 16 * factor
+    plt.rcParams["ytick.labelsize"] = 16 * factor
+    plt.rcParams["legend.fontsize"] = 20 * factor
+    plt.rcParams["figure.titlesize"] = 22 * factor

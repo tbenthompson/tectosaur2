@@ -61,10 +61,13 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
     for m in range(p + 1):
         eval_terms.append(eval_fnc(obs_pts, exp_centers, exp_rs, m))
 
-    out = np.zeros((obs_pts.shape[0], kernel.ndim, src_high.n_pts), dtype=np.float64)
+    out = np.zeros(
+        (obs_pts.shape[0], kernel.obs_dim, src_high.n_pts, kernel.src_dim),
+        dtype=np.float64,
+    )
     for m in range(p + 1):
-        out[:, 0, :] += np.real(exp_terms[m] * eval_terms[m][:, None])
-        if kernel.ndim == 2:
-            out[:, 1, :] -= np.imag(exp_terms[m] * eval_terms[m][:, None])
+        out[:, 0, :, 0] += np.real(exp_terms[m] * eval_terms[m][:, None])
+        if kernel.obs_dim == 2:
+            out[:, 1, :, 0] -= np.imag(exp_terms[m] * eval_terms[m][:, None])
 
     return apply_interp_mat(out, interp_mat_high)
