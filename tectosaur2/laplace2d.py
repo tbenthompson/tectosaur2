@@ -107,9 +107,9 @@ class Hypersingular(Kernel):
         return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :, None]
 
 
-single_layer = SingleLayer(d_cutoff=1.5, d_up=1.5, d_qbx=0.3, default_tol=1e-13)
-double_layer = DoubleLayer(d_cutoff=1.5, d_up=2.0, d_qbx=0.4, default_tol=1e-13)
+single_layer = SingleLayer(d_cutoff=2.0, d_up=1.5, d_qbx=0.3, default_tol=1e-13)
+double_layer = DoubleLayer(d_cutoff=4.0, d_up=2.0, d_qbx=0.4, default_tol=1e-13)
 adjoint_double_layer = AdjointDoubleLayer(
-    d_cutoff=1.5, d_up=2.0, d_qbx=0.4, default_tol=1e-13
+    d_cutoff=4.0, d_up=2.0, d_qbx=0.4, default_tol=1e-13
 )
-hypersingular = Hypersingular(d_cutoff=2.0, d_up=2.5, d_qbx=0.5, default_tol=1e-12)
+hypersingular = Hypersingular(d_cutoff=5.0, d_up=2.5, d_qbx=0.5, default_tol=1e-12)

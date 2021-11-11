@@ -46,6 +46,7 @@ def setup(pretty=True, autoreload=True):
     plt.rcParams["figure.facecolor"] = (1.0, 1.0, 1.0, 1.0)
     plt.rcParams["savefig.transparent"] = False
     plt.rcParams["image.cmap"] = "plasma"
+    scale_features()
 
 
 def scale_features(factor=1.0):

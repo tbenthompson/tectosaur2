@@ -377,12 +377,14 @@ std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
     if (integral_idx == max_integrals) {
         double srcx = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 0];
         double srcy = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 1];
-        std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " << srcy << " " << panel_idx << " " << integral_idx << std::endl;
-        std::cout << "max err: " << max_err <<  "    tol: " << tol << std::endl;
+        // std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " << srcy << " " << panel_idx << " " << integral_idx << std::endl;
+        // std::cout << "max err: " << max_err <<  "    tol: " << tol << std::endl;
         // for (int i = 0; i < next_integral.size(); i++) {
         //     std::cout << "option " << i << " " << next_integral[i].max_err << std::endl;
         // }
-        failed = true;
+        if (max_err > tol * 10) {
+            failed = true;
+        }
     }
 
     for (int i = 0; i < Nv; i++) {

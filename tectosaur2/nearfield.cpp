@@ -96,31 +96,31 @@ inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
     return out;
 }
 
-inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
-                                       double srcy, double srcnx, double srcny) {
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
-    double trac_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
-    double trac_C2 = 3 - 4 * poisson_ratio;
+// inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
+//                                        double srcy, double srcnx, double srcny) {
+//     double shear_modulus = 1.0;
+//     double poisson_ratio = 0.25;
+//     double trac_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
+//     double trac_C2 = 3 - 4 * poisson_ratio;
 
-    double dx = obsx - srcx;
-    double dy = obsy - srcy;
-    double r2 = dx * dx + dy * dy;
+//     double dx = obsx - srcx;
+//     double dy = obsy - srcy;
+//     double r2 = dx * dx + dy * dy;
 
-    double G = -0.5 * disp_C2 * log(r2);
-    double invr2 = 1.0 / r2;
-    if (r2 <= too_close) {
-        invr2 = 0.0;
-        G = 0.0;
-    }
+//     double G = -0.5 * disp_C2 * log(r2);
+//     double invr2 = 1.0 / r2;
+//     if (r2 <= too_close) {
+//         invr2 = 0.0;
+//         G = 0.0;
+//     }
 
-    std::array<double, 4> out{};
-    out[0] = disp_C1 * (G + dx * dx * invr2);
-    out[1] = disp_C1 * (dx * dy * invr2);
-    out[2] = out[1];
-    out[3] = disp_C1 * (G + dy * dy * invr2);
-    return out;
-}
+//     std::array<double, 4> out{};
+//     out[0] = disp_C1 * (G + dx * dx * invr2);
+//     out[1] = disp_C1 * (dx * dy * invr2);
+//     out[2] = out[1];
+//     out[3] = disp_C1 * (G + dy * dy * invr2);
+//     return out;
+// }
 
 
 struct NearfieldArgs {

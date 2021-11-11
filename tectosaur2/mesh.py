@@ -92,25 +92,6 @@ def gauss_rule(n):
     return x, w
 
 
-def newton_cotes_even_spaced(N):
-    points = [
-        sp.Integer("-1") + sp.Integer(2 * i + 1) / sp.Integer(N) for i in range(N)
-    ]
-    # points = [
-    #     sp.Integer("-1") + 2 * sp.Integer(i + 1) / sp.Integer(N) for i in range(N - 1)
-    # ]
-
-    xh = sp.var("xh")
-    psi = sp.prod([(xh - xk) for xk in points])
-    psid = sp.diff(psi, xh)
-    weights = [
-        (1 / psid.subs(xh, xk))
-        * sp.integrate(psi / (xh - xk), (xh, sp.Integer(-1), sp.Integer(1)))
-        for xk in points
-    ]
-    return np.array(points, dtype=np.float64), np.array(weights, dtype=np.float64)
-
-
 def trapezoidal_rule(n):
     """
     The n-point trapezoidal rule on [-1, 1].
@@ -220,10 +201,8 @@ def refine_surfaces(
     for other_surf in other_surfaces:
         other_surf_trees.append(scipy.spatial.KDTree(other_surf.panel_centers))
 
-    # Construct a KDTree from any control points so that we can do fast lookups.
     if control_points is not None:
         control_points = np.asarray(control_points)
-        control_tree = scipy.spatial.KDTree(control_points[:, :2])
 
     # Step 0) Create a PanelSurface from the current set of panels.
     # Note that this step would need to look different if the surface were
@@ -249,74 +228,51 @@ def refine_surfaces(
 
             # Step 2) Refine based on a nearby user-specified control points.
             if control_points is not None:
-                nearby_controls = control_tree.query(cur_surfs[j].panel_centers)
-                nearest_control_pt = control_points[nearby_controls[1], :]
+                dist = np.linalg.norm(
+                    cur_surfs[j].panel_centers[:, None, :]
+                    - control_points[None, :, :2],
+                    axis=2,
+                )
                 # A frequent situation is that a control point will lie exactly on the boundary between two panels. In this edge case, we *do* want to refine both the touching panels. But, floating point error can make this difficult. As a result, I've added a small fudge factor to expand the effect radius of the control point by a small amount.
                 fudge_factor = 1.001
-                refine_from_control = (
-                    nearby_controls[0]
-                    <= fudge_factor
-                    * (0.5 * cur_surfs[j].panel_length + nearest_control_pt[:, 2])
-                ) & (cur_surfs[j].panel_length > nearest_control_pt[:, 3])
+                max_dist = (
+                    0.5 * cur_surfs[j].panel_length[:, None]
+                    + control_points[None, :, 2]
+                )
+                close = dist <= fudge_factor * max_dist
+                refine_from_control = np.sum(
+                    close
+                    & (cur_surfs[j].panel_length[:, None] > control_points[None, :, 3]),
+                    axis=1,
+                )
             else:
                 refine_from_control = np.zeros(cur_surfs[j].n_panels, dtype=bool)
 
-            # Step 3) Refine based on the length scale imposed by other nearby surfaces
-            refine_from_nearby = np.zeros(cur_surfs[j].n_panels, dtype=bool)
-            for k, other_surf in enumerate(other_surfaces):
-                nearby_surf_panels = other_surf_trees[j].query(
-                    cur_surfs[j].panel_centers
-                )
-                nearby_dist = nearby_surf_panels[0]
-                nearby_panel_length = other_surf.panel_length[nearby_surf_panels[1]]
-                refine_from_nearby |= (
-                    0.5 * nearby_panel_length + nearby_dist < cur_surfs[j].panel_length
-                )
-
-            # Step 4) Ensure that panel length scale doesn't change too rapidly. This
-            # essentially imposes that a panel will be no more than twice the length
-            # of any adjacent panel.
+            # Step 3) Ensure that panel length scale doesn't change too rapidly. This
+            # imposes that a panel will be no more than twice the length
+            # of any nearby panel, including panels from surfaces provided in the
+            # "other_surfaces" argument.
             refine_from_self = np.zeros(cur_surfs[j].n_panels, dtype=bool)
-            for k in range(n_surfs):
-                panel_tree = scipy.spatial.KDTree(cur_surfs[k].panel_centers)
-
-                n_nearest_neighbors = 1
+            for k, other_surf in enumerate(other_surfaces + cur_surfs):
                 if k == j and cur_surfs[j].n_panels <= 1:
                     continue
-                elif k == j:
-                    # We want to find the closest panel. But, if we're comparing
-                    # against the same surface, the closest panel will be the
-                    # query panel itself. So, in that situation, we'll look
-                    # for the second closest.
-                    n_nearest_neighbors = 2
-                nearby_panels = panel_tree.query(cur_surfs[j].panel_centers, k=2)
-                nearby_dist = nearby_panels[0][:, n_nearest_neighbors - 1]
-                nearby_idx = nearby_panels[1][:, n_nearest_neighbors - 1]
-                nearby_panel_length = cur_surfs[k].panel_length[nearby_idx]
 
-                # The criterion will be: self_panel_length + sep < 0.5 * panel_length
-                # but since sep = self_dist - 0.5 * panel_length - 0.5 * self_panel_length
-                # we can simplify the criterion to:
-                # Since the self distance metric is symmetric, we only need to check
-                # if the panel is too large.
-
-                # TODO: this is somewhat flawed, I think? I think it's possible
-                # for two panels to be a small distance apart and at an angle
-                # from each other and infinitely cycle this criterion refining
-                # themselves into oblivion
-                criterion = (
-                    0.5 * nearby_panel_length + nearby_dist < cur_surfs[j].panel_length
+                panel_tree = scipy.spatial.KDTree(other_surf.pts)
+                nearby_panels = panel_tree.query_ball_point(
+                    cur_surfs[j].panel_centers, 1.2 * cur_surfs[j].panel_length
                 )
-                if k == j:
-                    criterion &= nearby_panel_length < 0.5 * cur_surfs[j].panel_length
-                refine_from_self |= criterion
 
-            refine = (
-                refine_from_control
-                | refine_from_radius
-                | refine_from_self
-                | refine_from_nearby
-            )
+                for panel_idx in range(cur_surfs[j].n_panels):
+                    cmp_panels = np.unique(
+                        np.array(nearby_panels[panel_idx], dtype=np.int32)
+                        // other_surf.panel_order
+                    )
+                    refine_from_self[panel_idx] |= np.any(
+                        cur_surfs[j].panel_length[panel_idx]
+                        > 2 * other_surf.panel_length[cmp_panels]
+                    )
+
+            refine = refine_from_control | refine_from_radius | refine_from_self
             new_panels = refine_panels(cur_panels[j], refine)
 
             # TODO: add a callback for debugging? or some logging?

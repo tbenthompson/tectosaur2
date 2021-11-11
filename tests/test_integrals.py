@@ -145,12 +145,31 @@ def test_integrate_self(K_type):
     np.testing.assert_allclose(local_v, global_v, rtol=tol, atol=tol)
 
 
+def test_control_points():
+    C = unit_circle(gauss_rule(5))
+    assert C.n_panels == 16
+    C = unit_circle(gauss_rule(5), control_points=np.array([[1, 0, 0, 0.25]]))
+    assert C.n_panels == 18
+    C = unit_circle(gauss_rule(5), control_points=np.array([[1, 0, 0, 0.1]]))
+    assert C.n_panels == 26
+
+    C = unit_circle(gauss_rule(5), control_points=np.array([[1, 0, 3, 0.25]]))
+    assert np.all(C.panel_length < 0.25)
+    assert C.n_panels == 32
+
+    C = unit_circle(
+        gauss_rule(5), control_points=np.array([[1, 0, 3, 0.25], [1, 0, 0, 0.1]])
+    )
+    assert np.all(C.panel_length < 0.25)
+    assert C.n_panels == 35
+
+
 def test_fault_surface():
     t = sp.var("t")
     fault, free = refine_surfaces(
         [(t, t * 0, (t + 1) * -0.5), (t, -t * 2, 0 * t)],
         gauss_rule(6),
-        control_points=np.array([(0, 0, 0, 0.1)]),
+        control_points=np.array([(0, 0, 2, 0.1)]),
     )
     singularities = np.array([(-2, 0), (2, 0), (0, 0), (0, -1)])
     (A, B) = integrate_term(
