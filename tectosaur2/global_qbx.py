@@ -22,13 +22,57 @@ def deriv_expand(exp_centers, src_pts, src_normals, r, m):
 def base_eval(obs_pts, exp_centers, r, m):
     z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
     z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
-    return (z - z0) ** m / (r ** m)
+    return ((z - z0) ** m / (r ** m))[:, None]
 
 
 def deriv_eval(obs_pts, exp_centers, r, m):
     z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
     z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
-    return -m * (z - z0) ** (m - 1) / (r ** m)
+    return (-m * (z - z0) ** (m - 1) / (r ** m))[:, None]
+
+
+def single_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return base_eval(obs_pts, exp_centers, r, m) * base_expand(
+        exp_centers, src_pts, src_normals, r, m
+    )
+
+
+def double_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return base_eval(obs_pts, exp_centers, r, m) * deriv_expand(
+        exp_centers, src_pts, src_normals, r, m
+    )
+
+
+def adjoint_double_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return deriv_eval(obs_pts, exp_centers, r, m) * base_expand(
+        exp_centers, src_pts, src_normals, r, m
+    )
+
+
+def hypersingular_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return deriv_eval(obs_pts, exp_centers, r, m) * deriv_expand(
+        exp_centers, src_pts, src_normals, r, m
+    )
+
+
+# def elastic_U_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
+#     shear_modulus = 1.0
+#     poisson_ratio = 0.25
+#     z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
+#     w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+#     z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
+#     ratio = (z - z0) / (w - z0)
+#     for d_src in range(2):
+#         tw = (d_src == 0) + (d_src == 1) * 1j
+#         if m == 0:
+#             T = np.log(w - z0)
+#         else:
+#             T = (-1.0 / m) * (ratio ** m)
+#         f1 = T * tw * np.conjugate(T) * tw
+#         f3 = -(z - w) * np.conjugate(tw * ratio ** m / (w - z0))
+#     if m == 0:
+#         # add constant term
+#     else:
 
 
 def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
@@ -40,9 +84,7 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
     way. In order to test the more robust local QBX implementation, I've
     built this simple global QBX implementation.
     """
-    exp_fnc = deriv_expand if kernel.exp_deriv else base_expand
-    eval_fnc = deriv_eval if kernel.eval_deriv else base_eval
-
+    term_fnc = globals()[kernel.name + "_term"]
     obs_pts = src.pts + obs_pt_normal_offset * src.normals
 
     L = np.repeat(src.panel_length, src.panel_order)
@@ -51,23 +93,15 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
 
     src_high, interp_mat_high = upsample(src, kappa)
 
-    exp_terms = []
-    for m in range(p + 1):
-        K = exp_fnc(exp_centers, src_high.pts, src_high.normals, exp_rs, m)
-        integral = K * (src_high.quad_wts[None, :] * src_high.jacobians[None, :])
-        exp_terms.append(integral)
-
-    eval_terms = []
-    for m in range(p + 1):
-        eval_terms.append(eval_fnc(obs_pts, exp_centers, exp_rs, m))
-
     out = np.zeros(
         (obs_pts.shape[0], kernel.obs_dim, src_high.n_pts, kernel.src_dim),
         dtype=np.float64,
     )
     for m in range(p + 1):
-        out[:, 0, :, 0] += np.real(exp_terms[m] * eval_terms[m][:, None])
+        term = term_fnc(obs_pts, exp_centers, exp_rs, src_high.pts, src_high.normals, m)
+        term *= src_high.quad_wts[None, :] * src_high.jacobians[None, :]
+        out[:, 0, :, 0] += np.real(term)
         if kernel.obs_dim == 2:
-            out[:, 1, :, 0] -= np.imag(exp_terms[m] * eval_terms[m][:, None])
+            out[:, 1, :, 0] -= np.imag(term)
 
     return apply_interp_mat(out, interp_mat_high)

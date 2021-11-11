@@ -7,8 +7,6 @@ class SingleLayer(Kernel):
     name = "single_layer"
     src_dim = 1
     obs_dim = 1
-    exp_deriv = False
-    eval_deriv = False
 
     def direct(self, obs_pts, src):
 
@@ -28,8 +26,6 @@ class DoubleLayer(Kernel):
     name = "double_layer"
     src_dim = 1
     obs_dim = 1
-    exp_deriv = True
-    eval_deriv = False
 
     def direct(self, obs_pts, src):
         """
@@ -56,8 +52,6 @@ class AdjointDoubleLayer(Kernel):
     name = "adjoint_double_layer"
     src_dim = 1
     obs_dim = 2
-    exp_deriv = False
-    eval_deriv = True
 
     def direct(self, obs_pts, src):
         dx = obs_pts[:, None, 0] - src.pts[None, :, 0]
@@ -81,8 +75,6 @@ class Hypersingular(Kernel):
     name = "hypersingular"
     src_dim = 1
     obs_dim = 2
-    exp_deriv = True
-    eval_deriv = True
 
     def direct(self, obs_pts, src):
         dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
