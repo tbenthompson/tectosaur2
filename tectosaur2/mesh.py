@@ -473,7 +473,10 @@ def apply_interp_mat(mat, interp_mat):
     out = scipy.sparse.bsr_matrix.dot(reshaped, interp_mat)
     if mat.ndim == 4:
         return np.transpose(
-            out.reshape((mat.shape[0], mat.shape[1], mat.shape[3], -1)), (0, 1, 3, 2)
+            out.reshape(
+                (mat.shape[0], mat.shape[1], mat.shape[3], interp_mat.shape[1])
+            ),
+            (0, 1, 3, 2),
         )
     else:
         return out

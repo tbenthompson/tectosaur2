@@ -31,48 +31,109 @@ def deriv_eval(obs_pts, exp_centers, r, m):
     return (-m * (z - z0) ** (m - 1) / (r ** m))[:, None]
 
 
-def single_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
-    return base_eval(obs_pts, exp_centers, r, m) * base_expand(
+def single_layer_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return np.real(
+        base_eval(obs_pts, exp_centers, r, m)
+        * base_expand(exp_centers, src_pts, src_normals, r, m)
+    )[:, None, :, None]
+
+
+def double_layer_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    return np.real(
+        base_eval(obs_pts, exp_centers, r, m)
+        * deriv_expand(exp_centers, src_pts, src_normals, r, m)
+    )[:, None, :, None]
+
+
+def adjoint_double_layer_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    out = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 1))
+    term = deriv_eval(obs_pts, exp_centers, r, m) * base_expand(
         exp_centers, src_pts, src_normals, r, m
     )
+    out[:, 0, :, 0] = np.real(term)
+    out[:, 1, :, 0] = -np.imag(term)
+    return out
 
 
-def double_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
-    return base_eval(obs_pts, exp_centers, r, m) * deriv_expand(
+def hypersingular_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    out = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 1))
+    term = deriv_eval(obs_pts, exp_centers, r, m) * deriv_expand(
         exp_centers, src_pts, src_normals, r, m
     )
+    out[:, 0, :, 0] = np.real(term)
+    out[:, 1, :, 0] = -np.imag(term)
+    return out
 
 
-def adjoint_double_layer_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
-    return deriv_eval(obs_pts, exp_centers, r, m) * base_expand(
-        exp_centers, src_pts, src_normals, r, m
-    )
+def elastic_U_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+
+    z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
+
+    # See equation 4.44 from Liu's FMM BEM book, page 95.
+    term = np.empty((z0.shape[0], 2, src_pts.shape[0], 2))
+    kappa = 3 - 4 * kernel.poisson_ratio
+    C = 1.0 / (4 * np.pi * kernel.shear_modulus * (1 + kappa))
+    ratio = (z - z0) / (w - z0)
+    for d_src in range(2):
+        tw = (d_src == 0) + (d_src == 1) * 1j
+        G = -np.log(w - z0) if m == 0 else (1.0 / m) * (ratio ** m)
+        Gp = -(ratio ** m) / (w - z0)
+        t1 = kappa * (G * tw + np.conjugate(G) * tw)
+        t2 = -(w - z) * np.conjugate(tw) * np.conjugate(Gp)
+        V = C * (t1 + t2)
+        if m == 0:
+            V += kernel.disp_C1 * 0.5 * tw
+        term[:, 0, :, d_src] = np.real(V)
+        term[:, 1, :, d_src] = np.imag(V)
+    return term
 
 
-def hypersingular_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
-    return deriv_eval(obs_pts, exp_centers, r, m) * deriv_expand(
-        exp_centers, src_pts, src_normals, r, m
-    )
+def elastic_T_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
+    nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
+
+    kappa = 3 - 4 * kernel.poisson_ratio
+    C = -1.0 / (2 * np.pi * (1 + kappa))
+    ratio = (z - z0) / (w - z0)
+    term = np.empty((z0.shape[0], 2, src_pts.shape[0], 2))
+    for d_src in range(2):
+        uw = (d_src == 0) + (d_src == 1) * 1j
+        Gp = -(ratio ** m) / (w - z0)
+        Gpp = (m + 1) * (ratio ** m) / ((w - z0) ** 2)
+        t1 = kappa * Gp * nw * uw
+        t2 = -(w - z) * np.conjugate(Gpp) * np.conjugate(nw) * np.conjugate(uw)
+        t3 = np.conjugate(Gp) * (nw * np.conjugate(uw) + np.conjugate(nw) * uw)
+        V = C * (t1 + t2 + t3)
+        term[:, 0, :, d_src] = np.real(V)
+        term[:, 1, :, d_src] = np.imag(V)
+    return term
 
 
-# def elastic_U_term(obs_pts, exp_centers, r, src_pts, src_normals, m):
-#     shear_modulus = 1.0
-#     poisson_ratio = 0.25
-#     z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
-#     w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
-#     z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
-#     ratio = (z - z0) / (w - z0)
-#     for d_src in range(2):
-#         tw = (d_src == 0) + (d_src == 1) * 1j
-#         if m == 0:
-#             T = np.log(w - z0)
-#         else:
-#             T = (-1.0 / m) * (ratio ** m)
-#         f1 = T * tw * np.conjugate(T) * tw
-#         f3 = -(z - w) * np.conjugate(tw * ratio ** m / (w - z0))
-#     if m == 0:
-#         # add constant term
-#     else:
+def elastic_A_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
+    nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
+
+    kappa = 3 - 4 * kernel.poisson_ratio
+    C = -1.0 / (2 * np.pi * (1 + kappa))
+    ratio = (z - z0) / (w - z0)
+    term = np.empty((z0.shape[0], 2, src_pts.shape[0], 2))
+    for d_src in range(2):
+        uw = (d_src == 0) + (d_src == 1) * 1j
+        Gp = -(ratio ** m) / (w - z0)
+        Gpp = (m + 1) * (ratio ** m) / ((w - z0) ** 2)
+        t1 = kappa * Gp * nw * uw
+        t2 = -(w - z) * np.conjugate(Gpp) * np.conjugate(nw) * np.conjugate(uw)
+        t3 = np.conjugate(Gp) * (nw * np.conjugate(uw) + np.conjugate(nw) * uw)
+        V = C * (t1 + t2 + t3)
+        term[:, 0, :, d_src] = np.real(V)
+        term[:, 1, :, d_src] = np.imag(V)
+    return term
 
 
 def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
@@ -98,10 +159,9 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
         dtype=np.float64,
     )
     for m in range(p + 1):
-        term = term_fnc(obs_pts, exp_centers, exp_rs, src_high.pts, src_high.normals, m)
-        term *= src_high.quad_wts[None, :] * src_high.jacobians[None, :]
-        out[:, 0, :, 0] += np.real(term)
-        if kernel.obs_dim == 2:
-            out[:, 1, :, 0] -= np.imag(term)
+        term = term_fnc(
+            kernel, obs_pts, exp_centers, exp_rs, src_high.pts, src_high.normals, m
+        )
+        out += term * (src_high.quad_wts * src_high.jacobians)[None, None, :, None]
 
     return apply_interp_mat(out, interp_mat_high)

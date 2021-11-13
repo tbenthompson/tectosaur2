@@ -9,6 +9,8 @@ class ElasticU(Kernel):
     obs_dim = 2
 
     def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
+        self.shear_modulus = shear_modulus
+        self.poisson_ratio = poisson_ratio
         self.disp_C1 = 1.0 / (8 * np.pi * shear_modulus * (1 - poisson_ratio))
         self.disp_C2 = 3 - 4 * poisson_ratio
         super().__init__(**kwargs)
@@ -40,9 +42,12 @@ class ElasticT(Kernel):
     src_dim = 2
     obs_dim = 2
 
-    def __init__(self, shear_modulus, poisson_ratio):
+    def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
+        self.shear_modulus = shear_modulus
+        self.poisson_ratio = poisson_ratio
         self.trac_C1 = 1.0 / (4 * np.pi * (1 - poisson_ratio))
         self.trac_C2 = 1 - 2.0 * poisson_ratio
+        super().__init__(**kwargs)
 
     def direct(self, obs_pts, src):
         d = [

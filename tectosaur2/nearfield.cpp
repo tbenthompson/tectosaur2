@@ -96,31 +96,41 @@ inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
     return out;
 }
 
-// inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
-//                                        double srcy, double srcnx, double srcny) {
-//     double shear_modulus = 1.0;
-//     double poisson_ratio = 0.25;
-//     double trac_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
-//     double trac_C2 = 3 - 4 * poisson_ratio;
+inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
+                                       double srcy, double srcnx, double srcny) {
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
+    double trac_C2 = 1 - 2.0 * poisson_ratio;
 
-//     double dx = obsx - srcx;
-//     double dy = obsy - srcy;
-//     double r2 = dx * dx + dy * dy;
+    double dx = obsx - srcx;
+    double dy = obsy - srcy;
+    double r2 = dx * dx + dy * dy;
 
-//     double G = -0.5 * disp_C2 * log(r2);
-//     double invr2 = 1.0 / r2;
-//     if (r2 <= too_close) {
-//         invr2 = 0.0;
-//         G = 0.0;
-//     }
+    double invr2 = 1.0 / r2;
+    double invr = sqrt(invr2);
+    if (r2 <= too_close) {
+        invr2 = 0.0;
+        invr = 0.0;
+    }
 
-//     std::array<double, 4> out{};
-//     out[0] = disp_C1 * (G + dx * dx * invr2);
-//     out[1] = disp_C1 * (dx * dy * invr2);
-//     out[2] = out[1];
-//     out[3] = disp_C1 * (G + dy * dy * invr2);
-//     return out;
-// }
+    double drdn = (dx * srcnx + dy * srcny) * invr;
+    double nCd = srcny * dx - srcnx * dy;
+
+    std::array<double, 4> out{};
+    out[0] = -trac_C1 * invr * (trac_C2 + 2 * dx * dx * invr2) * drdn;
+    out[1] = -trac_C1 * invr * (
+        2 * dx * dy * invr2 * drdn -
+        trac_C2 * nCd * invr
+    );
+    out[2] = -trac_C1 * invr * (
+        2 * dx * dy * invr2 * drdn -
+        trac_C2 * (-nCd) * invr
+    );
+    out[3] = -trac_C1 * invr * (trac_C2 + 2 * dy * dy * invr2) * drdn;
+
+    return out;
+}
 
 
 struct NearfieldArgs {
@@ -332,4 +342,7 @@ void nearfield_hypersingular(const NearfieldArgs& a) {
 
 void nearfield_elastic_U(const NearfieldArgs& a) {
     _nearfield_integrals(elastic_U, a);
+}
+void nearfield_elastic_T(const NearfieldArgs& a) {
+    _nearfield_integrals(elastic_T, a);
 }

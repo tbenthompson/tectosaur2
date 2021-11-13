@@ -5,7 +5,7 @@ import pytest
 import sympy as sp
 
 from tectosaur2 import gauss_rule, integrate_term, refine_surfaces, tensor_dot
-from tectosaur2.elastic2d import ElasticU
+from tectosaur2.elastic2d import ElasticT, ElasticU
 from tectosaur2.global_qbx import global_qbx_self
 from tectosaur2.laplace2d import (
     AdjointDoubleLayer,
@@ -17,13 +17,13 @@ from tectosaur2.laplace2d import (
 )
 from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
-kernel_types = [
-    SingleLayer,
-    DoubleLayer,
-    AdjointDoubleLayer,
-    Hypersingular,
-]  # , ElasticU]
-# kernel_types = [ElasticU]
+# kernel_types = [
+#     SingleLayer,
+#     DoubleLayer,
+#     AdjointDoubleLayer,
+#     Hypersingular,
+# ]  # , ElasticU]
+kernel_types = [ElasticU, ElasticT]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
