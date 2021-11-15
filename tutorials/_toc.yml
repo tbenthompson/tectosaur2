@@ -4,7 +4,7 @@ format: jb-book
 root: intro
 parts:
   - caption: "The TDE sequence: triangular dislocation elements"
-    numbered: true
+    numbered: false
     chapters:
     - file: tdes/sa_tdes
     - file: tdes/sa_geometry
@@ -12,12 +12,12 @@ parts:
     - file: tdes/low_rank
     - file: tdes/hmatrix
   - caption: "The QBX sequence: quadrature by expansion"
-    numbered: true
+    numbered: false
     chapters:
     - file: c1qbx/part1_nearfield
     - file: c1qbx/part2_screw_dislocation
     - file: c1qbx/part3_topo_solver
-    - file: c1qbx/part4_surface_intersection2.ipynb
+    - file: c1qbx/part4_surface_intersection.ipynb
     - file: c1qbx/part5_viscoelastic.ipynb
     - file: c1qbx/part6_qd.ipynb
     # - file: c1qbx/solve_circle

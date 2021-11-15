@@ -3,6 +3,7 @@
 
 # editors
 *.swp
+.vim
 
 # ignore ipynb, use MyST Markdown files instead!
 # temporarily turned off until i figure out vscode
