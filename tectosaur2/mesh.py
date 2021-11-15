@@ -79,6 +79,21 @@ class PanelSurface:
         return self.panel_bounds.shape[0]
 
 
+def concat_meshes(meshes):
+    return PanelSurface(
+        meshes[0].qx,
+        meshes[0].qw,
+        np.concatenate([s.quad_pts for s in meshes]),
+        np.concatenate([s.quad_wts for s in meshes]),
+        np.concatenate([s.pts for s in meshes]),
+        np.concatenate([s.normals for s in meshes]),
+        np.concatenate([s.jacobians for s in meshes]),
+        np.concatenate([s.radius for s in meshes]),
+        np.concatenate([s.panel_bounds for s in meshes]),
+        None,
+    )
+
+
 def gauss_rule(n):
     """
     The n-point gauss quadrature rule on [-1, 1].

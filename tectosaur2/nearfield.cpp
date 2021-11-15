@@ -132,6 +132,60 @@ inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
     return out;
 }
 
+inline std::array<double, 6> elastic_A(double obsx, double obsy, double srcx,
+                                       double srcy, double srcnx, double srcny) {
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
+    double trac_C2 = 1 - 2.0 * poisson_ratio;
+
+    double dx = obsx - srcx;
+    double dy = obsy - srcy;
+    double r2 = dx * dx + dy * dy;
+
+    double invr2 = 1.0 / r2;
+    double invr = sqrt(invr2);
+    if (r2 <= too_close) {
+        invr2 = 0.0;
+        invr = 0.0;
+    }
+
+    double drdm1 = (dx * obsnx1 + dy * obsny1) * invr;
+    double mCd1 = obsny1 * dx - obsnx1 * dy;
+    double drdm2 = (dx * obsnx2 + dy * obsny2) * invr;
+    double mCd2 = obsny2 * dx - obsnx2 * dy;
+
+    // For relating with formulae that specify the kernel with the dot product
+    // with traction already done...
+    // idx 0 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 0
+    std::array<double, 4> out{};
+    out[0] = trac_C1 * invr * (
+        (trac_C2 + 2 * dx * dx * invr2) * dx * invr
+    );
+    // idx 1 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 0
+    out[1] = trac_C1 * invr * (
+        2 * dy * dx * invr2 * dy * invr -
+        trac_C2 * invr * (-dx)
+    );
+    // idx 2 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 0
+    out[2] = trac_C1 * invr * (
+        2 * dy * dx * invr2 * dx * invr -
+        trac_C2 * invr * dy
+    )
+    // idx 3 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 1
+    out[3] = trac_C1 * invr * (
+        2 * dx * dy * invr2 * dx * invr -
+        trac_C2 * invr * (-dy)
+    )
+    // idx 4 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 1
+    out[4] = trac_C1 * invr * (
+        (trac_C2 + 2 * dy * dy * invr2) * dy * invr
+    )
+    // idx 5 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 1
+
+    return out;
+}
+
 
 struct NearfieldArgs {
     double* mat;

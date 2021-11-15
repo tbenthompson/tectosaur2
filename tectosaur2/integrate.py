@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import scipy.spatial
 
-from tectosaur2.mesh import PanelSurface
+from tectosaur2.mesh import concat_meshes
 
 from ._ext import identify_nearfield_panels, local_qbx_integrals, nearfield_integrals
 
@@ -35,18 +35,7 @@ def integrate_term(
                 "All input sources must use the same panel quadrature rule."
             )
 
-    combined_src = PanelSurface(
-        srcs[0].qx,
-        srcs[0].qw,
-        np.concatenate([s.quad_pts for s in srcs]),
-        np.concatenate([s.quad_wts for s in srcs]),
-        np.concatenate([s.pts for s in srcs]),
-        np.concatenate([s.normals for s in srcs]),
-        np.concatenate([s.jacobians for s in srcs]),
-        np.concatenate([s.radius for s in srcs]),
-        np.concatenate([s.panel_bounds for s in srcs]),
-        None,
-    )
+    combined_src = concat_meshes(srcs)
 
     # step 1: construct the farfield matrix!
     mat = K.direct(obs_pts, combined_src)
