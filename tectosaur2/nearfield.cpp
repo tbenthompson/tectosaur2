@@ -98,7 +98,6 @@ inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
 
 inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
                                        double srcy, double srcnx, double srcny) {
-    double shear_modulus = 1.0;
     double poisson_ratio = 0.25;
     double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
@@ -134,7 +133,6 @@ inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
 
 inline std::array<double, 6> elastic_A(double obsx, double obsy, double srcx,
                                        double srcy, double srcnx, double srcny) {
-    double shear_modulus = 1.0;
     double poisson_ratio = 0.25;
     double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
@@ -150,38 +148,105 @@ inline std::array<double, 6> elastic_A(double obsx, double obsy, double srcx,
         invr = 0.0;
     }
 
-    double drdm1 = (dx * obsnx1 + dy * obsny1) * invr;
-    double mCd1 = obsny1 * dx - obsnx1 * dy;
-    double drdm2 = (dx * obsnx2 + dy * obsny2) * invr;
-    double mCd2 = obsny2 * dx - obsnx2 * dy;
-
     // For relating with formulae that specify the kernel with the dot product
     // with traction already done...
+    std::array<double, 6> out{};
     // idx 0 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 0
-    std::array<double, 4> out{};
     out[0] = trac_C1 * invr * (
         (trac_C2 + 2 * dx * dx * invr2) * dx * invr
     );
-    // idx 1 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 0
+    // idx 1 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 1
     out[1] = trac_C1 * invr * (
+        2 * dx * dy * invr2 * dx * invr -
+        trac_C2 * invr * (-dy)
+    );
+    // idx 2 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 0
+    out[2] = trac_C1 * invr * (
         2 * dy * dx * invr2 * dy * invr -
         trac_C2 * invr * (-dx)
     );
-    // idx 2 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 0
-    out[2] = trac_C1 * invr * (
+    // idx 3 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 1
+    out[3] = trac_C1 * invr * (
+        (trac_C2 + 2 * dy * dy * invr2) * dy * invr
+    );
+    // idx 4 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 0
+    out[4] = trac_C1 * invr * (
         2 * dy * dx * invr2 * dx * invr -
         trac_C2 * invr * dy
-    )
-    // idx 3 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 1
-    out[3] = trac_C1 * invr * (
-        2 * dx * dy * invr2 * dx * invr -
-        trac_C2 * invr * (-dy)
-    )
-    // idx 4 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 1
-    out[4] = trac_C1 * invr * (
-        (trac_C2 + 2 * dy * dy * invr2) * dy * invr
-    )
+    );
     // idx 5 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 1
+    out[5] = trac_C1 * invr * (
+        (trac_C2 + 2 * dy * dy * invr2) * dx * invr
+    );
+
+    return out;
+}
+
+inline std::array<double, 6> elastic_H(double obsx, double obsy, double srcx,
+                                       double srcy, double srcnx, double srcny) {
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double HC = shear_modulus / (2 * M_PI * (1 - poisson_ratio));
+    double trac_C2 = 1 - 2.0 * poisson_ratio;
+
+    double dx = obsx - srcx;
+    double dy = obsy - srcy;
+    double r2 = dx * dx + dy * dy;
+
+    double invr2 = 1.0 / r2;
+    double invr = sqrt(invr2);
+    if (r2 <= too_close) {
+        invr2 = 0.0;
+        invr = 0.0;
+    }
+    double rx = dx * invr;
+    double ry = dy * invr;
+
+    double drdn = (dx * srcnx + dy * srcny) * invr;
+
+    // For relating with formulae that specify the kernel with the dot product
+    // with traction already done...
+    std::array<double, 6> out{};
+    // idx 0 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 0
+    out[0] = (HC * invr2) * (
+        (2 * drdn * (trac_C2 * rx + poisson_ratio * (rx + rx) - 4 * rx * rx * rx))
+        + trac_C2 * (2 * srcnx * rx * rx + srcnx + srcnx)
+        + (2 * poisson_ratio * (srcnx * rx * rx + srcnx * rx * rx))
+        - (1 - 4 * poisson_ratio) * srcnx
+    );
+    // idx 1 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 1
+    out[1] = (HC * invr2) * (
+        (2 * drdn * (trac_C2 * ry - 4 * rx * ry * rx))
+        + trac_C2 * (2 * srcny * rx * rx)
+        + (2 * poisson_ratio * (srcnx * ry * rx + srcnx * rx * ry))
+        - (1 - 4 * poisson_ratio) * srcny
+    );
+    // idx 2 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 0
+    out[2] = (HC * invr2) * (
+        (2 * drdn * (trac_C2 * rx - 4 * ry * rx * ry))
+        + trac_C2 * (2 * srcnx * ry * ry)
+        + (2 * poisson_ratio * (srcny * rx * ry + srcny * ry * rx))
+        - (1 - 4 * poisson_ratio) * srcnx
+    );
+    // idx 3 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 1
+    out[3] = (HC * invr2) * (
+        (2 * drdn * (trac_C2 * ry + poisson_ratio * (ry + ry) - 4 * ry * ry * ry))
+        + trac_C2 * (2 * srcny * ry * ry + srcny + srcny)
+        + (2 * poisson_ratio * (srcny * ry * ry + srcny * ry * ry))
+        - (1 - 4 * poisson_ratio) * srcny
+    );
+    // idx 4 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 0
+    out[4] = (HC * invr2) * (
+        (2 * drdn * (poisson_ratio * ry - 4 * ry * rx * rx))
+        + trac_C2 * (2 * srcnx * ry * rx + srcny)
+        + (2 * poisson_ratio * (srcny * rx * rx + srcnx * ry * rx))
+    );
+    // idx 5 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 1
+    out[5] = (HC * invr2) * (
+        (2 * drdn * (poisson_ratio * rx - 4 * ry * ry * rx))
+        + trac_C2 * (2 * srcny * ry * rx + srcnx)
+        + (2 * poisson_ratio * (srcny * ry * rx + srcnx * ry * ry))
+    );
 
     return out;
 }
@@ -399,4 +464,12 @@ void nearfield_elastic_U(const NearfieldArgs& a) {
 }
 void nearfield_elastic_T(const NearfieldArgs& a) {
     _nearfield_integrals(elastic_T, a);
+}
+
+void nearfield_elastic_A(const NearfieldArgs& a) {
+    _nearfield_integrals(elastic_A, a);
+}
+
+void nearfield_elastic_H(const NearfieldArgs& a) {
+    _nearfield_integrals(elastic_H, a);
 }

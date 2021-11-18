@@ -479,12 +479,10 @@ def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
 
 
 def apply_interp_mat(mat, interp_mat):
-    print(mat.shape, interp_mat.shape)
     if mat.ndim == 4:
         reshaped = np.transpose(mat, (0, 1, 3, 2)).reshape((-1, mat.shape[2]))
     else:
         reshaped = mat
-    print(reshaped.shape)
     out = scipy.sparse.bsr_matrix.dot(reshaped, interp_mat)
     if mat.ndim == 4:
         return np.transpose(

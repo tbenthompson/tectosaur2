@@ -5,7 +5,8 @@ import pytest
 import sympy as sp
 
 from tectosaur2 import gauss_rule, integrate_term, refine_surfaces, tensor_dot
-from tectosaur2.elastic2d import ElasticT, ElasticU
+from tectosaur2._ext import nearfield_integrals
+from tectosaur2.elastic2d import ElasticA, ElasticH, ElasticT, ElasticU
 from tectosaur2.global_qbx import global_qbx_self
 from tectosaur2.laplace2d import (
     AdjointDoubleLayer,
@@ -23,7 +24,8 @@ from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 #     AdjointDoubleLayer,
 #     Hypersingular,
 # ]  # , ElasticU]
-kernel_types = [ElasticU, ElasticT]
+kernel_types = [ElasticU, ElasticT, ElasticA]  # , ElasticH]
+# kernel_types = [ElasticA]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -31,9 +33,8 @@ def test_nearfield_far(K_type):
     src = unit_circle(gauss_rule(12), max_curvature=100)
     density = np.cos(src.pts[:, 0])
 
-    obs_pts = 2 * src.pts[:1]
+    obs_pts = 2 * src.pts[3:4]
     true = K_type().direct(obs_pts, src)
-    true_v = tensor_dot(true, density)
 
     pts_per_panel = [
         np.arange(obs_pts.shape[0], dtype=int) for i in range(src.n_panels)
@@ -44,7 +45,6 @@ def test_nearfield_far(K_type):
 
     K = K_type()
     est_compact = np.zeros((obs_pts.shape[0], src.n_pts, K.obs_dim * K.src_dim))
-    from tectosaur2._ext import nearfield_integrals
 
     n_subsets = nearfield_integrals(
         K.name,
@@ -63,9 +63,8 @@ def test_nearfield_far(K_type):
     )
 
     assert n_subsets[0] == src.n_panels
-    est_v = tensor_dot(est, density)
 
-    np.testing.assert_allclose(est_v, true_v, rtol=1e-14, atol=1e-14)
+    np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -76,11 +75,16 @@ def test_integrate_near(K_type):
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
 
     mat, report = integrate_term(
-        K_type(d_qbx=0.0), obs_pts, src, tol=1e-15, return_report=True
+        K_type(d_qbx=0.0), obs_pts, src, tol=1e-14, return_report=True
     )
     assert report["n_qbx"] == 0
 
-    np.testing.assert_allclose(mat, true, rtol=5e-14, atol=5e-14)
+    np.testing.assert_allclose(mat, true, rtol=5e-13, atol=5e-13)
+
+
+# [[-1.013439e+00, -8.557073e-01,  2.527161e-03],
+#        [-1.013584e+00, -8.552436e-01,  1.313424e-02],
+#        [-1.014296e+00, -8.529554e-01,  3.143956e-02]]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -89,22 +93,24 @@ def test_global_qbx(K_type):
     obs_pts = 1.07 * src.pts
     src_high, interp_mat = upsample(src, 10)
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
-    density = np.cos(src.pts[:, 0])
+    # density = np.stack((np.cos(src.pts[:, 0]), 0*np.sin(src.pts[:, 0])), axis=1)
+    density = np.stack((np.ones_like(src.pts[:, 0]), 0 * np.sin(src.pts[:, 0])), axis=1)
     true_v = tensor_dot(true, density)
 
-    # p = 16, kappa = 4 are the minimal parameters for rtol=1e-13
+    # p = 16, kapa = 4 are the minimal parameters for rtol=1e-13
     est = global_qbx_self(
         K_type(), src, p=16, direction=-1.0, kappa=4, obs_pt_normal_offset=-0.07
     )
     est_v = tensor_dot(est, density)
+    print(true_v[:3] / est_v[:3])
     np.testing.assert_allclose(est_v, true_v, rtol=1e-13, atol=1e-13)
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_integrate_can_do_global_qbx(K_type):
-    # If we set d_cutoff very large, then integrate does a global QBX
+    # If we set d_cutoff very large, then integrate_term does a global QBX
     # integration. Except the order adaptive criterion fails. So, this
-    # test only works for p<=3
+    # test only works for p<=3.
     src = unit_circle(gauss_rule(12))
     density = np.cos(src.pts[:, 0])
 

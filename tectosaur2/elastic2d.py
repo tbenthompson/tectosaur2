@@ -100,29 +100,30 @@ class ElasticA(Kernel):
         too_close = r2 <= 1e-16
         r2[too_close] = 1
         r = np.sqrt(r2)
+        dr = [d[0] / r, d[1] / r]
 
         A = np.empty((obs_pts.shape[0], 3, src.n_pts, 2))
 
         d_stress_lookup = [[0, 2], [2, 1]]
+
+        C = self.trac_C1 / r
 
         # TODO: it would be nice to simplify so that there aren't these
         # temporary normal vectors here and just calculate the stress directly.
         # also, this is horribly optimized.
         for nd in range(2):
             obsn = [float(nd == 0), float(nd == 1)]
-            drdm = (d[0] * obsn[0] + d[1] * obsn[1]) / r
+            drdm = dr[0] * obsn[0] + dr[1] * obsn[1]
             for d_obs in range(2):
                 if nd == 1 and d_obs == 0:
                     continue
                 d_stress = d_stress_lookup[nd][d_obs]
                 for d_src in range(2):
-                    t1 = self.trac_C2 * (d_obs == d_src) + 2 * d[d_obs] * d[d_src] / r2
-                    t2 = (
-                        self.trac_C2
-                        * (obsn[d_src] * d[d_obs] - obsn[d_obs] * d[d_src])
-                        / r
+                    t1 = self.trac_C2 * (d_obs == d_src) + 2 * dr[d_obs] * dr[d_src]
+                    t2 = self.trac_C2 * (
+                        obsn[d_src] * dr[d_obs] - obsn[d_obs] * dr[d_src]
                     )
-                    A[:, d_stress, :, d_src] = (self.trac_C1 / r) * (t1 * drdm - t2)
+                    A[:, d_stress, :, d_src] = C * (t1 * drdm - t2)
                     A[:, d_stress, :, d_src][too_close] = 0
 
         A *= (src.jacobians * src.quad_wts)[None, None, :, None]
