@@ -18,20 +18,21 @@ from tectosaur2.laplace2d import (
 )
 from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
-# kernel_types = [
-#     SingleLayer,
-#     DoubleLayer,
-#     AdjointDoubleLayer,
-#     Hypersingular,
-# ]  # , ElasticU]
-kernel_types = [ElasticU, ElasticT, ElasticA]  # , ElasticH]
-# kernel_types = [ElasticA]
+kernel_types = [
+    SingleLayer,
+    DoubleLayer,
+    AdjointDoubleLayer,
+    Hypersingular,
+    ElasticU,
+    ElasticT,
+    ElasticA,
+    ElasticH,
+]
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_nearfield_far(K_type):
     src = unit_circle(gauss_rule(12), max_curvature=100)
-    density = np.cos(src.pts[:, 0])
 
     obs_pts = 2 * src.pts[3:4]
     true = K_type().direct(obs_pts, src)
@@ -82,27 +83,22 @@ def test_integrate_near(K_type):
     np.testing.assert_allclose(mat, true, rtol=5e-13, atol=5e-13)
 
 
-# [[-1.013439e+00, -8.557073e-01,  2.527161e-03],
-#        [-1.013584e+00, -8.552436e-01,  1.313424e-02],
-#        [-1.014296e+00, -8.529554e-01,  3.143956e-02]]
-
-
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_global_qbx(K_type):
     src = unit_circle(gauss_rule(12))
     obs_pts = 1.07 * src.pts
     src_high, interp_mat = upsample(src, 10)
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
-    # density = np.stack((np.cos(src.pts[:, 0]), 0*np.sin(src.pts[:, 0])), axis=1)
-    density = np.stack((np.ones_like(src.pts[:, 0]), 0 * np.sin(src.pts[:, 0])), axis=1)
+    density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
+        :, : K_type.src_dim
+    ]
     true_v = tensor_dot(true, density)
 
-    # p = 16, kapa = 4 are the minimal parameters for rtol=1e-13
+    # p = 20, kappa = 5 are the minimal parameters for rtol=1e-13
     est = global_qbx_self(
-        K_type(), src, p=16, direction=-1.0, kappa=4, obs_pt_normal_offset=-0.07
+        K_type(), src, p=20, direction=-1.0, kappa=5, obs_pt_normal_offset=-0.07
     )
     est_v = tensor_dot(est, density)
-    print(true_v[:3] / est_v[:3])
     np.testing.assert_allclose(est_v, true_v, rtol=1e-13, atol=1e-13)
 
 
@@ -112,7 +108,9 @@ def test_integrate_can_do_global_qbx(K_type):
     # integration. Except the order adaptive criterion fails. So, this
     # test only works for p<=3.
     src = unit_circle(gauss_rule(12))
-    density = np.cos(src.pts[:, 0])
+    density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
+        :, : K_type.src_dim
+    ]
 
     global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
     global_v = tensor_dot(global_qbx, density)
@@ -135,7 +133,9 @@ def test_integrate_can_do_global_qbx(K_type):
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_integrate_self(K_type):
     src = unit_circle(gauss_rule(12))
-    density = np.cos(src.pts[:, 0])
+    density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
+        :, : K_type.src_dim
+    ]
 
     global_qbx = global_qbx_self(K_type(), src, p=10, direction=1.0, kappa=3)
     global_v = tensor_dot(global_qbx, density)
@@ -143,6 +143,8 @@ def test_integrate_self(K_type):
     tol = 1e-13
     if K_type is Hypersingular:
         tol = 1e-12
+    elif K_type is ElasticH:
+        tol = 1e-11
     local_qbx, report = integrate_term(
         K_type(d_cutoff=4.0), src.pts, src, tol=tol, return_report=True
     )

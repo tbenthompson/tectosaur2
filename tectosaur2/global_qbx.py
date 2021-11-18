@@ -124,51 +124,45 @@ def elastic_A_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     C = 1.0 / (2 * np.pi * (1 + kappa))
 
     term = np.zeros((z0.shape[0], 3, src_pts.shape[0], 2))
-
     ratio = (z - z0) / (w - z0)
 
     Gp = (ratio ** m) / (w - z0)
     Gpp = -(m + 1) * (ratio ** m) / ((w - z0) ** 2)
+    con = np.conjugate
     for d_src in range(2):
         tw = (d_src == 0) + (d_src == 1) * 1j
-        t1a = (
-            1
-            / (kappa - 1)
-            * (
-                kappa * tw * (Gp + np.conjugate(Gp))
-                - (w - z) * np.conjugate(Gpp * tw)
-                + np.conjugate(Gp * tw)
-            )
-        )
-        t1 = t1a + np.conjugate(t1a)
-        t2 = kappa * (Gp + np.conjugate(Gp)) * tw - np.conjugate(Gpp * tw) * (w - z)
+        t1 = -kappa * con(tw * Gp) - Gp * tw
+        t2 = -con(Gp) * tw + (w - z) * con(Gpp * tw)
         term[:, 0, :, d_src] = np.real(t1 + t2)
-        # term[:, 1, :, d_src] = np.real(t1 - t2)
-        term[:, 2, :, d_src] = np.imag(t1 - t2)
-
-        t1a = (
-            1
-            / (kappa - 1)
-            * (
-                kappa * tw * (Gp + np.conjugate(Gp))
-                + (w - z) * np.conjugate(Gpp * tw)
-                - np.conjugate(Gp * tw)
-            )
-        )
-        t1 = t1a + np.conjugate(t1a)
-        t2 = kappa * (Gp + np.conjugate(Gp)) * tw + (w - z) * np.conjugate(Gpp * tw)
-        # term[:, 0, :, d_src] = np.real(t1 + t2)
-        term[:, 1, :, d_src] = np.real(-t1 + t2)
-        # term[:, 2, :, d_src] = np.imag(t1 + t2)
-
-        a = -(Gp * tw + np.conjugate(Gp * tw))
-        b = -0.5 * kappa * (np.conjugate(Gp) + Gp) * tw
-        c = (w - z) * np.conjugate(Gpp * tw)
-        V = np.real(a + b + c)
-        term[:, 0, :, d_src] = V
-        # term[:, 2, :, d_src] = np.imag(c)
+        term[:, 1, :, d_src] = np.real(t1 - t2)
+        term[:, 2, :, d_src] = np.imag(-t1 + t2)
     term *= C
+    return term
 
+
+def elastic_H_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
+    z = obs_pts[:, None, 0] + obs_pts[:, None, 1] * 1j
+    w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
+    z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
+    nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
+
+    kappa = 3 - 4 * kernel.poisson_ratio
+    C = kernel.shear_modulus / (np.pi * (1 + kappa))
+
+    term = np.zeros((z0.shape[0], 3, src_pts.shape[0], 2))
+    ratio = (z - z0) / (w - z0)
+
+    Gpp = -(m + 1) * (ratio ** m) / ((w - z0) ** 2)
+    Gppp = (m + 1) * (m + 2) * (ratio ** m) / ((w - z0) ** 3)
+    con = np.conjugate
+    for d_src in range(2):
+        uw = (d_src == 0) + (d_src == 1) * 1j
+        t1 = Gpp * nw * uw + con(Gpp * nw * uw)
+        t2 = con(Gpp) * (nw * con(uw) + con(nw) * uw) - (w - z) * con(Gppp * nw * uw)
+        term[:, 0, :, d_src] = np.real(t1 + t2)
+        term[:, 1, :, d_src] = np.real(t1 - t2)
+        term[:, 2, :, d_src] = np.imag(-t1 + t2)
+    term *= C
     return term
 
 

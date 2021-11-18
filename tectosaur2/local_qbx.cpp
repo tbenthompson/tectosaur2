@@ -165,24 +165,149 @@ std::array<double, 4> hypersingular_qbx(const ObsInfo& obs, double srcx, double 
     return result;
 }
 
-std::array<double, 8> plane_U_qbx(const ObsInfo& obs, double srcx, double srcy, double srcnx, double srcny) {
+std::array<double, 8> elastic_U_qbx(const ObsInfo& obs, double srcx, double srcy,
+                                    double srcnx, double srcny) {
+    const std::complex<double> i(0.0, 1.0);
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double kappa = 3 - 4 * poisson_ratio;
+    double disp_C1 = 1.0 / (4 * M_PI * shear_modulus * (1 + kappa));
+
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
     std::complex<double> z = {obs.x, obs.y};
-    std::array<double, 2> result{};
+    std::array<double, 8> result{};
 
+    auto ratio = (z - z0) / (w - z0);
     for (int m = obs.p_start; m < obs.p_end; m++) {
-        std::complex<double> expand;
+        std::complex<double> G;
         if (m == 0) {
-            expand = std::log(w - z0);
+            G = -std::log(w - z0);
         } else {
-            expand = -1.0 / (static_cast<double>(m) * std::pow(w - z0, m));
+            G = std::pow(ratio, m) / static_cast<double>(m);
         }
-        std::complex<double> eval = std::pow(z - z0, m);
-
+        std::complex<double> Gp = -std::pow(ratio, m) / (w - z0);
+        auto t1 = kappa * (G + std::conj(G));
+        auto t2 = -(w - z) * std::conj(Gp);
         result[0] += result[1];
-        result[1] = std::real(expand * eval);
+        result[1] = std::real(disp_C1 * (t1 + t2));
+        result[2] += result[3];
+        result[3] = std::real(disp_C1 * (i * t1 - i * t2));
+        result[4] += result[5];
+        result[5] = std::imag(disp_C1 * (t1 + t2));
+        result[6] += result[7];
+        result[7] = std::imag(disp_C1 * (i * t1 - i * t2));
+        if (m == 0) {
+            result[1] += disp_C1;
+            result[7] += disp_C1;
+        }
     }
+    return result;
+}
+
+std::array<double, 8> elastic_T_qbx(const ObsInfo& obs, double srcx, double srcy,
+                                    double srcnx, double srcny) {
+    const std::complex<double> i(0.0, 1.0);
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double kappa = 3 - 4 * poisson_ratio;
+    double trac_C1 = -1.0 / (2 * M_PI * (1 + kappa));
+
+    std::complex<double> w = {srcx, srcy};
+    std::complex<double> z0 = {obs.expx, obs.expy};
+    std::complex<double> z = {obs.x, obs.y};
+    std::complex<double> nw = {srcnx, srcny};
+    std::array<double, 8> result{};
+
+    auto ratio = (z - z0) / (w - z0);
+    for (int m = obs.p_start; m < obs.p_end; m++) {
+        std::complex<double> Gp = -std::pow(ratio, m) / (w - z0);
+        std::complex<double> Gpp =
+            (m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        auto t1 = kappa * Gp * nw + std::conj(Gp * nw);
+        auto t2 = nw * std::conj(Gp) - (w - z) * std::conj(Gpp * nw);
+        result[0] += result[1];
+        result[1] = std::real(trac_C1 * (t1 + t2));
+        result[2] += result[3];
+        result[3] = std::real(trac_C1 * (i * t1 - i * t2));
+        result[4] += result[5];
+        result[5] = std::imag(trac_C1 * (t1 + t2));
+        result[6] += result[7];
+        result[7] = std::imag(trac_C1 * (i * t1 - i * t2));
+    }
+    return result;
+}
+
+std::array<double, 12> elastic_A_qbx(const ObsInfo& obs, double srcx, double srcy,
+                                     double srcnx, double srcny) {
+    const std::complex<double> i(0.0, 1.0);
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double kappa = 3 - 4 * poisson_ratio;
+    double trac_C1 = 1.0 / (2 * M_PI * (1 + kappa));
+
+    std::complex<double> w = {srcx, srcy};
+    std::complex<double> z0 = {obs.expx, obs.expy};
+    std::complex<double> z = {obs.x, obs.y};
+    std::complex<double> nw = {srcnx, srcny};
+    std::array<double, 12> result{};
+
+    auto ratio = (z - z0) / (w - z0);
+    for (int m = obs.p_start; m < obs.p_end; m++) {
+        std::complex<double> Gp = std::pow(ratio, m) / (w - z0);
+        std::complex<double> Gpp =
+            -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        for (int d_src = 0; d_src < 2; d_src++) {
+            auto tw =
+                static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
+            auto t1 = -kappa * std::conj(tw * Gp) - Gp * tw;
+            auto t2 = -std::conj(Gp) * tw + (w - z) * std::conj(Gpp * tw);
+            result[0 + d_src * 2 + 0] += result[0 + d_src * 2 + 1];
+            result[0 + d_src * 2 + 1] = std::real(trac_C1 * (t1 + t2));
+            result[4 + d_src * 2 + 0] += result[4 + d_src * 2 + 1];
+            result[4 + d_src * 2 + 1] = std::real(trac_C1 * (t1 - t2));
+            result[8 + d_src * 2 + 0] += result[8 + d_src * 2 + 1];
+            result[8 + d_src * 2 + 1] = std::imag(trac_C1 * (-t1 + t2));
+        }
+    }
+    return result;
+}
+
+std::array<double, 12> elastic_H_qbx(const ObsInfo& obs, double srcx, double srcy,
+                                     double srcnx, double srcny) {
+    const std::complex<double> i(0.0, 1.0);
+    double shear_modulus = 1.0;
+    double poisson_ratio = 0.25;
+    double kappa = 3 - 4 * poisson_ratio;
+    double trac_C1 = shear_modulus / (M_PI * (1 + kappa));
+
+    std::complex<double> w = {srcx, srcy};
+    std::complex<double> z0 = {obs.expx, obs.expy};
+    std::complex<double> z = {obs.x, obs.y};
+    std::complex<double> nw = {srcnx, srcny};
+    std::array<double, 12> result{};
+
+    auto ratio = (z - z0) / (w - z0);
+    for (int m = obs.p_start; m < obs.p_end; m++) {
+        std::complex<double> Gpp =
+            -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        std::complex<double> Gppp = (m + 1.0) * (m + 2.0) * std::pow(ratio, m) /
+                                    ((w - z0) * (w - z0) * (w - z0));
+        for (int d_src = 0; d_src < 2; d_src++) {
+            auto uw =
+                static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
+            auto t1 = Gpp * nw * uw + std::conj(Gpp * nw * uw);
+            auto t2 = std::conj(Gpp) * (nw * std::conj(uw) + std::conj(nw) * uw) -
+                      (w - z) * std::conj(Gppp * nw * uw);
+            result[0 + d_src * 2 + 0] += result[0 + d_src * 2 + 1];
+            result[0 + d_src * 2 + 1] = std::real(trac_C1 * (t1 + t2));
+            result[4 + d_src * 2 + 0] += result[4 + d_src * 2 + 1];
+            result[4 + d_src * 2 + 1] = std::real(trac_C1 * (t1 - t2));
+            result[8 + d_src * 2 + 0] += result[8 + d_src * 2 + 1];
+            result[8 + d_src * 2 + 1] = std::imag(trac_C1 * (-t1 + t2));
+        }
+    }
+    return result;
 }
 
 template <typename K>
@@ -377,10 +502,12 @@ std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
     if (integral_idx == max_integrals) {
         double srcx = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 0];
         double srcy = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 1];
-        // std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " << srcy << " " << panel_idx << " " << integral_idx << std::endl;
-        std::cout << "max err: " << max_err <<  "    tol: " << tol << std::endl;
+        // std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " <<
+        // srcy << " " << panel_idx << " " << integral_idx << std::endl;
+        std::cout << "max err: " << max_err << "    tol: " << tol << std::endl;
         // for (int i = 0; i < next_integral.size(); i++) {
-        //     std::cout << "option " << i << " " << next_integral[i].max_err << std::endl;
+        //     std::cout << "option " << i << " " << next_integral[i].max_err <<
+        //     std::endl;
         // }
         if (max_err > tol * 10) {
             failed = true;
@@ -494,4 +621,20 @@ void local_qbx_adjoint_double_layer(const LocalQBXArgs& a) {
 
 void local_qbx_hypersingular(const LocalQBXArgs& a) {
     _local_qbx_integrals(hypersingular_qbx, a);
+}
+
+void local_qbx_elastic_U(const LocalQBXArgs& a) {
+    _local_qbx_integrals(elastic_U_qbx, a);
+}
+
+void local_qbx_elastic_T(const LocalQBXArgs& a) {
+    _local_qbx_integrals(elastic_T_qbx, a);
+}
+
+void local_qbx_elastic_A(const LocalQBXArgs& a) {
+    _local_qbx_integrals(elastic_A_qbx, a);
+}
+
+void local_qbx_elastic_H(const LocalQBXArgs& a) {
+    _local_qbx_integrals(elastic_H_qbx, a);
 }

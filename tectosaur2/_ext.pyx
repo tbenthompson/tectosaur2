@@ -37,6 +37,10 @@ cdef extern from "local_qbx.cpp":
     cdef void local_qbx_double_layer(const LocalQBXArgs&)
     cdef void local_qbx_adjoint_double_layer(const LocalQBXArgs&)
     cdef void local_qbx_hypersingular(const LocalQBXArgs&)
+    cdef void local_qbx_elastic_U(const LocalQBXArgs&)
+    cdef void local_qbx_elastic_T(const LocalQBXArgs&)
+    cdef void local_qbx_elastic_A(const LocalQBXArgs&)
+    cdef void local_qbx_elastic_H(const LocalQBXArgs&)
 
 def local_qbx_integrals(
     kernel_name,
@@ -78,6 +82,14 @@ def local_qbx_integrals(
         local_qbx_adjoint_double_layer(args)
     elif kernel_name == "hypersingular":
         local_qbx_hypersingular(args)
+    elif kernel_name == "elastic_U":
+        local_qbx_elastic_U(args)
+    elif kernel_name == "elastic_T":
+        local_qbx_elastic_T(args)
+    elif kernel_name == "elastic_A":
+        local_qbx_elastic_A(args)
+    elif kernel_name == "elastic_H":
+        local_qbx_elastic_H(args)
     else:
         raise Exception("Unknown kernel name.")
 
