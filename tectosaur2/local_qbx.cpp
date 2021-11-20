@@ -31,6 +31,7 @@ struct LocalQBXArgs {
     long* panel_starts;
     int max_p;
     double tol;
+    double* kernel_parameters;
 };
 
 struct ObsInfo {
@@ -41,6 +42,7 @@ struct ObsInfo {
     double expr;
     int p_start;
     int p_end;
+    double* kernel_parameters;
 };
 
 // I could go with a fixed p. That would make the
@@ -168,10 +170,9 @@ std::array<double, 4> hypersingular_qbx(const ObsInfo& obs, double srcx, double 
 std::array<double, 8> elastic_U_qbx(const ObsInfo& obs, double srcx, double srcy,
                                     double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
+    double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
-    double disp_C1 = 1.0 / (4 * M_PI * shear_modulus * (1 + kappa));
+    double disp_C1 = 1.0 / (4 * M_PI * (1 + kappa));
 
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
@@ -208,8 +209,7 @@ std::array<double, 8> elastic_U_qbx(const ObsInfo& obs, double srcx, double srcy
 std::array<double, 8> elastic_T_qbx(const ObsInfo& obs, double srcx, double srcy,
                                     double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
+    double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
     double trac_C1 = -1.0 / (2 * M_PI * (1 + kappa));
 
@@ -241,8 +241,7 @@ std::array<double, 8> elastic_T_qbx(const ObsInfo& obs, double srcx, double srcy
 std::array<double, 12> elastic_A_qbx(const ObsInfo& obs, double srcx, double srcy,
                                      double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
+    double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
     double trac_C1 = 1.0 / (2 * M_PI * (1 + kappa));
 
@@ -276,10 +275,9 @@ std::array<double, 12> elastic_A_qbx(const ObsInfo& obs, double srcx, double src
 std::array<double, 12> elastic_H_qbx(const ObsInfo& obs, double srcx, double srcy,
                                      double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
+    double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
-    double trac_C1 = shear_modulus / (M_PI * (1 + kappa));
+    double trac_C1 = 1.0 / (M_PI * (1 + kappa));
 
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
@@ -500,16 +498,23 @@ std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
     // }
 
     if (integral_idx == max_integrals) {
-        double srcx = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 0];
-        double srcy = a.src_pts[panel_idx * a.nq + (a.nq / 2) * 2 + 1];
-        // std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " " <<
-        // srcy << " " << panel_idx << " " << integral_idx << std::endl;
-        std::cout << "max err: " << max_err << "    tol: " << tol << std::endl;
-        // for (int i = 0; i < next_integral.size(); i++) {
-        //     std::cout << "option " << i << " " << next_integral[i].max_err <<
-        //     std::endl;
-        // }
-        if (max_err > tol * 10) {
+        if (max_err > 1000 * tol) {
+            double srcx = a.src_pts[panel_idx * a.nq * 2 + (a.nq / 2) * 2 + 0];
+            double srcy = a.src_pts[panel_idx * a.nq * 2 + (a.nq / 2) * 2 + 1];
+            std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " "
+                      << srcy << " " << panel_idx << " " << integral_idx << std::endl;
+            std::cout << "exp: " << obs.expx << " " << obs.expy << " " << obs.expr
+                      << std::endl;
+            std::cout << "max err: " << max_err << "   tol: " << tol << std::endl;
+            for (int i = 0; i < ndim; i++) {
+                std::cout << integral[i] << std::endl;
+            }
+            for (int i = 0; i < 8; i++) {
+                std::cout << "option " << i << " " << next_integral[i].max_err
+                          << std::endl;
+            }
+        }
+        if (max_err > 10 * tol) {
             failed = true;
         }
     }
@@ -539,9 +544,14 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         auto panel_start = a.panel_starts[obs_i];
         auto panel_end = a.panel_starts[obs_i + 1];
         auto n_panels = panel_end - panel_start;
-        ObsInfo obs{a.obs_pts[obs_i * 2 + 0], a.obs_pts[obs_i * 2 + 1],
-                    a.exp_centers[obs_i * 2 + 0], a.exp_centers[obs_i * 2 + 1],
-                    a.exp_rs[obs_i]};
+        ObsInfo obs{a.obs_pts[obs_i * 2 + 0],
+                    a.obs_pts[obs_i * 2 + 1],
+                    a.exp_centers[obs_i * 2 + 0],
+                    a.exp_centers[obs_i * 2 + 1],
+                    a.exp_rs[obs_i],
+                    0,
+                    0,
+                    a.kernel_parameters};
 
         bool converged = false;
         obs.p_start = 0;
@@ -563,34 +573,28 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                 n_subsets += result.second;
             }
 
-            // Check series convergence.
+            // Add the integral and calculate series convergence.
             std::array<double, ndim> p_end_integral{};
             for (int pt_idx = 0; pt_idx < n_panels * a.nq; pt_idx++) {
                 for (int d = 0; d < ndim; d++) {
                     int k = pt_idx * ndim + d;
+                    double all_but_last_term = temp_out[2 * k];
                     double last_term = temp_out[2 * k + 1];
+                    integral[k] += all_but_last_term + last_term;
                     p_end_integral[d] += last_term;
                 }
             }
+            a.n_subsets[obs_i] = n_subsets;
 
             converged = true;
             for (int d = 0; d < ndim; d++) {
-                p_end_integral[d] = fabs(p_end_integral[d]);
-                if (p_end_integral[d] >= truncation_tol) {
+                if (fabs(p_end_integral[d]) >= truncation_tol) {
                     converged = false;
                     break;
                 }
             }
 
-            // Add the integral
-            for (int k = 0; k < integral.size(); k++) {
-                double all_but_last_term = temp_out[2 * k];
-                double last_term = temp_out[2 * k + 1];
-                integral[k] += all_but_last_term + last_term;
-            }
-
             obs.p_start = obs.p_end;
-            a.n_subsets[obs_i] = n_subsets;
         }
 
         a.failed[obs_i] = failed;

@@ -8,11 +8,11 @@ class ElasticU(Kernel):
     src_dim = 2
     obs_dim = 2
 
-    def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
-        self.shear_modulus = shear_modulus
+    def __init__(self, poisson_ratio=0.25, **kwargs):
         self.poisson_ratio = poisson_ratio
-        self.disp_C1 = 1.0 / (8 * np.pi * shear_modulus * (1 - poisson_ratio))
+        self.disp_C1 = 1.0 / (8 * np.pi * (1 - poisson_ratio))
         self.disp_C2 = 3 - 4 * poisson_ratio
+        self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
     def direct(self, obs_pts, src):
@@ -42,11 +42,11 @@ class ElasticT(Kernel):
     src_dim = 2
     obs_dim = 2
 
-    def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
-        self.shear_modulus = shear_modulus
+    def __init__(self, poisson_ratio=0.25, **kwargs):
         self.poisson_ratio = poisson_ratio
         self.trac_C1 = 1.0 / (4 * np.pi * (1 - poisson_ratio))
         self.trac_C2 = 1 - 2.0 * poisson_ratio
+        self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
     def direct(self, obs_pts, src):
@@ -84,11 +84,11 @@ class ElasticA(Kernel):
     src_dim = 2
     obs_dim = 3
 
-    def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
-        self.shear_modulus = shear_modulus
+    def __init__(self, poisson_ratio=0.25, **kwargs):
         self.poisson_ratio = poisson_ratio
         self.trac_C1 = 1.0 / (4 * np.pi * (1 - poisson_ratio))
         self.trac_C2 = 1 - 2.0 * poisson_ratio
+        self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
     def direct(self, obs_pts, src):
@@ -132,10 +132,10 @@ class ElasticH(Kernel):
     src_dim = 2
     obs_dim = 3
 
-    def __init__(self, shear_modulus=1.0, poisson_ratio=0.25, **kwargs):
-        self.shear_modulus = shear_modulus
+    def __init__(self, poisson_ratio=0.25, **kwargs):
         self.poisson_ratio = poisson_ratio
         self.trac_C2 = 1 - 2.0 * poisson_ratio
+        self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
     def direct(self, obs_pts, src):
@@ -159,7 +159,7 @@ class ElasticH(Kernel):
         # TODO: it would be nice to simplify so that there aren't these
         # temporary normal vectors here and just calculate the stress directly.
         # also, this is horribly optimized.
-        C = self.shear_modulus / (2 * np.pi * (1 - self.poisson_ratio))
+        C = 1.0 / (2 * np.pi * (1 - self.poisson_ratio))
         for nd in range(2):
             obsn = [float(nd == 0), float(nd == 1)]
             drdm = (d[0] * obsn[0] + d[1] * obsn[1]) / r
@@ -198,3 +198,17 @@ class ElasticH(Kernel):
 
         H *= (src.jacobians * src.quad_wts)[None, None, :, None]
         return H
+
+
+elastic_u = lambda nu: ElasticU(
+    nu, d_cutoff=2.0, d_up=1.5, d_qbx=0.3, default_tol=1e-13
+)
+elastic_t = lambda nu: ElasticT(
+    nu, d_cutoff=4.0, d_up=2.0, d_qbx=0.4, default_tol=1e-13
+)
+elastic_a = lambda nu: ElasticA(
+    nu, d_cutoff=4.0, d_up=2.0, d_qbx=0.4, default_tol=1e-13
+)
+elastic_h = lambda nu: ElasticH(
+    nu, d_cutoff=5.0, d_up=2.5, d_qbx=0.5, default_tol=1e-12
+)

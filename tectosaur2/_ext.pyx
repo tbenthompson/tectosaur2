@@ -32,6 +32,7 @@ cdef extern from "local_qbx.cpp":
         double tol
         long* panels
         long* panel_starts
+        double* kernel_parameters
 
     cdef void local_qbx_single_layer(const LocalQBXArgs&)
     cdef void local_qbx_double_layer(const LocalQBXArgs&)
@@ -43,7 +44,7 @@ cdef extern from "local_qbx.cpp":
     cdef void local_qbx_elastic_H(const LocalQBXArgs&)
 
 def local_qbx_integrals(
-    kernel_name,
+    kernel_name, double[::1] kernel_parameters,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
     double[:,::1] exp_centers, double[::1] exp_rs,
     int max_p, double tol, long[:] panels, long[:] panel_starts
@@ -71,7 +72,7 @@ def local_qbx_integrals(
         &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels, &qx[0],
         &qw[0], &interp_wts[0], qx.shape[0], &exp_centers[0,0], &exp_rs[0],
-        max_p, tol, &panels[0], &panel_starts[0]
+        max_p, tol, &panels[0], &panel_starts[0], &kernel_parameters[0]
     )
 
     if kernel_name == "single_layer":
@@ -118,6 +119,7 @@ cdef extern from "nearfield.cpp":
         double mult
         double tol
         bool adaptive
+        double* kernel_parameters
 
     cdef void nearfield_single_layer(const NearfieldArgs&)
     cdef void nearfield_double_layer(const NearfieldArgs&)
@@ -129,7 +131,8 @@ cdef extern from "nearfield.cpp":
     cdef void nearfield_elastic_H(const NearfieldArgs&)
 
 def nearfield_integrals(
-    kernel_name, double[:,:,::1] mat, double[:,::1] obs_pts, src,
+    kernel_name, double[::1] kernel_parameters,
+    double[:,:,::1] mat, double[:,::1] obs_pts, src,
     long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
     double mult, double tol, bool adaptive
 ):
@@ -152,7 +155,7 @@ def nearfield_integrals(
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
         &qx[0], &qw[0], &interp_wts[0], qx.shape[0],
         &panel_obs_pts[0], &panel_obs_pts_starts[0],
-        mult, tol, adaptive
+        mult, tol, adaptive, &kernel_parameters[0]
     )
 
     if kernel_name == "single_layer":

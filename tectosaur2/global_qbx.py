@@ -76,7 +76,7 @@ def elastic_U_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     # See equation 4.44 from Liu's FMM BEM book, page 95.
     term = np.empty((z0.shape[0], 2, src_pts.shape[0], 2))
     kappa = 3 - 4 * kernel.poisson_ratio
-    C = 1.0 / (4 * np.pi * kernel.shear_modulus * (1 + kappa))
+    C = 1.0 / (4 * np.pi * (1 + kappa))
     ratio = (z - z0) / (w - z0)
     for d_src in range(2):
         tw = (d_src == 0) + (d_src == 1) * 1j
@@ -147,7 +147,7 @@ def elastic_H_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
 
     kappa = 3 - 4 * kernel.poisson_ratio
-    C = kernel.shear_modulus / (np.pi * (1 + kappa))
+    C = 1 / (np.pi * (1 + kappa))
 
     term = np.zeros((z0.shape[0], 3, src_pts.shape[0], 2))
     ratio = (z - z0) / (w - z0)

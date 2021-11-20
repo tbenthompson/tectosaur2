@@ -15,6 +15,8 @@ class Kernel:
         self.d_qbx = d_qbx
         self.max_p = max_p
         self.default_tol = default_tol
+        if not hasattr(self, "parameters"):
+            self.parameters = np.array([], dtype=np.float64)
 
 
 def integrate_term(
@@ -75,23 +77,22 @@ def integrate_term(
         direction[on_surface] = limit_direction
 
         for j in range(30):
+            which_violations = np.zeros(n_qbx, dtype=bool)
             exp_centers = (
                 qbx_obs_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
             )
-            dist_to_nearest_panel = src_tree.query(exp_centers)[0]
-            # TODO: WRITE A TEST THAT HAS VIOLATIONS
-            # The fudge factor helps avoid numerical precision issues. For example,
-            # when we offset an expansion center 1.0 away from a surface node,
-            # without the fudge factor this test will be checking 1.0 < 1.0, but
-            # that is fragile in the face of small 1e-15 sized numerical errors.
-            # By simply multiplying by 1.0001, we avoid this issue without
-            # introducing any other problems.
-            fudge_factor = 1.0001
-            which_violations = dist_to_nearest_panel * fudge_factor < np.abs(exp_rs)
+
+            dist_to_nearest_panel, nearest_idx = src_tree.query(exp_centers, k=2)
+            nearby_surface_ratio = 1.1
+            which_violations = dist_to_nearest_panel[
+                :, 1
+            ] < nearby_surface_ratio * np.abs(exp_rs)
+            nearest_not_owner = np.where(nearest_idx[:, 0] != qbx_src_pt_indices)[0]
+            which_violations[nearest_not_owner] = True
 
             if singularities is not None:
-                dist_to_singularity, _ = singularity_tree.query(exp_centers)
                 singularity_dist_ratio = 3.0
+                dist_to_singularity, _ = singularity_tree.query(exp_centers)
                 which_violations |= (
                     dist_to_singularity <= singularity_dist_ratio * np.abs(exp_rs)
                 )
@@ -100,7 +101,8 @@ def integrate_term(
                 break
             exp_rs[which_violations] *= 0.75
 
-        # TODO: use ckdtree directly via its C++/cython interface to avoid python
+        # TODO: use ckdtree directly via its C++/cython interface to avoid
+        # python list construction
         qbx_panel_src_pts = src_tree.query_ball_point(
             exp_centers, K.d_cutoff * qbx_panel_L, return_sorted=True
         )
@@ -126,6 +128,7 @@ def integrate_term(
             report["n_subsets"],
         ) = local_qbx_integrals(
             K.name,
+            K.parameters,
             qbx_mat,
             qbx_obs_pts,
             combined_src,
@@ -151,6 +154,7 @@ def integrate_term(
         # step 6: subtract off the direct term whenever a QBX integral is used.
         nearfield_integrals(
             K.name,
+            K.parameters,
             qbx_mat,
             qbx_obs_pts,
             combined_src,
@@ -191,6 +195,7 @@ def integrate_term(
         nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], combined_src.n_pts, ndim))
         nearfield_integrals(
             K.name,
+            K.parameters,
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,
@@ -205,6 +210,7 @@ def integrate_term(
         # cancel out the direct component terms
         nearfield_integrals(
             K.name,
+            K.parameters,
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,

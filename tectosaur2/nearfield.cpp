@@ -12,7 +12,7 @@ constexpr double C2 = 1.0 / (4 * M_PI);
 constexpr double too_close = 1e-16;
 
 inline std::array<double, 1> single_layer(double obsx, double obsy, double srcx,
-                                          double srcy, double srcnx, double srcny) {
+                                          double srcy, double srcnx, double srcny, double* parameters) {
     double dx = obsx - srcx;
     double dy = obsy - srcy;
     double r2 = dx * dx + dy * dy;
@@ -25,7 +25,7 @@ inline std::array<double, 1> single_layer(double obsx, double obsy, double srcx,
 }
 
 inline std::array<double, 1> double_layer(double obsx, double obsy, double srcx,
-                                          double srcy, double srcnx, double srcny) {
+                                          double srcy, double srcnx, double srcny, double* parameters) {
     double dx = obsx - srcx;
     double dy = obsy - srcy;
     double r2 = dx * dx + dy * dy;
@@ -40,7 +40,7 @@ inline std::array<double, 1> double_layer(double obsx, double obsy, double srcx,
 
 inline std::array<double, 2> adjoint_double_layer(double obsx, double obsy, double srcx,
                                                   double srcy, double srcnx,
-                                                  double srcny) {
+                                                  double srcny, double* parameters) {
     double dx = obsx - srcx;
     double dy = obsy - srcy;
     double r2 = dx * dx + dy * dy;
@@ -55,7 +55,7 @@ inline std::array<double, 2> adjoint_double_layer(double obsx, double obsy, doub
 }
 
 inline std::array<double, 2> hypersingular(double obsx, double obsy, double srcx,
-                                           double srcy, double srcnx, double srcny) {
+                                           double srcy, double srcnx, double srcny, double* parameters) {
     double dx = obsx - srcx;
     double dy = obsy - srcy;
     double r2 = dx * dx + dy * dy;
@@ -71,10 +71,9 @@ inline std::array<double, 2> hypersingular(double obsx, double obsy, double srcx
 }
 
 inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
-                                       double srcy, double srcnx, double srcny) {
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
-    double disp_C1 = 1.0 / (8 * M_PI * shear_modulus * (1 - poisson_ratio));
+                                       double srcy, double srcnx, double srcny, double* parameters) {
+    double poisson_ratio = parameters[0];
+    double disp_C1 = 1.0 / (8 * M_PI * (1 - poisson_ratio));
     double disp_C2 = 3 - 4 * poisson_ratio;
 
     double dx = obsx - srcx;
@@ -97,8 +96,8 @@ inline std::array<double, 4> elastic_U(double obsx, double obsy, double srcx,
 }
 
 inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
-                                       double srcy, double srcnx, double srcny) {
-    double poisson_ratio = 0.25;
+                                       double srcy, double srcnx, double srcny, double* parameters) {
+    double poisson_ratio = parameters[0];
     double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
 
@@ -132,8 +131,8 @@ inline std::array<double, 4> elastic_T(double obsx, double obsy, double srcx,
 }
 
 inline std::array<double, 6> elastic_A(double obsx, double obsy, double srcx,
-                                       double srcy, double srcnx, double srcny) {
-    double poisson_ratio = 0.25;
+                                       double srcy, double srcnx, double srcny, double* parameters) {
+    double poisson_ratio = parameters[0];
     double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
 
@@ -183,10 +182,9 @@ inline std::array<double, 6> elastic_A(double obsx, double obsy, double srcx,
 }
 
 inline std::array<double, 6> elastic_H(double obsx, double obsy, double srcx,
-                                       double srcy, double srcnx, double srcny) {
-    double shear_modulus = 1.0;
-    double poisson_ratio = 0.25;
-    double HC = shear_modulus / (2 * M_PI * (1 - poisson_ratio));
+                                       double srcy, double srcnx, double srcny, double* parameters) {
+    double poisson_ratio = parameters[0];
+    double HC = 1.0 / (2 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
 
     double dx = obsx - srcx;
@@ -273,13 +271,14 @@ struct NearfieldArgs {
     double mult;
     double tol;
     bool adaptive;
+    double* kernel_parameters;
 };
 
 template <typename K>
 void integrate_domain(double* out, K kernel_fnc, const NearfieldArgs& a, int panel_idx,
                       double obsx, double obsy, double xhat_left, double xhat_right) {
     constexpr size_t ndim =
-        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0))>::value;
+        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0, a.kernel_parameters))>::value;
 
     int pt_start = panel_idx * a.nq;
 
@@ -293,7 +292,7 @@ void integrate_domain(double* out, K kernel_fnc, const NearfieldArgs& a, int pan
             double srcmult = a.mult * a.src_jacobians[src_pt_idx] * a.qw[k] *
                              a.src_param_width[panel_idx] * 0.5;
 
-            auto kernel = kernel_fnc(obsx, obsy, srcx, srcy, srcnx, srcny);
+            auto kernel = kernel_fnc(obsx, obsy, srcx, srcy, srcnx, srcny, a.kernel_parameters);
 
             // We don't want to store the integration result in the output
             // matrix yet because we might abort this integration and refine
@@ -337,7 +336,7 @@ void integrate_domain(double* out, K kernel_fnc, const NearfieldArgs& a, int pan
             double srcmult = a.mult * srcjac * a.qw[j] * a.src_param_width[panel_idx] *
                              0.5 * (xhat_right - xhat_left) * 0.5;
 
-            auto kernel = kernel_fnc(obsx, obsy, srcx, srcy, srcnx, srcny);
+            auto kernel = kernel_fnc(obsx, obsy, srcx, srcy, srcnx, srcny, a.kernel_parameters);
             for (size_t dim = 0; dim < ndim; dim++) {
                 kernel[dim] *= srcmult;
             }
@@ -360,7 +359,7 @@ int adaptive_integrate(double* out, double* baseline, K kernel_fnc,
     constexpr int max_depth = 10;
 
     constexpr size_t ndim =
-        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0))>::value;
+        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0, a.kernel_parameters))>::value;
     int Nv = a.nq * ndim;
 
     double midpt = (xhat_right + xhat_left) / 2.0;
@@ -399,7 +398,7 @@ int adaptive_integrate(double* out, double* baseline, K kernel_fnc,
 template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArgs& a) {
 
     constexpr size_t ndim =
-        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0))>::value;
+        std::tuple_size<decltype(kernel_fnc(0, 0, 0, 0, 0, 0, a.kernel_parameters))>::value;
 
 #pragma omp parallel
     {

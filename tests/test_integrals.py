@@ -18,15 +18,32 @@ from tectosaur2.laplace2d import (
 )
 from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
 
+
+def elasticU(**kwargs):
+    return ElasticU(0.3, **kwargs)
+
+
+def elasticT(**kwargs):
+    return ElasticT(0.2, **kwargs)
+
+
+def elasticA(**kwargs):
+    return ElasticA(0.2, **kwargs)
+
+
+def elasticH(**kwargs):
+    return ElasticH(0.35, **kwargs)
+
+
 kernel_types = [
     SingleLayer,
     DoubleLayer,
     AdjointDoubleLayer,
     Hypersingular,
-    ElasticU,
-    ElasticT,
-    ElasticA,
-    ElasticH,
+    elasticU,
+    elasticT,
+    elasticA,
+    elasticH,
 ]
 
 
@@ -45,10 +62,16 @@ def test_nearfield_far(K_type):
     pts_per_panel = np.concatenate(pts_per_panel)
 
     K = K_type()
+    print(K.parameters)
+    print(K.parameters)
+    print(K.parameters)
+    print(K.parameters)
+    print(K.parameters)
     est_compact = np.zeros((obs_pts.shape[0], src.n_pts, K.obs_dim * K.src_dim))
 
     n_subsets = nearfield_integrals(
         K.name,
+        K.parameters,
         est_compact,
         obs_pts,
         src,
@@ -90,7 +113,7 @@ def test_global_qbx(K_type):
     src_high, interp_mat = upsample(src, 10)
     true = apply_interp_mat(K_type().direct(obs_pts, src_high), interp_mat)
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
-        :, : K_type.src_dim
+        :, : K_type().src_dim
     ]
     true_v = tensor_dot(true, density)
 
@@ -109,7 +132,7 @@ def test_integrate_can_do_global_qbx(K_type):
     # test only works for p<=3.
     src = unit_circle(gauss_rule(12))
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
-        :, : K_type.src_dim
+        :, : K_type().src_dim
     ]
 
     global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
@@ -134,7 +157,7 @@ def test_integrate_can_do_global_qbx(K_type):
 def test_integrate_self(K_type):
     src = unit_circle(gauss_rule(12))
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
-        :, : K_type.src_dim
+        :, : K_type().src_dim
     ]
 
     global_qbx = global_qbx_self(K_type(), src, p=10, direction=1.0, kappa=3)
@@ -143,7 +166,7 @@ def test_integrate_self(K_type):
     tol = 1e-13
     if K_type is Hypersingular:
         tol = 1e-12
-    elif K_type is ElasticH:
+    elif K_type is elasticH:
         tol = 1e-11
     local_qbx, report = integrate_term(
         K_type(d_cutoff=4.0), src.pts, src, tol=tol, return_report=True
