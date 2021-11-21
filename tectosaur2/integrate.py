@@ -26,6 +26,7 @@ def integrate_term(
     limit_direction=1.0,
     tol=None,
     singularities=None,
+    safety_mode=False,
     return_report=False
 ):
     if tol is None:
@@ -42,7 +43,7 @@ def integrate_term(
     # step 1: construct the farfield matrix!
     mat = K.direct(obs_pts, combined_src)
     ndim = K.obs_dim * K.src_dim
-    report = dict()
+    report = dict(combined_src=combined_src)
 
     if singularities is not None:
         singularity_tree = scipy.spatial.KDTree(singularities)
@@ -83,7 +84,7 @@ def integrate_term(
             )
 
             dist_to_nearest_panel, nearest_idx = src_tree.query(exp_centers, k=2)
-            nearby_surface_ratio = 1.1
+            nearby_surface_ratio = 2.1 if safety_mode else 1.1
             which_violations = dist_to_nearest_panel[
                 :, 1
             ] < nearby_surface_ratio * np.abs(exp_rs)
@@ -136,6 +137,7 @@ def integrate_term(
             exp_rs,
             K.max_p,
             tol,
+            safety_mode,
             qbx_panels,
             qbx_panel_starts,
         )

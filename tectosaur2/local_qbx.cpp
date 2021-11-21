@@ -31,6 +31,7 @@ struct LocalQBXArgs {
     long* panel_starts;
     int max_p;
     double tol;
+    bool safety_mode;
     double* kernel_parameters;
 };
 
@@ -557,7 +558,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         obs.p_start = 0;
         std::vector<double> integral(n_panels * a.nq * ndim, 0.0);
 
-        int p_step = 5;
+        int p_step = 3;
         bool failed = false;
         while (!converged and obs.p_start <= a.max_p) {
             obs.p_end = std::min(obs.p_start + p_step, a.max_p + 1);
@@ -581,7 +582,11 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                     double all_but_last_term = temp_out[2 * k];
                     double last_term = temp_out[2 * k + 1];
                     integral[k] += all_but_last_term + last_term;
-                    p_end_integral[d] += last_term;
+                    if (a.safety_mode) {
+                        p_end_integral[d] += fabs(last_term);
+                    } else {
+                        p_end_integral[d] += last_term;
+                    }
                 }
             }
             a.n_subsets[obs_i] = n_subsets;
