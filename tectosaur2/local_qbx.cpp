@@ -1,3 +1,4 @@
+#include "adaptive.hpp"
 #include <array>
 #include <cmath>
 #include <complex>
@@ -44,7 +45,7 @@ struct LocalQBXArgs {
     double* kernel_parameters;
 };
 
-struct ObsInfo {
+struct QBXObsInfo {
     double x;
     double y;
     double expx;
@@ -74,7 +75,7 @@ struct ObsInfo {
 // and panel pair are mostly integrated in one shot. Conceptually, this means that I can
 // deal with the QBX implementation as essentially a bunch of "regularized" kernels.
 
-std::array<double, 2> single_layer_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 2> single_layer_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                        double srcnx, double srcny) {
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
@@ -96,7 +97,7 @@ std::array<double, 2> single_layer_qbx(const ObsInfo& obs, double srcx, double s
     return result;
 }
 
-std::array<double, 2> double_layer_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 2> double_layer_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                        double srcnx, double srcny) {
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
@@ -115,7 +116,7 @@ std::array<double, 2> double_layer_qbx(const ObsInfo& obs, double srcx, double s
     return result;
 }
 
-std::array<double, 4> adjoint_double_layer_qbx(const ObsInfo& obs, double srcx,
+std::array<double, 4> adjoint_double_layer_qbx(const QBXObsInfo& obs, double srcx,
                                                double srcy, double srcnx,
                                                double srcny) {
     std::complex<double> w = {srcx, srcy};
@@ -142,7 +143,7 @@ std::array<double, 4> adjoint_double_layer_qbx(const ObsInfo& obs, double srcx,
     return result;
 }
 
-std::array<double, 4> hypersingular_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 4> hypersingular_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                         double srcnx, double srcny) {
     constexpr double C = 1.0 / (2 * M_PI);
 
@@ -177,7 +178,7 @@ std::array<double, 4> hypersingular_qbx(const ObsInfo& obs, double srcx, double 
     return result;
 }
 
-std::array<double, 8> elastic_U_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 8> elastic_U_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                     double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
@@ -216,7 +217,7 @@ std::array<double, 8> elastic_U_qbx(const ObsInfo& obs, double srcx, double srcy
     return result;
 }
 
-std::array<double, 8> elastic_T_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 8> elastic_T_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                     double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
@@ -248,7 +249,7 @@ std::array<double, 8> elastic_T_qbx(const ObsInfo& obs, double srcx, double srcy
     return result;
 }
 
-std::array<double, 12> elastic_A_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                      double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
@@ -282,7 +283,7 @@ std::array<double, 12> elastic_A_qbx(const ObsInfo& obs, double srcx, double src
     return result;
 }
 
-std::array<double, 12> elastic_H_qbx(const ObsInfo& obs, double srcx, double srcy,
+std::array<double, 12> elastic_H_qbx(const QBXObsInfo& obs, double srcx, double srcy,
                                      double srcnx, double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
@@ -318,189 +319,10 @@ std::array<double, 12> elastic_H_qbx(const ObsInfo& obs, double srcx, double src
     return result;
 }
 
-template <typename K>
-void integrate_domain(double* out, K kernel_fnc, const LocalQBXArgs& a, int panel_idx,
-                      const ObsInfo& obs, double xhat_left, double xhat_right) {
-
-    constexpr size_t n_kernel_outputs =
-        std::tuple_size<decltype(kernel_fnc(ObsInfo{}, 0, 0, 0, 0))>::value;
-
-    int pt_start = panel_idx * a.n_interp;
-
-    for (int j = 0; j < a.n_kronrod; j++) {
-        double qxj = xhat_left + (a.kronrod_qx[j] + 1) * 0.5 * (xhat_right - xhat_left);
-
-        double srcx = 0.0;
-        double srcy = 0.0;
-        double srcnx = 0.0;
-        double srcny = 0.0;
-        double srcjac = 0.0;
-        double denom = 0.0;
-
-        for (int k = 0; k < a.n_interp; k++) {
-            int src_pt_idx = k + pt_start;
-            double interp_K = a.interp_wts[k] / (qxj - a.interp_qx[k]);
-
-            denom += interp_K;
-            srcx += interp_K * a.src_pts[src_pt_idx * 2 + 0];
-            srcy += interp_K * a.src_pts[src_pt_idx * 2 + 1];
-            srcnx += interp_K * a.src_normals[src_pt_idx * 2 + 0];
-            srcny += interp_K * a.src_normals[src_pt_idx * 2 + 1];
-            srcjac += interp_K * a.src_jacobians[src_pt_idx];
-        }
-
-        double inv_denom = 1.0 / denom;
-        srcx *= inv_denom;
-        srcy *= inv_denom;
-        srcnx *= inv_denom;
-        srcny *= inv_denom;
-        srcjac *= inv_denom;
-
-        auto kernel = kernel_fnc(obs, srcx, srcy, srcnx, srcny);
-
-        double srcmult = srcjac * a.src_param_width[panel_idx] * 0.5 *
-                         (xhat_right - xhat_left) * 0.5;
-        for (size_t d = 0; d < n_kernel_outputs; d++) {
-            kernel[d] *= srcmult;
-        }
-
-        for (int k = 0; k < a.n_interp; k++) {
-            double interp_K = a.interp_wts[k] * inv_denom / (qxj - a.interp_qx[k]);
-            for (size_t d = 0; d < n_kernel_outputs; d++) {
-                int entry = k * n_kernel_outputs * 2 + d * 2;
-                // todo: multiply by the two quadrature weights and add to the two
-                // outputs.
-                double value = kernel[d] * interp_K;
-                double kronrod_value = value * a.kronrod_qw[j];
-                out[entry] += kronrod_value;
-                double gauss_value = 0;
-                if (j % 2 == 1) {
-                    gauss_value = value * a.kronrod_qw_gauss[j / 2];
-                }
-                // Error estimate from the nested Gauss-Kronrod quadrature rule.
-                // note that this is a *difference* and not a error.
-                out[entry + 1] += kronrod_value - gauss_value;
-            }
-        }
-    }
-}
-
-struct EstimatedIntegral {
-    double xhat_left;
-    double xhat_right;
-    double max_err;
-    std::vector<double> value;
-};
-
-template <typename K>
-std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
-                                        const LocalQBXArgs& a, int panel_idx,
-                                        const ObsInfo& obs, double tol) {
-    constexpr int max_integrals = 100;
-
-    constexpr size_t ndim =
-        std::tuple_size<decltype(kernel_fnc(ObsInfo{}, 0, 0, 0, 0))>::value;
-
-    int Nv = a.n_interp * ndim;
-
-    // We store twice as many values here because we're storing both an integral
-    // and an error estimate.
-    std::vector<double> integral(Nv * 2, 0.0);
-    double max_err = 0;
-
-    integrate_domain(integral.data(), kernel_fnc, a, panel_idx, obs, -1, 1);
-    for (int i = 0; i < Nv; i++) {
-        integral[2 * i + 1] = fabs(integral[2 * i + 1]);
-        max_err = std::max(integral[2 * i + 1], max_err);
-    }
-    EstimatedIntegral initial_integral{-1, 1, max_err, integral};
-
-    std::vector<EstimatedIntegral> next_integrals;
-    auto heap_compare = [](auto& a, auto& b) { return a.max_err < b.max_err; };
-    next_integrals.push_back(initial_integral);
-
-    int integral_idx = 0;
-    for (; integral_idx < max_integrals; integral_idx++) {
-        // std::cout << integral_idx << " " << max_err << std::endl;
-        auto& cur_integral = next_integrals.front();
-
-        double midpt = (cur_integral.xhat_right + cur_integral.xhat_left) * 0.5;
-        EstimatedIntegral left_child{cur_integral.xhat_left, midpt, 0};
-        left_child.value.resize(Nv * 2);
-        integrate_domain(left_child.value.data(), kernel_fnc, a, panel_idx, obs,
-                         cur_integral.xhat_left, midpt);
-
-        EstimatedIntegral right_child{midpt, cur_integral.xhat_right, 0};
-        right_child.value.resize(Nv * 2);
-        integrate_domain(right_child.value.data(), kernel_fnc, a, panel_idx, obs, midpt,
-                         cur_integral.xhat_right);
-
-        // Update the integral and its corresponding error estimate.
-        max_err = 0;
-        for (int i = 0; i < Nv; i++) {
-            right_child.value[2*i+1] = fabs(right_child.value[2*i+1]);
-            left_child.value[2*i+1] = fabs(left_child.value[2*i+1]);
-            auto right_err = right_child.value[2*i+1];
-            auto left_err = left_child.value[2*i+1];
-            integral[2 * i] += (
-                -cur_integral.value[2 * i] + left_child.value[2 * i] + right_child.value[2 * i]
-            );
-            integral[2 * i + 1] += -cur_integral.value[2 * i + 1] + left_err + right_err;
-            left_child.max_err = std::max(left_child.max_err, left_err);
-            right_child.max_err = std::max(right_child.max_err, right_err);
-            max_err = std::max(integral[2 * i + 1], max_err);
-        }
-
-        // Update heap by removing the top entry that we just processed and
-        // adding the two new children.
-        std::pop_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-        next_integrals.pop_back();
-        next_integrals.push_back(std::move(left_child));
-        std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-        next_integrals.push_back(std::move(right_child));
-        std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-
-        if (max_err < tol) {
-            break;
-        }
-    }
-
-    bool failed = false;
-    if (integral_idx == max_integrals) {
-        if (max_err > 1000 * tol) {
-            double srcx = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 0];
-            double srcy = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 1];
-            std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " "
-                      << srcy << " " << panel_idx << " " << integral_idx << std::endl;
-            std::cout << "exp: " << obs.expx << " " << obs.expy << " " << obs.expr
-                      << std::endl;
-            std::cout << "max err: " << max_err << "   tol: " << tol << std::endl;
-            for (int i = 0; i < ndim; i++) {
-                std::cout << integral[i] << std::endl;
-            }
-            for (int i = 0; i < std::min(8, (int)next_integrals.size()); i++) {
-                std::cout << "option " << i << " " << next_integrals[i].max_err
-                          << std::endl;
-            }
-        }
-        if (max_err > 10 * tol) {
-            failed = true;
-        }
-    }
-    std::cout << max_err << std::endl;
-
-    for (int i = 0; i < Nv; i++) {
-        out[i] += integral[2*i];
-    }
-
-    //TODO: Could return the actual error here!
-    return std::make_pair(failed, integral_idx);
-}
-
 template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs& a) {
 
     constexpr size_t n_kernel_outputs =
-        std::tuple_size<decltype(kernel_fnc(ObsInfo{}, 0, 0, 0, 0))>::value;
+        std::tuple_size<decltype(kernel_fnc(QBXObsInfo{}, 0, 0, 0, 0))>::value;
 
     // Critical: the kernel outputs twice as many values as the dimensionality
     // of the kernel because we want to use the magnitude of the last value in
@@ -510,12 +332,30 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
     double coefficient_tol = a.tol;
     double truncation_tol = a.tol;
 
+    int Nv = a.n_interp * n_kernel_outputs;
+
+    SourceData sd{
+        a.src_pts,
+        a.src_normals,
+        a.src_jacobians,
+        a.src_panel_lengths,
+        a.src_param_width,
+        a.n_src_panels,
+        a.interp_qx,
+        a.interp_wts,
+        a.n_interp,
+        a.kronrod_qx,
+        a.kronrod_qw,
+        a.kronrod_qw_gauss,
+        a.n_kronrod
+    };
+
 #pragma omp parallel for
     for (int obs_i = 0; obs_i < a.n_obs; obs_i++) {
         auto panel_start = a.panel_starts[obs_i];
         auto panel_end = a.panel_starts[obs_i + 1];
         auto n_panels = panel_end - panel_start;
-        ObsInfo obs{a.obs_pts[obs_i * 2 + 0],
+        QBXObsInfo obs{a.obs_pts[obs_i * 2 + 0],
                     a.obs_pts[obs_i * 2 + 1],
                     a.exp_centers[obs_i * 2 + 0],
                     a.exp_centers[obs_i * 2 + 1],
@@ -533,14 +373,31 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         while (!converged and obs.p_start <= a.max_p) {
             obs.p_end = std::min(obs.p_start + p_step, a.max_p + 1);
 
-            std::vector<double> temp_out(n_panels * a.n_interp * ndim * 2, 0.0);
+            std::vector<double> temp_out(n_panels * Nv, 0.0);
             int n_subsets = 0;
             for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
                 auto panel_idx = a.panels[panel_offset + panel_start];
-                double* temp_out_ptr = &temp_out[panel_offset * a.n_interp * ndim * 2];
-                auto result = adaptive_integrate(temp_out_ptr, kernel_fnc, a, panel_idx,
-                                                 obs, coefficient_tol);
-                failed = failed || result.first;
+                double* temp_out_ptr = &temp_out[panel_offset * Nv];
+                auto result = adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
+                                                 coefficient_tol);
+                double max_err = result.first;
+                int n_integrals = result.second;
+
+                if (n_integrals == max_adaptive_integrals) {
+                    if (max_err > 1000 * coefficient_tol) {
+                        double srcx = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 0];
+                        double srcy = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 1];
+                        std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " "
+                                << srcy << " " << panel_idx << " " << n_integrals << std::endl;
+                        std::cout << "exp: " << obs.expx << " " << obs.expy << " " << obs.expr
+                                << std::endl;
+                        std::cout << "max err: " << max_err << "   tol: " << coefficient_tol << std::endl;
+                    }
+                    if (max_err > 10 * coefficient_tol) {
+                        failed = true;
+                    }
+                }
+
                 n_subsets += result.second;
             }
 

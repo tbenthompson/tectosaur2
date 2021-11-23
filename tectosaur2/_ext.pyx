@@ -15,7 +15,9 @@ cdef extern from "local_qbx.cpp":
         int* n_subsets
         int n_obs
         int n_src
+
         double* obs_pts
+
         double* src_pts
         double* src_normals
         double* src_jacobians
@@ -79,7 +81,8 @@ def local_qbx_integrals(
 
     cdef LocalQBXArgs args = LocalQBXArgs(
         &mat[0,0,0], &p[0], &failed[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
-        &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
+        &obs_pts[0,0],
+        &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
         &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
         &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
@@ -116,21 +119,30 @@ cdef extern from "nearfield.cpp":
         int n_obs
         int n_src
         double* obs_pts
+
         double* src_pts
         double* src_normals
         double* src_jacobians
         double* src_panel_lengths
         double* src_param_width
-        int src_n_panels
-        double* qx
-        double* qw
-        double* interp_wts
-        int nq
-        long* panel_obs_pts
-        long* panel_obs_pts_starts
+        int n_src_panels
+
+        double* interp_qx;
+        double* interp_wts;
+        int n_interp;
+
+        double* kronrod_qx;
+        double* kronrod_qw;
+        double* kronrod_qw_gauss;
+        int n_kronrod;
+
         double mult
         double tol
         bool adaptive
+
+        long* panel_obs_pts
+        long* panel_obs_pts_starts
+
         double* kernel_parameters
 
     cdef void nearfield_single_layer(const NearfieldArgs&)
@@ -145,6 +157,7 @@ cdef extern from "nearfield.cpp":
 def nearfield_integrals(
     kernel_name, double[::1] kernel_parameters,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
+    double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
     long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
     double mult, double tol, bool adaptive
 ):
@@ -154,8 +167,7 @@ def nearfield_integrals(
     cdef double[::1] src_jacobians = src.jacobians
     cdef double[::1] src_panel_lengths = src.panel_length
     cdef double[::1] src_param_width = src.panel_parameter_width
-    cdef double[::1] qx = src.qx
-    cdef double[::1] qw = src.qw
+    cdef double[::1] interp_qx = src.qx
     cdef double[::1] interp_wts = src.interp_wts
 
     n_subsets_np = np.zeros(obs_pts.shape[0], dtype=np.int32)
@@ -165,9 +177,10 @@ def nearfield_integrals(
         &mat[0,0,0], &n_subsets[0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
-        &qx[0], &qw[0], &interp_wts[0], qx.shape[0],
-        &panel_obs_pts[0], &panel_obs_pts_starts[0],
-        mult, tol, adaptive, &kernel_parameters[0]
+        &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
+        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
+        mult, tol, adaptive,
+        &panel_obs_pts[0], &panel_obs_pts_starts[0], &kernel_parameters[0]
     )
 
     if kernel_name == "single_layer":

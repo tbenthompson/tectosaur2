@@ -62,11 +62,6 @@ def test_nearfield_far(K_type):
     pts_per_panel = np.concatenate(pts_per_panel)
 
     K = K_type()
-    print(K.parameters)
-    print(K.parameters)
-    print(K.parameters)
-    print(K.parameters)
-    print(K.parameters)
     est_compact = np.zeros((obs_pts.shape[0], src.n_pts, K.obs_dim * K.src_dim))
 
     n_subsets = nearfield_integrals(
@@ -75,6 +70,9 @@ def test_nearfield_far(K_type):
         est_compact,
         obs_pts,
         src,
+        src.qx,
+        src.qw,
+        src.qw,
         pts_per_panel,
         pts_starts,
         1.0,
@@ -87,7 +85,7 @@ def test_nearfield_far(K_type):
     )
 
     assert n_subsets[0] == src.n_panels
-
+    print(est - true)
     np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
 
 
@@ -102,7 +100,7 @@ def test_integrate_near(K_type):
         K_type(d_qbx=0.0), obs_pts, src, tol=1e-14, return_report=True
     )
     assert report["n_qbx"] == 0
-
+    print(mat / true)
     np.testing.assert_allclose(mat, true, rtol=5e-13, atol=5e-13)
 
 
@@ -200,6 +198,39 @@ def test_control_points():
     )
     assert np.all(C.panel_length < 0.25)
     assert C.n_panels == 35
+
+
+def test_safety_mode():
+    # To test safety mode, we compute the stress resulting from a displacement
+    # field with two linear segments with a kink between them. The sudden change
+    # in derivative will cause the stress field to have a step function. This
+    # will fail to integrate correctly without safety mode and will lead to
+    # ringing in the stress component. With safety mode, there should be a
+    # perfect step function in stress.
+    t = sp.var("t")
+    surf = refine_surfaces(
+        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.1)]
+    )
+    print(surf.n_pts)
+    displacement = 1 - np.abs(surf.pts[:, 0])
+    mat = integrate_term(
+        hypersingular,
+        surf.pts,
+        surf,
+        tol=1e-12,
+        safety_mode=True,
+        singularities=[(-1, 0), (0, 1)],
+    )
+    stress = tensor_dot(mat, displacement)
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(8, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(surf.pts[:, 0], displacement)
+    plt.subplot(1, 2, 2)
+    plt.plot(surf.pts[:, 0], stress[:, 0])
+    plt.plot(surf.pts[:, 0], stress[:, 1])
+    plt.show()
 
 
 def test_fault_surface():

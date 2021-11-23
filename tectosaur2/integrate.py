@@ -47,7 +47,9 @@ def integrate_term(
     report = dict(combined_src=combined_src)
 
     if singularities is not None:
-        singularity_tree = scipy.spatial.KDTree(singularities)
+        singularity_tree = scipy.spatial.KDTree(
+            np.asarray(singularities, dtype=np.float64)
+        )
 
     # step 1: figure out which observation points need to use QBX
     src_tree = scipy.spatial.KDTree(combined_src.pts)
@@ -60,7 +62,8 @@ def integrate_term(
 
     # Currently I use a kronrod rule with order one greater than the underlying
     # number of points per panel. This is to avoid the points colliding which
-    # makes the code a bit simpler.
+    # makes the code a bit simpler. Also, the underlying number of points per
+    # panel provides some information about the smoothness of the integrand.
     #
     # However, using a kronrod rule with the base rule equal to the number of
     # quadrature points per panel would optimize the nearfield/QBX integrals
@@ -185,6 +188,9 @@ def integrate_term(
             qbx_mat,
             qbx_obs_pts,
             combined_src,
+            combined_src.qx,
+            combined_src.qw,
+            combined_src.qw,
             qbx_panel_obs_pts,
             qbx_panel_obs_pt_starts,
             -1.0,
@@ -226,6 +232,9 @@ def integrate_term(
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,
+            kronrod_qx,
+            kronrod_qw,
+            kronrod_qw_gauss,
             panel_obs_pts,
             panel_obs_pts_starts,
             1.0,
@@ -241,6 +250,9 @@ def integrate_term(
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,
+            combined_src.qx,
+            combined_src.qw,
+            combined_src.qw,
             panel_obs_pts,
             panel_obs_pts_starts,
             -1.0,

@@ -322,7 +322,7 @@ def refine_surfaces(
             #                 )
             break
 
-    return cur_surfs
+    return cur_surfs[0] if len(cur_surfs) == 1 else cur_surfs
 
 
 def unit_circle(quad_rule, max_curvature=0.5, control_points=None):
@@ -334,7 +334,7 @@ def unit_circle(quad_rule, max_curvature=0.5, control_points=None):
         quad_rule,
         max_curvature=max_curvature,
         control_points=control_points,
-    )[0]
+    )
 
 
 def build_stage2_panel_surf(surf, stage2_panels, qx, qw):

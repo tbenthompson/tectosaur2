@@ -29,6 +29,7 @@ extension_args = dict(
     include_dirs=[np.get_include()],
     extra_compile_args=extra_compile_args,
     extra_link_args=extra_link_args,
+    depends=["tectosaur2/adaptive.hpp"],
     language="c++",
 )
 
