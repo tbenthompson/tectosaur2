@@ -135,7 +135,9 @@ def test_integrate_can_do_global_qbx(K_type):
         :, : K_type().src_dim
     ]
 
-    global_qbx = global_qbx_self(K_type(), src, p=3, direction=-1.0, kappa=10)
+    global_qbx, global_report = global_qbx_self(
+        K_type(), src, p=3, direction=-1.0, kappa=10, return_report=True
+    )
     global_v = tensor_dot(global_qbx, density)
 
     with warnings.catch_warnings():
@@ -150,6 +152,11 @@ def test_integrate_can_do_global_qbx(K_type):
     assert report["n_nearfield"] == 0
     local_v = tensor_dot(local_qbx, density)
 
+    np.testing.assert_allclose(report["exp_rs"], global_report["exp_rs"], atol=1e-15)
+    np.testing.assert_allclose(
+        report["exp_centers"], global_report["exp_centers"], atol=1e-15
+    )
+    np.testing.assert_allclose(report["p"], 3)
     np.testing.assert_allclose(local_v, global_v, rtol=1e-13, atol=1e-13)
 
 
@@ -197,12 +204,13 @@ def test_control_points():
 
 def test_fault_surface():
     t = sp.var("t")
+    L = 2000
     fault, free = refine_surfaces(
-        [(t, t * 0, (t + 1) * -0.5), (t, -t * 2, 0 * t)],
+        [(t, t * 0, (t + 1) * -0.5), (t, -t * L, 0 * t)],
         gauss_rule(6),
-        control_points=np.array([(0, 0, 2, 0.1)]),
+        control_points=np.array([(0, 0, 2, 0.1), (0, 0, 20, 1.0)]),
     )
-    singularities = np.array([(-2, 0), (2, 0), (0, 0), (0, -1)])
+    singularities = np.array([(-L, 0), (L, 0), (0, 0), (0, -1)])
     (A, B) = integrate_term(
         double_layer, free.pts, free, fault, singularities=singularities
     )
@@ -210,30 +218,42 @@ def test_fault_surface():
     lhs = np.eye(A.shape[0]) + A[:, 0, :, 0]
     surf_disp = np.linalg.inv(lhs).dot(-B[:, 0, :, 0].dot(slip))
 
-    # from tectosaur2.mesh import pts_grid
-
-    # nobs = 50
-    # zoomx = [-1.5, 1.5]
-    # zoomy = [-3, 0]
-    # xs = np.linspace(*zoomx, nobs)
-    # ys = np.linspace(*zoomy, nobs)
-    # obs_pts = pts_grid(xs, ys)
-    # TODO: add test for interior displacement and interior stress. OR ADD THE NOTEBOOK AS A TEST.w
-    # Ai, Bi = integrate_term(double_layer, obs_pts, free, fault)
-    # interior_disp = Ai[:, 0, :].dot(surf_disp) + Bi[:, 0, :].dot(slip)
-
     (C, D) = integrate_term(
         hypersingular, fault.pts, free, fault, tol=1e-10, singularities=singularities
     )
     fault_stress = tensor_dot(C, surf_disp) + tensor_dot(D, slip)
 
-    # np.save('tests/test_fault_surface.npy', (surf_disp, fault_stress))
+    cmp_surf_disp = -np.arctan(-1 / free.pts[:, 0]) / np.pi
 
-    cmp_surf_disp, cmp_fault_stress = np.load(
-        "tests/test_fault_surface.npy", allow_pickle=True
+    obsx = fault.pts[:, 0]
+    obsy = fault.pts[:, 1]
+    rp = obsx ** 2 + (obsy + 1) ** 2
+    ri = obsx ** 2 + (obsy - 1) ** 2
+    analytical_sxz = -(1.0 / (2 * np.pi)) * (((obsy + 1) / rp) - ((obsy - 1) / ri))
+    analytical_syz = (1.0 / (2 * np.pi)) * ((obsx / rp) - (obsx / ri))
+
+    cmp_fault_stress = np.stack((analytical_sxz, analytical_syz), axis=1)
+    np.testing.assert_allclose(surf_disp, cmp_surf_disp, atol=1e-10)
+    np.testing.assert_allclose(fault_stress, cmp_fault_stress, atol=1e-7)
+
+    from tectosaur2.mesh import pts_grid
+
+    nobs = 50
+    zoomx = [-1.5, 1.5]
+    zoomy = [-3, 0]
+    xs = np.linspace(*zoomx, nobs)
+    ys = np.linspace(*zoomy, nobs)
+    obs_pts = pts_grid(xs, ys)
+    Ai, Bi = integrate_term(double_layer, obs_pts, free, fault)
+    interior_disp = Ai[:, 0, :, 0].dot(surf_disp) + Bi[:, 0, :, 0].dot(slip)
+    obsx = obs_pts[:, 0]
+    obsy = obs_pts[:, 1]
+    analytical_disp = (
+        -1.0
+        / (2 * np.pi)
+        * (np.arctan((obsy + 1) / obsx) - np.arctan((obsy - 1) / obsx))
     )
-    np.testing.assert_allclose(surf_disp, cmp_surf_disp)
-    np.testing.assert_allclose(fault_stress, cmp_fault_stress, atol=1e-10)
+    np.testing.assert_allclose(interior_disp, analytical_disp, atol=1e-10)
 
     # visual comparison
     # import matplotlib.pyplot as plt

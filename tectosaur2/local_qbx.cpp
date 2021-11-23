@@ -487,6 +487,7 @@ std::pair<bool, int> adaptive_integrate(double* out, K kernel_fnc,
             failed = true;
         }
     }
+    std::cout << max_err << std::endl;
 
     for (int i = 0; i < Nv; i++) {
         out[i] += integral[2*i];
@@ -527,7 +528,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         obs.p_start = 0;
         std::vector<double> integral(n_panels * a.n_interp * ndim, 0.0);
 
-        int p_step = 3;
+        int p_step = 4;
         bool failed = false;
         while (!converged and obs.p_start <= a.max_p) {
             obs.p_end = std::min(obs.p_start + p_step, a.max_p + 1);

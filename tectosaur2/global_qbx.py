@@ -166,7 +166,9 @@ def elastic_H_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     return term
 
 
-def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
+def global_qbx_self(
+    kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0, return_report=False
+):
     """
     For testing purposes only!
 
@@ -200,4 +202,9 @@ def global_qbx_self(kernel, src, p, direction, kappa, obs_pt_normal_offset=0.0):
         )
         out += term * (src_high.quad_wts * src_high.jacobians)[None, None, :, None]
 
-    return apply_interp_mat(out, interp_mat_high)
+    out_mat = apply_interp_mat(out, interp_mat_high)
+    if return_report:
+        report = dict(exp_centers=exp_centers, exp_rs=exp_rs)
+        return out_mat, report
+    else:
+        return out_mat
