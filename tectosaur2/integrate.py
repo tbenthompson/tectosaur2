@@ -1,6 +1,7 @@
 import warnings
 
 import numpy as np
+import quadpy
 import scipy.spatial
 
 from tectosaur2.mesh import concat_meshes
@@ -57,6 +58,27 @@ def integrate_term(
     use_qbx = closest_dist < K.d_qbx * closest_panel_length
     use_nearfield = (closest_dist < K.d_up * closest_panel_length) & (~use_qbx)
 
+    # Currently I use a kronrod rule with order one greater than the underlying
+    # number of points per panel. This is to avoid the points colliding which
+    # makes the code a bit simpler.
+    #
+    # However, using a kronrod rule with the base rule equal to the number of
+    # quadrature points per panel would optimize the nearfield/QBX integrals
+    # because no interpolation would be necessary unless the accuracy is
+    # poor.
+    #
+    # I also set the minimum order equal to six. Using a low order quadrature
+    # rule in the adaptive integration is really slow.
+    kronrod_n = max(combined_src.qx.shape[0] + 1, 6)
+    kronrod_rule = quadpy.c1.gauss_kronrod(kronrod_n)
+    kronrod_qx = kronrod_rule.points
+    kronrod_qw = kronrod_rule.weights
+    gauss_rule = quadpy.c1.gauss_legendre(kronrod_n)
+    gauss_qx = gauss_rule.points
+    kronrod_qw_gauss = gauss_rule.weights
+    np.testing.assert_allclose(gauss_qx, kronrod_qx[1::2], atol=1e-10)
+    kronrod_qx, kronrod_qw, kronrod_qw_gauss
+
     n_qbx = np.sum(use_qbx)
     report["n_qbx"] = n_qbx
     if n_qbx > 0:
@@ -84,7 +106,7 @@ def integrate_term(
             )
 
             dist_to_nearest_panel, nearest_idx = src_tree.query(exp_centers, k=2)
-            nearby_surface_ratio = 2.1 if safety_mode else 1.1
+            nearby_surface_ratio = 2.1 if safety_mode else 1.0001
             which_violations = dist_to_nearest_panel[
                 :, 1
             ] < nearby_surface_ratio * np.abs(exp_rs)
@@ -133,6 +155,9 @@ def integrate_term(
             qbx_mat,
             qbx_obs_pts,
             combined_src,
+            kronrod_qx,
+            kronrod_qw,
+            kronrod_qw_gauss,
             exp_centers,
             exp_rs,
             K.max_p,

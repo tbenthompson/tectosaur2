@@ -22,17 +22,26 @@ cdef extern from "local_qbx.cpp":
         double* src_panel_lengths
         double* src_param_width
         int n_src_panels
-        double* qx
-        double* qw
-        double* interp_wts
-        int nq
+
+        double* interp_qx;
+        double* interp_wts;
+        int n_interp;
+
+        double* kronrod_qx;
+        double* kronrod_qw;
+        double* kronrod_qw_gauss;
+        int n_kronrod;
+
         double* exp_centers
         double* exp_rs
+
         int max_p
         double tol
         bool safety_mode
+
         long* panels
         long* panel_starts
+
         double* kernel_parameters
 
     cdef void local_qbx_single_layer(const LocalQBXArgs&)
@@ -47,6 +56,7 @@ cdef extern from "local_qbx.cpp":
 def local_qbx_integrals(
     kernel_name, double[::1] kernel_parameters,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
+    double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
     double[:,::1] exp_centers, double[::1] exp_rs,
     int max_p, double tol, bool safety_mode, long[:] panels, long[:] panel_starts
 ):
@@ -55,8 +65,7 @@ def local_qbx_integrals(
     cdef double[::1] src_jacobians = src.jacobians
     cdef double[::1] src_panel_lengths = src.panel_length
     cdef double[::1] src_param_width = src.panel_parameter_width
-    cdef double[::1] qx = src.qx
-    cdef double[::1] qw = src.qw
+    cdef double[::1] interp_qx = src.qx
     cdef double[::1] interp_wts = src.interp_wts
 
     p_np = np.empty(obs_pts.shape[0], dtype=np.int32)
@@ -71,8 +80,10 @@ def local_qbx_integrals(
     cdef LocalQBXArgs args = LocalQBXArgs(
         &mat[0,0,0], &p[0], &failed[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
         &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
-        &src_panel_lengths[0], &src_param_width[0], src.n_panels, &qx[0],
-        &qw[0], &interp_wts[0], qx.shape[0], &exp_centers[0,0], &exp_rs[0],
+        &src_panel_lengths[0], &src_param_width[0], src.n_panels,
+        &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
+        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
+        &exp_centers[0,0], &exp_rs[0],
         max_p, tol, safety_mode, &panels[0], &panel_starts[0], &kernel_parameters[0]
     )
 

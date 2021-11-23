@@ -130,7 +130,7 @@ def test_integrate_can_do_global_qbx(K_type):
     # If we set d_cutoff very large, then integrate_term does a global QBX
     # integration. Except the order adaptive criterion fails. So, this
     # test only works for p<=3.
-    src = unit_circle(gauss_rule(12))
+    src = unit_circle(gauss_rule(8))
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
         :, : K_type().src_dim
     ]
