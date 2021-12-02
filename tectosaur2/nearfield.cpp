@@ -134,7 +134,7 @@ inline std::array<double, 4> elastic_T(const NearfieldObsInfo& obs, double srcx,
 inline std::array<double, 6> elastic_A(const NearfieldObsInfo& obs, double srcx,
                                        double srcy, double srcnx, double srcny) {
     double poisson_ratio = obs.parameters[0];
-    double trac_C1 = 1.0 / (4 * M_PI * (1 - poisson_ratio));
+    double trac_C1 = -1.0 / (4 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
 
     double dx = obs.x - srcx;
@@ -152,19 +152,19 @@ inline std::array<double, 6> elastic_A(const NearfieldObsInfo& obs, double srcx,
     // with traction already done...
     std::array<double, 6> out{};
     // idx 0 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 0
-    out[0] = trac_C1 * invr * ((trac_C2 + 2 * dx * dx * invr2) * dx * invr);
+    out[0] = trac_C1 * invr * (trac_C2 * dx * invr + 2 * dx * dx * invr2 * dx * invr);
     // idx 1 = s_xx from t_x --> t_x from n = (1, 0), nd = 0, d_obs = 0, d_src = 1
     out[1] =
-        trac_C1 * invr * (2 * dx * dy * invr2 * dx * invr - trac_C2 * invr * (-dy));
+        trac_C1 * invr * (2 * dx * dy * invr2 * dx * invr - trac_C2 * invr * dy);
     // idx 2 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 0
     out[2] =
-        trac_C1 * invr * (2 * dy * dx * invr2 * dy * invr - trac_C2 * invr * (-dx));
+        trac_C1 * invr * (2 * dy * dx * invr2 * dy * invr - trac_C2 * invr * dx);
     // idx 3 = s_yy from t_x --> t_y from n = (0, 1), nd = 1, d_obs = 1, d_src = 1
-    out[3] = trac_C1 * invr * ((trac_C2 + 2 * dy * dy * invr2) * dy * invr);
+    out[3] = trac_C1 * invr * (trac_C2 * dy * invr + 2 * dy * dy * invr2 * dy * invr);
     // idx 4 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 0
-    out[4] = trac_C1 * invr * (2 * dy * dx * invr2 * dx * invr - trac_C2 * invr * dy);
+    out[4] = trac_C1 * invr * (2 * dy * dx * invr2 * dx * invr + trac_C2 * invr * dy);
     // idx 5 = s_xy from t_x --> t_y from n = (1, 0), nd = 0, d_obs = 1, d_src = 1
-    out[5] = trac_C1 * invr * ((trac_C2 + 2 * dy * dy * invr2) * dx * invr);
+    out[5] = trac_C1 * invr * (trac_C2 * dx * invr + 2 * dy * dy * invr2 * dx * invr);
 
     return out;
 }
@@ -172,7 +172,7 @@ inline std::array<double, 6> elastic_A(const NearfieldObsInfo& obs, double srcx,
 inline std::array<double, 6> elastic_H(const NearfieldObsInfo& obs, double srcx,
                                        double srcy, double srcnx, double srcny) {
     double poisson_ratio = obs.parameters[0];
-    double HC = 1.0 / (2 * M_PI * (1 - poisson_ratio));
+    double HC = -1.0 / (2 * M_PI * (1 - poisson_ratio));
     double trac_C2 = 1 - 2.0 * poisson_ratio;
 
     double dx = obs.x - srcx;

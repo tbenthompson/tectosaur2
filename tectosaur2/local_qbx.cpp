@@ -254,7 +254,7 @@ std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double 
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
-    double trac_C1 = 1.0 / (2 * M_PI * (1 + kappa));
+    double trac_C1 = -1.0 / (2 * M_PI * (1 + kappa));
 
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
@@ -270,8 +270,10 @@ std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double 
         for (int d_src = 0; d_src < 2; d_src++) {
             auto tw =
                 static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
-            auto t1 = -kappa * std::conj(tw * Gp) - Gp * tw;
-            auto t2 = -std::conj(Gp) * tw + (w - z) * std::conj(Gpp * tw);
+            // auto t1 = -kappa * std::conj(tw * Gp) - Gp * tw;
+            // auto t2 = -std::conj(Gp) * tw + (w - z) * std::conj(Gpp * tw);
+            auto t1 = -Gp * tw - std::conj(Gp * tw);
+            auto t2 = -kappa * std::conj(Gp) * tw + (w - z) * std::conj(Gpp * tw);
             result[0 + d_src * 2 + 0] += result[0 + d_src * 2 + 1];
             result[0 + d_src * 2 + 1] = std::real(trac_C1 * (t1 + t2));
             result[4 + d_src * 2 + 0] += result[4 + d_src * 2 + 1];
@@ -288,7 +290,7 @@ std::array<double, 12> elastic_H_qbx(const QBXObsInfo& obs, double srcx, double 
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
-    double trac_C1 = 1.0 / (M_PI * (1 + kappa));
+    double trac_C1 = -1.0 / (M_PI * (1 + kappa));
 
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};

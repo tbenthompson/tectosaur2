@@ -106,7 +106,7 @@ class ElasticA(Kernel):
 
         voigt_lookup = [[0, 2], [2, 1]]
 
-        C = self.trac_C1 / r
+        C = -self.trac_C1 / r
 
         for d_obs1 in range(2):
             for d_obs2 in range(2):
@@ -115,11 +115,11 @@ class ElasticA(Kernel):
                 voigt = voigt_lookup[d_obs1][d_obs2]
                 for d_src in range(2):
                     t1 = self.trac_C2 * (
-                        (d_obs1 == d_obs2) * dr[d_src]
-                        + (d_obs2 == d_src) * dr[d_obs1]
-                        - (d_obs1 == d_src) * dr[d_obs2]
+                        (d_obs1 == d_src) * dr[d_obs2]
+                        + (d_src == d_obs2) * dr[d_obs1]
+                        - (d_obs1 == d_obs2) * dr[d_src]
                     )
-                    t2 = 2 * dr[d_obs1] * dr[d_obs2] * dr[d_src]
+                    t2 = 2 * dr[d_obs1] * dr[d_src] * dr[d_obs2]
                     A[:, voigt, :, d_src] = C * (t1 + t2)
                     A[:, voigt, :, d_src][too_close] = 0
 
@@ -159,7 +159,7 @@ class ElasticH(Kernel):
         # TODO: it would be nice to simplify so that there aren't these
         # temporary normal vectors here and just calculate the stress directly.
         # also, this is horribly optimized.
-        C = 1.0 / (2 * np.pi * (1 - self.poisson_ratio))
+        C = -1.0 / (2 * np.pi * (1 - self.poisson_ratio))
         for nd in range(2):
             obsn = [float(nd == 0), float(nd == 1)]
             drdm = (d[0] * obsn[0] + d[1] * obsn[1]) / r

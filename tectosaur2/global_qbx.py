@@ -121,7 +121,7 @@ def elastic_A_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     z0 = exp_centers[:, None, 0] + exp_centers[:, None, 1] * 1j
 
     kappa = 3 - 4 * kernel.poisson_ratio
-    C = 1.0 / (2 * np.pi * (1 + kappa))
+    C = -1.0 / (2 * np.pi * (1 + kappa))
 
     term = np.zeros((z0.shape[0], 3, src_pts.shape[0], 2))
     ratio = (z - z0) / (w - z0)
@@ -131,8 +131,8 @@ def elastic_A_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     con = np.conjugate
     for d_src in range(2):
         tw = (d_src == 0) + (d_src == 1) * 1j
-        t1 = -kappa * con(tw * Gp) - Gp * tw
-        t2 = -con(Gp) * tw + (w - z) * con(Gpp * tw)
+        t1 = -Gp * tw - con(Gp * tw)
+        t2 = -kappa * con(Gp) * tw + (w - z) * con(Gpp * tw)
         term[:, 0, :, d_src] = np.real(t1 + t2)
         term[:, 1, :, d_src] = np.real(t1 - t2)
         term[:, 2, :, d_src] = np.imag(-t1 + t2)
@@ -147,7 +147,7 @@ def elastic_H_term(kernel, obs_pts, exp_centers, r, src_pts, src_normals, m):
     nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
 
     kappa = 3 - 4 * kernel.poisson_ratio
-    C = 1 / (np.pi * (1 + kappa))
+    C = -1 / (np.pi * (1 + kappa))
 
     term = np.zeros((z0.shape[0], 3, src_pts.shape[0], 2))
     ratio = (z - z0) / (w - z0)

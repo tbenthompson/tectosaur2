@@ -101,7 +101,6 @@ def test_nearfield_far(K_type):
     )
 
     assert n_subsets[0] == src.n_panels
-    print(est - true)
     np.testing.assert_allclose(est, true, rtol=1e-14, atol=1e-14)
 
 
@@ -116,7 +115,6 @@ def test_integrate_near(K_type):
         K_type(d_qbx=0.0), obs_pts, src, tol=1e-14, return_report=True
     )
     assert report["n_qbx"] == 0
-    print(mat / true)
     np.testing.assert_allclose(mat, true, rtol=5e-13, atol=5e-13)
 
 
@@ -250,6 +248,91 @@ def test_safety_mode():
     # plt.plot(stress[:,0]+np.sign(surf.pts[:,0]) * 0.5)
     # plt.show()
     np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
+
+
+def test_laplace_obs_derivatives():
+    """
+    The AdjointDoubleLayer kernel should be equal to the stress from the displacement from
+    the SingleLayer kernel. The same should be true of the Hypersingula kernel with
+    respect to the DoubleLayer kernel.
+    """
+    t = sp.var("t")
+    line = refine_surfaces(
+        [(t, 1 * t, 0.0 * t)],
+        gauss_rule(10),
+        control_points=np.array([[0, 0, 100, 0.5]]),
+    )
+    delta = 0.0001
+    obs_pt = np.array([[0.5, 0.5]])
+    obs_pts_fd = np.array(
+        [
+            [obs_pt[0, 0] - delta, obs_pt[0, 1]],
+            [obs_pt[0, 0] + delta, obs_pt[0, 1]],
+            [obs_pt[0, 0], obs_pt[0, 1] - delta],
+            [obs_pt[0, 0], obs_pt[0, 1] + delta],
+        ]
+    )
+
+    for K_base, K_deriv in [
+        (SingleLayer, AdjointDoubleLayer),
+        (DoubleLayer, Hypersingular),
+    ]:
+        Iv = integrate_term(K_base(), obs_pts_fd, line)
+        vs = Iv[:, 0, :, 0].sum(axis=1)
+        fd_deriv_vx = (vs[1] - vs[0]) / (2 * delta)
+        fd_deriv_vy = (vs[3] - vs[2]) / (2 * delta)
+        Id = integrate_term(K_deriv(), obs_pt, line)
+        deriv_vs = Id[0, :, :, 0].sum(axis=1)
+        np.testing.assert_allclose(deriv_vs, [fd_deriv_vx, fd_deriv_vy], atol=1e-3)
+
+
+def test_elastic_obs_derivatives():
+    """
+    The ElasticA kernel should be equal to the stress from the displacement from
+    the ElasticU kernel. The same should be true of the ElasticH kernel with
+    respect to the ElasticT kernel.
+    """
+    t = sp.var("t")
+    line = refine_surfaces(
+        [(t, -1 * t, 0.0 * t)],
+        gauss_rule(10),
+        control_points=np.array([[0, 0, 100, 0.5]]),
+    )
+    delta = 0.0001
+    obs_pt = np.array([[0.1, -1.5]])
+    obs_pts_fd = np.array(
+        [
+            [obs_pt[0, 0] - delta, obs_pt[0, 1]],
+            [obs_pt[0, 0] + delta, obs_pt[0, 1]],
+            [obs_pt[0, 0], obs_pt[0, 1] - delta],
+            [obs_pt[0, 0], obs_pt[0, 1] + delta],
+        ]
+    )
+
+    nu = 0.25
+    mu = 1.0
+    lam = 2 * mu * nu / (1 - 2 * nu)
+    for K_base, K_deriv in [(ElasticU, ElasticA), (ElasticT, ElasticH)]:
+        Iv = integrate_term(K_base(nu), obs_pts_fd, line)
+        vs = Iv[:, :, :, 0].sum(axis=2)
+
+        dux_dx = (vs[1, 0] - vs[0, 0]) / (2 * delta)
+        duy_dx = (vs[1, 1] - vs[0, 1]) / (2 * delta)
+        dux_dy = (vs[3, 0] - vs[2, 0]) / (2 * delta)
+        duy_dy = (vs[3, 1] - vs[2, 1]) / (2 * delta)
+
+        exx = dux_dx
+        eyy = duy_dy
+        exy = 0.5 * (dux_dy + duy_dx)
+
+        trace_e = exx + eyy
+        sxx = 2 * exx + lam * trace_e
+        syy = 2 * eyy + lam * trace_e
+        sxy = 2 * exy
+
+        Id = integrate_term(K_deriv(nu), obs_pt, line)
+        deriv_vs = Id[0, :, :, 0].sum(axis=1)
+        np.testing.assert_allclose(deriv_vs, [sxx, syy, sxy], atol=1e-3)
 
 
 def test_fault_surface():
