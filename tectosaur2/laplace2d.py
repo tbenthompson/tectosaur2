@@ -2,6 +2,17 @@ import numpy as np
 
 from .integrate import Kernel
 
+"""
+Facts to note if you are comparing the formulas here with formulas in another
+place:
+
+1. The dx and dy terms are (observation minus source). Many sources use (source
+minus observation). This can introduce sign errors.
+
+2. The normal vectors are inward pointing normal vectors. Many sources use
+outward pointing normal vectors. This can introduce sign errors.
+"""
+
 
 class SingleLayer(Kernel):
     name = "single_layer"
@@ -16,7 +27,7 @@ class SingleLayer(Kernel):
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
-        G = (1.0 / (4 * np.pi)) * np.log(r2)
+        G = -(1.0 / (4 * np.pi)) * np.log(r2)
         G[too_close] = 0
 
         return (G * src.jacobians * src.quad_wts[None, :])[:, None, :, None]
@@ -84,7 +95,7 @@ class Hypersingular(Kernel):
         r2[too_close] = 1
 
         A = 2 * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1]) / r2
-        C = 1.0 / (2 * np.pi * r2)
+        C = -1.0 / (2 * np.pi * r2)
         C[too_close] = 0
 
         out = np.empty((obs_pts.shape[0], 2, src.n_pts, 1))

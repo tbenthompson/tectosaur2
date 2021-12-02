@@ -1,7 +1,7 @@
 {
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.pythonPath": "/Users/tbent/.miniforge3/envs/tectosaur2/bin/python",
+    "python.pythonPath": "/Users/tbent/.mambaforge/envs/tectosaur2/bin/python",
     "files.associations": {
         "cassert": "cpp",
         "complex": "cpp",

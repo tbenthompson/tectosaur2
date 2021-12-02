@@ -51,7 +51,8 @@ def integrate_term(
             np.asarray(singularities, dtype=np.float64)
         )
 
-    # step 1: figure out which observation points need to use QBX
+    # step 1: figure out which observation points need to use QBX and which need
+    # to use nearfield integration
     src_tree = scipy.spatial.KDTree(combined_src.pts)
     closest_dist, closest_idx = src_tree.query(obs_pts)
     closest_panel_length = combined_src.panel_length[

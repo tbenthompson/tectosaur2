@@ -24,7 +24,7 @@ inline std::array<double, 1> single_layer(const NearfieldObsInfo& obs, double sr
     double dy = obs.y - srcy;
     double r2 = dx * dx + dy * dy;
 
-    double G = C2 * log(r2);
+    double G = -C2 * log(r2);
     if (r2 <= too_close) {
         G = 0.0;
     }
@@ -73,7 +73,7 @@ inline std::array<double, 2> hypersingular(const NearfieldObsInfo& obs, double s
     }
 
     double A = 2 * (dx * srcnx + dy * srcny) * invr2;
-    double B = C * invr2;
+    double B = -C * invr2;
     return {B * (srcnx - A * dx), B * (srcny - A * dy)};
 }
 

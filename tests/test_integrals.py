@@ -16,7 +16,13 @@ from tectosaur2.laplace2d import (
     double_layer,
     hypersingular,
 )
-from tectosaur2.mesh import apply_interp_mat, unit_circle, upsample
+from tectosaur2.mesh import (
+    apply_interp_mat,
+    barycentric_deriv,
+    build_interp_wts,
+    unit_circle,
+    upsample,
+)
 
 
 def elasticU(**kwargs):
@@ -45,6 +51,16 @@ kernel_types = [
     elasticA,
     elasticH,
 ]
+
+
+def test_barycentric():
+    qx, qw = gauss_rule(5)
+    interp_wts = build_interp_wts(qx)
+    f = lambda x: x ** 2
+    eval_x = np.linspace(-1, 1, 100)
+    deriv = barycentric_deriv(eval_x, qx, interp_wts, f(qx))
+    correct = 2 * eval_x
+    np.testing.assert_allclose(deriv, correct)
 
 
 @pytest.mark.parametrize("K_type", kernel_types)
@@ -209,28 +225,31 @@ def test_safety_mode():
     # perfect step function in stress.
     t = sp.var("t")
     surf = refine_surfaces(
-        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.1)]
+        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.2)]
     )
-    print(surf.n_pts)
     displacement = 1 - np.abs(surf.pts[:, 0])
     mat = integrate_term(
         hypersingular,
         surf.pts,
         surf,
-        tol=1e-12,
+        tol=1e-11,
         safety_mode=True,
-        singularities=[(-1, 0), (0, 1)],
+        singularities=[(-1, 0), (1, 0)],
     )
-    stress = tensor_dot(mat, displacement)
-    import matplotlib.pyplot as plt
+    stress = -2 * tensor_dot(mat, displacement)
 
-    plt.figure(figsize=(8, 4))
-    plt.subplot(1, 2, 1)
-    plt.plot(surf.pts[:, 0], displacement)
-    plt.subplot(1, 2, 2)
-    plt.plot(surf.pts[:, 0], stress[:, 0])
-    plt.plot(surf.pts[:, 0], stress[:, 1])
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # plt.figure(figsize=(8, 4))
+    # plt.subplot(1, 2, 1)
+    # plt.plot(surf.pts[:, 0], displacement)
+    # plt.subplot(1, 2, 2)
+    # plt.plot(surf.pts[:, 0], stress[:, 0])
+    # plt.plot(surf.pts[:, 0], stress[:, 1])
+    # plt.show()
+    # plt.plot()
+    # plt.plot(stress[:,0]+np.sign(surf.pts[:,0]) * 0.5)
+    # plt.show()
+    np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 
 
 def test_fault_surface():
@@ -252,7 +271,7 @@ def test_fault_surface():
     (C, D) = integrate_term(
         hypersingular, fault.pts, free, fault, tol=1e-10, singularities=singularities
     )
-    fault_stress = tensor_dot(C, surf_disp) + tensor_dot(D, slip)
+    fault_stress = -tensor_dot(C, surf_disp) - tensor_dot(D, slip)
 
     cmp_surf_disp = -np.arctan(-1 / free.pts[:, 0]) / np.pi
 
@@ -276,11 +295,11 @@ def test_fault_surface():
     ys = np.linspace(*zoomy, nobs)
     obs_pts = pts_grid(xs, ys)
     Ai, Bi = integrate_term(double_layer, obs_pts, free, fault)
-    interior_disp = Ai[:, 0, :, 0].dot(surf_disp) + Bi[:, 0, :, 0].dot(slip)
+    interior_disp = -Ai[:, 0, :, 0].dot(surf_disp) - Bi[:, 0, :, 0].dot(slip)
     obsx = obs_pts[:, 0]
     obsy = obs_pts[:, 1]
     analytical_disp = (
-        -1.0
+        1.0
         / (2 * np.pi)
         * (np.arctan((obsy + 1) / obsx) - np.arctan((obsy - 1) / obsx))
     )

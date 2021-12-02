@@ -16,13 +16,13 @@ def deriv_expand(exp_centers, src_pts, src_normals, r, m):
     w = src_pts[None, :, 0] + src_pts[None, :, 1] * 1j
     z0 = exp_centers[:, 0, None] + exp_centers[:, 1, None] * 1j
     nw = src_normals[None, :, 0] + src_normals[None, :, 1] * 1j
-    return nw * (r[:, None] ** m) / ((2 * np.pi) * (w - z0) ** (m + 1))
+    return -nw * (r[:, None] ** m) / ((2 * np.pi) * (w - z0) ** (m + 1))
 
 
 def base_eval(obs_pts, exp_centers, r, m):
     z = obs_pts[:, 0] + obs_pts[:, 1] * 1j
     z0 = exp_centers[:, 0] + exp_centers[:, 1] * 1j
-    return ((z - z0) ** m / (r ** m))[:, None]
+    return -((z - z0) ** m / (r ** m))[:, None]
 
 
 def deriv_eval(obs_pts, exp_centers, r, m):

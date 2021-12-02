@@ -89,7 +89,7 @@ std::array<double, 2> single_layer_qbx(const QBXObsInfo& obs, double srcx, doubl
         } else {
             expand = -std::pow(obs.expr, m) / (m * (2 * M_PI) * std::pow(w - z0, m));
         }
-        std::complex<double> eval = std::pow((z - z0) / obs.expr, m);
+        std::complex<double> eval = -std::pow((z - z0) / obs.expr, m);
 
         result[0] += result[1];
         result[1] = std::real(expand * eval);
@@ -107,8 +107,8 @@ std::array<double, 2> double_layer_qbx(const QBXObsInfo& obs, double srcx, doubl
 
     for (int m = obs.p_start; m < obs.p_end; m++) {
         std::complex<double> expand =
-            nw * std::pow(obs.expr, m) / (2 * M_PI * std::pow(w - z0, m + 1));
-        std::complex<double> eval = std::pow((z - z0) / obs.expr, m);
+            -nw * std::pow(obs.expr, m) / (2 * M_PI * std::pow(w - z0, m + 1));
+        std::complex<double> eval = -std::pow((z - z0) / obs.expr, m);
 
         result[0] += result[1];
         result[1] = std::real(expand * eval);
@@ -127,13 +127,13 @@ std::array<double, 4> adjoint_double_layer_qbx(const QBXObsInfo& obs, double src
     for (int m = obs.p_start; m < obs.p_end; m++) {
         std::complex<double> expand;
         if (m == 0) {
-            expand = std::log(w - z0) / (2 * M_PI);
+            expand = -std::log(w - z0) / (2 * M_PI);
         } else {
-            expand = -std::pow(obs.expr, m) / (m * (2 * M_PI) * std::pow(w - z0, m));
+            expand = std::pow(obs.expr, m) / (m * (2 * M_PI) * std::pow(w - z0, m));
         }
 
         std::complex<double> eval =
-            (-m / obs.expr) * std::pow((z - z0) / obs.expr, m - 1);
+            (m / obs.expr) * std::pow((z - z0) / obs.expr, m - 1);
 
         result[0] += result[1];
         result[1] = std::real(expand * eval);
@@ -151,7 +151,7 @@ std::array<double, 4> hypersingular_qbx(const QBXObsInfo& obs, double srcx, doub
     std::complex<double> z0 = {obs.expx, obs.expy};
     std::complex<double> z = {obs.x, obs.y};
     std::complex<double> nw = {srcnx, srcny};
-    nw *= C;
+    nw *= -C;
 
     std::array<double, 4> result{};
 

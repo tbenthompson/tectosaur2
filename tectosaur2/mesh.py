@@ -403,6 +403,16 @@ def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
     return (kernel.dot(fnc_vals)) / np.sum(kernel, axis=1)
 
 
+def barycentric_deriv(eval_pts, interp_pts, interp_wts, fnc_vals):
+    dist = eval_pts[:, None] - interp_pts[None, :]
+    kernel = interp_wts[None, :] / dist
+    dkernel = -interp_wts[None, :] / (dist ** 2)
+    return (
+        np.sum(kernel, axis=1) * dkernel.dot(fnc_vals)
+        - kernel.dot(fnc_vals) * np.sum(dkernel, axis=1)
+    ) / (np.sum(kernel, axis=1) ** 2)
+
+
 def build_interpolator(in_xhat):
     """
     Interpolate the function f(in_xhat) at the values f(out_xhat).

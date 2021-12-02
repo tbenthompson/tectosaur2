@@ -19,7 +19,6 @@ dependencies:
   - k3d
   - black
   - jupyter-book
-  - pyopencl
   - psutil
   - pandas
   - line_profiler
@@ -30,9 +29,9 @@ dependencies:
   - jupyterlab-lsp
   - python-lsp-server
   - ipympl
+  - cutde
   - pip:
     - jupyter-book >= 0.11
-    - cutde #might want a development version!
     - pygmsh<7
     - sphinxcontrib-bibtex >= 2.2.0
     - sphinx-sitemap
