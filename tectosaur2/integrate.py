@@ -45,6 +45,7 @@ def integrate_term(
     mat = K.direct(obs_pts, combined_src)
     ndim = K.obs_dim * K.src_dim
     report = dict(combined_src=combined_src)
+    report["srcs"] = srcs
 
     if singularities is not None:
         singularity_tree = scipy.spatial.KDTree(
@@ -110,7 +111,9 @@ def integrate_term(
             )
 
             dist_to_nearest_panel, nearest_idx = src_tree.query(exp_centers, k=2)
-            nearby_surface_ratio = 2.1 if safety_mode else 1.0001
+            ## TODO: this can be decreased from 4.0 to ~2.0 once the distance to
+            # nearest panel algorithm is improved.
+            nearby_surface_ratio = 4.0 if safety_mode else 1.0001
             which_violations = dist_to_nearest_panel[
                 :, 1
             ] < nearby_surface_ratio * np.abs(exp_rs)
