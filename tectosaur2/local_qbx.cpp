@@ -4,6 +4,7 @@
 #include <complex>
 #include <iostream>
 #include <vector>
+#include <algorithm>
 
 struct LocalQBXArgs {
     // out parameters
@@ -336,21 +337,11 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
     int Nv = a.n_interp * n_kernel_outputs;
 
-    SourceData sd{
-        a.src_pts,
-        a.src_normals,
-        a.src_jacobians,
-        a.src_panel_lengths,
-        a.src_param_width,
-        a.n_src_panels,
-        a.interp_qx,
-        a.interp_wts,
-        a.n_interp,
-        a.kronrod_qx,
-        a.kronrod_qw,
-        a.kronrod_qw_gauss,
-        a.n_kronrod
-    };
+    SourceData sd{a.src_pts,           a.src_normals,     a.src_jacobians,
+                  a.src_panel_lengths, a.src_param_width, a.n_src_panels,
+                  a.interp_qx,         a.interp_wts,      a.n_interp,
+                  a.kronrod_qx,        a.kronrod_qw,      a.kronrod_qw_gauss,
+                  a.n_kronrod};
 
 #pragma omp parallel for
     for (int obs_i = 0; obs_i < a.n_obs; obs_i++) {
@@ -358,13 +349,13 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         auto panel_end = a.panel_starts[obs_i + 1];
         auto n_panels = panel_end - panel_start;
         QBXObsInfo obs{a.obs_pts[obs_i * 2 + 0],
-                    a.obs_pts[obs_i * 2 + 1],
-                    a.exp_centers[obs_i * 2 + 0],
-                    a.exp_centers[obs_i * 2 + 1],
-                    a.exp_rs[obs_i],
-                    0,
-                    0,
-                    a.kernel_parameters};
+                       a.obs_pts[obs_i * 2 + 1],
+                       a.exp_centers[obs_i * 2 + 0],
+                       a.exp_centers[obs_i * 2 + 1],
+                       a.exp_rs[obs_i],
+                       0,
+                       0,
+                       a.kernel_parameters};
 
         bool converged = false;
         obs.p_start = 0;
@@ -380,20 +371,24 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
             for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
                 auto panel_idx = a.panels[panel_offset + panel_start];
                 double* temp_out_ptr = &temp_out[panel_offset * Nv];
-                auto result = adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
-                                                 coefficient_tol);
+                auto result = adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd,
+                                                 panel_idx, coefficient_tol);
                 double max_err = result.first;
                 int n_integrals = result.second;
 
                 if (n_integrals == max_adaptive_integrals) {
                     if (max_err > 1000 * coefficient_tol) {
-                        double srcx = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 0];
-                        double srcy = a.src_pts[panel_idx * a.n_interp * 2 + (a.n_interp / 2) * 2 + 1];
-                        std::cout << "max fail! " << obs.x << " " << obs.y << " " << srcx << " "
-                                << srcy << " " << panel_idx << " " << n_integrals << std::endl;
-                        std::cout << "exp: " << obs.expx << " " << obs.expy << " " << obs.expr
-                                << std::endl;
-                        std::cout << "max err: " << max_err << "   tol: " << coefficient_tol << std::endl;
+                        double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
+                                                (a.n_interp / 2) * 2 + 0];
+                        double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
+                                                (a.n_interp / 2) * 2 + 1];
+                        std::cout << "max fail! " << obs.x << " " << obs.y << " "
+                                  << srcx << " " << srcy << " " << panel_idx << " "
+                                  << n_integrals << std::endl;
+                        std::cout << "exp: " << obs.expx << " " << obs.expy << " "
+                                  << obs.expr << std::endl;
+                        std::cout << "max err: " << max_err
+                                  << "   tol: " << coefficient_tol << std::endl;
                     }
                     if (max_err > 10 * coefficient_tol) {
                         failed = true;
@@ -437,7 +432,8 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
         for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
             auto panel_idx = a.panels[panel_offset + panel_start];
             double* integral_ptr = &integral[panel_offset * a.n_interp * ndim];
-            double* out_ptr = &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
+            double* out_ptr =
+                &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
             for (int k = 0; k < a.n_interp * ndim; k++) {
                 out_ptr[k] += integral_ptr[k];
             }
@@ -475,4 +471,112 @@ void local_qbx_elastic_A(const LocalQBXArgs& a) {
 
 void local_qbx_elastic_H(const LocalQBXArgs& a) {
     _local_qbx_integrals(elastic_H_qbx, a);
+}
+
+void cpp_choose_expansion_circles(
+    double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
+    double* offset_vector, double* src_pts, double* interp_mat,
+    int n_interp, int nq, long* panels, long* panel_starts, long* nearest_panel_idx,
+    double* singularities, long* nearby_singularities, long* nearby_singularity_starts,
+    double nearby_safety_ratio, double singularity_safety_ratio) {
+
+    for (int i = 0; i < n_obs; i++) {
+        double obsx = obs_pts[i * 2 + 0];
+        double obsy = obs_pts[i * 2 + 1];
+        double offx = offset_vector[i * 2 + 0];
+        double offy = offset_vector[i * 2 + 1];
+
+        double R = exp_rs[i];
+        double expx = obsx + offx * R;
+        double expy = obsy + offy * R;
+
+        auto panel_start = panel_starts[i];
+        auto panel_end = panel_starts[i + 1];
+
+        auto sing_start = nearby_singularity_starts[i];
+        auto sing_end = nearby_singularity_starts[i+1];
+
+        auto violation_fnc = [&](double dangerx, double dangery, double safety_ratio) {
+            double dx = expx - dangerx;
+            double dy = expy - dangery;
+            double dist2 = dx * dx + dy * dy;
+            if (dist2 < (safety_ratio*safety_ratio) * R * R) {
+                double sx = obsx - dangerx;
+                double sy = obsy - dangery;
+                double S = sqrt(sx * sx + sy * sy);
+                double Rn = sqrt(dist2);
+
+                // it would be possible to solve for the exact correct R here.
+                // but this approximation is pretty good. This is derived by
+                // drawing the geometry of observation point and then using
+                // the triangle rule to compute an upper bound on the
+                // distance That is upper bound is multiplied by 1.5 so
+                // that the upper bound isn't used when a more careful
+                // computation would be needed. In that situation, the
+                // 0.75 multiple is used instead and a couple iterations
+                // may be needed. This heuristic works especially well because
+                // most "violations" come from source points that are
+                // orthogonally translated along the source surface from the
+                // observation point.
+                return std::min(0.75, 1.5 * S / ((safety_ratio - 1) * Rn));
+            }
+            return 1.0;
+        };
+
+        // I put the loop body mostly inside this function in order to make the
+        // control flow simpler. I used a lambda to keep the function conceptually
+        // coherent with the surrounding code.
+        auto find_violations = [&]() {
+            for (int si = sing_start; si < sing_end; si++) {
+                auto singularity_idx = nearby_singularities[si];
+                double singx = singularities[singularity_idx * 2 + 0];
+                double singy = singularities[singularity_idx * 2 + 1];
+                auto violation = violation_fnc(singx, singy, singularity_safety_ratio);
+                // std::cout << "sing: " << si << " " << singx << " " << singy << std::endl;
+                if (violation != 1.0) {
+                    return violation;
+                }
+            }
+
+            for (int pi = panel_start; pi < panel_end; pi++) {
+                auto panel_idx = panels[pi];
+                if (panel_idx == nearest_panel_idx[i]) {
+                    continue;
+                }
+
+                for (int pt_idx = 0; pt_idx < n_interp; pt_idx++) {
+                    double srcx = 0;
+                    double srcy = 0;
+                    for (int interp_idx = 0; interp_idx < nq; interp_idx++) {
+                        auto src_pt_idx = panel_idx * nq + interp_idx;
+                        srcx += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 0];
+                        srcy += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 1];
+                    }
+                    auto violation = violation_fnc(srcx, srcy, nearby_safety_ratio);
+                    if (violation != 1.0) {
+                        return violation;
+                    }
+                }
+            }
+            return 1.0;
+        };
+
+        int max_iter = 30;
+        for (int j = 0; j < max_iter; j++) {
+            double violation = find_violations();
+
+            // std::cout << "violation:" << violation << std::endl;
+            if (violation == 1.0) {
+                break;
+            }
+
+            R *= violation;
+            expx = obsx + offx * R;
+            expy = obsy + offy * R;
+        }
+
+        exp_rs[i] = R;
+        exp_centers[i*2+0]=expx;
+        exp_centers[i*2+1]=expy;
+    }
 }

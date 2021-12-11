@@ -466,7 +466,7 @@ def build_interp_matrix(interpolator, out_xhat):
     # Invert the permutation so that the matrix can be used without extra knowledge
     inv_permutation = np.empty_like(interpolator.permutation)
     inv_permutation[interpolator.permutation] = np.arange(inv_permutation.shape[0])
-    return interp_matrix[:, inv_permutation]
+    return np.ascontiguousarray(interp_matrix[:, inv_permutation])
 
 
 def symbolic_eval(t, tvals, e):

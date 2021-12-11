@@ -55,6 +55,12 @@ cdef extern from "local_qbx.cpp":
     cdef void local_qbx_elastic_A(const LocalQBXArgs&)
     cdef void local_qbx_elastic_H(const LocalQBXArgs&)
 
+    cdef void cpp_choose_expansion_circles(double*, double*, double*, int,
+                                        double*, double*, double*, int,
+                                        int, long*, long*, long*, double*,
+                                        long*, long*, double, double)
+
+
 def local_qbx_integrals(
     kernel_name, double[::1] kernel_parameters,
     double[:,:,::1] mat, double[:,::1] obs_pts, src,
@@ -204,10 +210,7 @@ def nearfield_integrals(
 
     return n_subsets_np
 
-
-def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_order):
-    cdef int n_obs = obs_pts.shape[0]
-
+def identify_nearfield_panels(int n_obs, src_pts, int n_src_panels, int source_order):
     cdef long[:] src_pts_starts = np.zeros(n_obs + 1, dtype=int)
     cdef long sum = 0
     cdef int i, j
@@ -264,3 +267,40 @@ def identify_nearfield_panels(obs_pts, src_pts, int n_src_panels, int source_ord
             panel_obs_pt_starts[i + 1] += 1
 
     return panels_np, panel_starts_np, panel_obs_pts_np, panel_obs_pt_starts_np
+
+def choose_expansion_circles(
+    double[:,::1] exp_centers,
+    double[:] exp_rs,
+    double[:,::1] obs_pts,
+    double[:,::1] offset_vector,
+    double[:,::1] src_pts,
+    double[:,::1] interp_mat,
+    long[::1] panels,
+    long[::1] panel_starts,
+    long[::1] nearest_panel_idx,
+    double[:,::1] singularities,
+    long[::1] nearby_singularities,
+    long[::1] nearby_singularity_starts,
+    double nearby_safety_ratio,
+    double singularity_safety_ratio
+):
+
+    cpp_choose_expansion_circles(
+        &exp_centers[0,0],
+        &exp_rs[0],
+        &obs_pts[0,0],
+        obs_pts.shape[0],
+        &offset_vector[0,0],
+        &src_pts[0,0],
+        &interp_mat[0,0],
+        interp_mat.shape[0],
+        interp_mat.shape[1],
+        &panels[0],
+        &panel_starts[0],
+        &nearest_panel_idx[0],
+        &singularities[0,0],
+        &nearby_singularities[0],
+        &nearby_singularity_starts[0],
+        nearby_safety_ratio,
+        singularity_safety_ratio
+    )

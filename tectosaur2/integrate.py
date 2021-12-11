@@ -4,9 +4,14 @@ import numpy as np
 import quadpy
 import scipy.spatial
 
-from tectosaur2.mesh import concat_meshes
+from tectosaur2.mesh import build_interp_matrix, build_interpolator, concat_meshes
 
-from ._ext import identify_nearfield_panels, local_qbx_integrals, nearfield_integrals
+from ._ext import (
+    choose_expansion_circles,
+    identify_nearfield_panels,
+    local_qbx_integrals,
+    nearfield_integrals,
+)
 
 
 class Kernel:
@@ -30,6 +35,7 @@ def integrate_term(
     safety_mode=False,
     return_report=False
 ):
+    obs_pts = np.asarray(obs_pts, dtype=np.float64)
     if tol is None:
         tol = K.default_tol
 
@@ -47,18 +53,12 @@ def integrate_term(
     report = dict(combined_src=combined_src)
     report["srcs"] = srcs
 
-    if singularities is not None:
-        singularity_tree = scipy.spatial.KDTree(
-            np.asarray(singularities, dtype=np.float64)
-        )
-
     # step 1: figure out which observation points need to use QBX and which need
     # to use nearfield integration
     src_tree = scipy.spatial.KDTree(combined_src.pts)
     closest_dist, closest_idx = src_tree.query(obs_pts)
-    closest_panel_length = combined_src.panel_length[
-        closest_idx // combined_src.panel_order
-    ]
+    closest_panel = closest_idx // combined_src.panel_order
+    closest_panel_length = combined_src.panel_length[closest_panel]
     use_qbx = closest_dist < K.d_qbx * closest_panel_length
     use_nearfield = (closest_dist < K.d_up * closest_panel_length) & (~use_qbx)
 
@@ -82,7 +82,6 @@ def integrate_term(
     gauss_qx = gauss_rule.points
     kronrod_qw_gauss = gauss_rule.weights
     np.testing.assert_allclose(gauss_qx, kronrod_qx[1::2], atol=1e-10)
-    kronrod_qx, kronrod_qw, kronrod_qw_gauss
 
     n_qbx = np.sum(use_qbx)
     report["n_qbx"] = n_qbx
@@ -93,48 +92,10 @@ def integrate_term(
         qbx_normals = combined_src.normals[qbx_src_pt_indices]
         qbx_panel_L = closest_panel_length[use_qbx]
 
-        # step 3: find expansion centers
-        # TODO: account for singularities
-        exp_rs = qbx_panel_L * 0.5
-
-        direction_dot = (
-            np.sum(qbx_normals * (qbx_obs_pts - qbx_closest_pts), axis=1) / exp_rs
-        )
-        direction = np.sign(direction_dot)
-        on_surface = np.abs(direction) < 1e-13
-        direction[on_surface] = limit_direction
-
-        for j in range(30):
-            which_violations = np.zeros(n_qbx, dtype=bool)
-            exp_centers = (
-                qbx_obs_pts + direction[:, None] * qbx_normals * exp_rs[:, None]
-            )
-
-            dist_to_nearest_panel, nearest_idx = src_tree.query(exp_centers, k=2)
-            ## TODO: this can be decreased from 4.0 to ~2.0 once the distance to
-            # nearest panel algorithm is improved.
-            nearby_surface_ratio = 4.0 if safety_mode else 1.0001
-            which_violations = dist_to_nearest_panel[
-                :, 1
-            ] < nearby_surface_ratio * np.abs(exp_rs)
-            nearest_not_owner = np.where(nearest_idx[:, 0] != qbx_src_pt_indices)[0]
-            which_violations[nearest_not_owner] = True
-
-            if singularities is not None:
-                singularity_dist_ratio = 3.0
-                dist_to_singularity, _ = singularity_tree.query(exp_centers)
-                which_violations |= (
-                    dist_to_singularity <= singularity_dist_ratio * np.abs(exp_rs)
-                )
-
-            if not which_violations.any():
-                break
-            exp_rs[which_violations] *= 0.75
-
         # TODO: use ckdtree directly via its C++/cython interface to avoid
         # python list construction
         qbx_panel_src_pts = src_tree.query_ball_point(
-            exp_centers, K.d_cutoff * qbx_panel_L, return_sorted=True
+            qbx_obs_pts, (K.d_cutoff + 0.5) * qbx_panel_L, return_sorted=True
         )
 
         (
@@ -143,10 +104,62 @@ def integrate_term(
             qbx_panel_obs_pts,
             qbx_panel_obs_pt_starts,
         ) = identify_nearfield_panels(
-            exp_centers,
+            n_qbx,
             qbx_panel_src_pts,
             combined_src.n_panels,
             combined_src.panel_order,
+        )
+
+        # step 3: find expansion centers
+        # TODO: it would be possible to implement a limit_direction='best'
+        # option that chooses the side that allows the expansion point to be
+        # further from the source surfaces and then returns the side used. then,
+        # external knowledge of the integral equation could be used to handle
+        # the jump relation and gather the value on the side the user cares
+        # about
+        direction_dot = np.sum(qbx_normals * (qbx_obs_pts - qbx_closest_pts), axis=1)
+        direction = np.sign(direction_dot)
+        on_surface = np.abs(direction) < 1e-13
+        direction[on_surface] = limit_direction
+
+        singularity_safety_ratio = 3.0
+
+        if singularities is None:
+            singularities = np.zeros(shape=(0, 2))
+        singularities = np.asarray(singularities, dtype=np.float64)
+        singularity_tree = scipy.spatial.KDTree(singularities)
+        nearby_singularities = singularity_tree.query_ball_point(
+            qbx_obs_pts, (singularity_safety_ratio + 0.5) * qbx_panel_L
+        )
+        nearby_singularities_starts = np.zeros(n_qbx + 1, dtype=int)
+        nearby_singularities_starts[1:] = np.cumsum(
+            [len(ns) for ns in nearby_singularities]
+        )
+        nearby_singularities = np.concatenate(
+            nearby_singularities, dtype=int, casting="unsafe"
+        )
+
+        interpolator = build_interpolator(combined_src.qx)
+        n_interp = 30
+        Im = build_interp_matrix(interpolator, np.linspace(-1, 1, n_interp))
+        exp_rs = qbx_panel_L * 0.5
+        offset_vector = direction[:, None] * qbx_normals
+        exp_centers = qbx_obs_pts + offset_vector * exp_rs[:, None]
+        choose_expansion_circles(
+            exp_centers,
+            exp_rs,
+            qbx_obs_pts,
+            offset_vector,
+            combined_src.pts,
+            Im,
+            qbx_panels,
+            qbx_panel_starts,
+            closest_panel,
+            singularities,
+            nearby_singularities,
+            nearby_singularities_starts,
+            nearby_safety_ratio=2.0 if safety_mode else 0.9999,
+            singularity_safety_ratio=singularity_safety_ratio,
         )
 
         # step 5: QBX integrals

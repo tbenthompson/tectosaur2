@@ -184,7 +184,7 @@ def test_integrate_self(K_type):
 
     tol = 1e-13
     if K_type is Hypersingular:
-        tol = 1e-12
+        tol = 5e-13
     elif K_type is elasticH:
         tol = 1e-11
     local_qbx, report = integrate_term(
@@ -226,17 +226,26 @@ def test_safety_mode():
         [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.2)]
     )
     displacement = 1 - np.abs(surf.pts[:, 0])
-    mat = integrate_term(
+    mat, report = integrate_term(
         hypersingular,
+        # surf.pts[0:3],
         surf.pts,
         surf,
         tol=1e-11,
         safety_mode=True,
         singularities=[(-1, 0), (1, 0)],
+        return_report=True,
     )
     stress = -2 * tensor_dot(mat, displacement)
+    np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 
+    # from tectosaur2.debug import plot_centers
     # import matplotlib.pyplot as plt
+    # plot_centers(report, [-1.1, -0.9], [-0.7, 0.7])
+    # plt.show()
+    # plot_centers(report, [-0.1, 0.1], [-0.1, 0.1])
+    # plt.show()
+
     # plt.figure(figsize=(8, 4))
     # plt.subplot(1, 2, 1)
     # plt.plot(surf.pts[:, 0], displacement)
@@ -245,9 +254,8 @@ def test_safety_mode():
     # plt.plot(surf.pts[:, 0], stress[:, 1])
     # plt.show()
     # plt.plot()
-    # plt.plot(stress[:,0]+np.sign(surf.pts[:,0]) * 0.5)
+    # plt.plot(stress[:,0])
     # plt.show()
-    np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 
 
 def test_laplace_obs_derivatives():
