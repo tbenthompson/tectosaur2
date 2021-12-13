@@ -1,10 +1,10 @@
 #include "adaptive.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <complex>
 #include <iostream>
 #include <vector>
-#include <algorithm>
 
 struct LocalQBXArgs {
     // out parameters
@@ -106,13 +106,22 @@ std::array<double, 2> double_layer_qbx(const QBXObsInfo& obs, double srcx, doubl
     std::complex<double> nw = {srcnx, srcny};
     std::array<double, 2> result{};
 
-    for (int m = obs.p_start; m < obs.p_end; m++) {
-        std::complex<double> expand =
-            -nw * std::pow(obs.expr, m) / (2 * M_PI * std::pow(w - z0, m + 1));
-        std::complex<double> eval = -std::pow((z - z0) / obs.expr, m);
+    constexpr double C = 1.0 / (2 * M_PI);
+    auto invwz0 = 1.0 / (w - z0);
+    auto ratio = (z - z0) * invwz0;
 
+    auto term = nw * invwz0 * C;
+    for (int m = 0; m < obs.p_start; m++) {
+        term *= ratio;
+    }
+
+    for (int m = obs.p_start; m < obs.p_end; m++) {
         result[0] += result[1];
-        result[1] = std::real(expand * eval);
+        result[1] = std::real(term);
+
+        if (m < obs.p_end - 1) {
+            term *= ratio;
+        }
     }
     return result;
 }
@@ -343,100 +352,107 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                   a.kronrod_qx,        a.kronrod_qw,      a.kronrod_qw_gauss,
                   a.n_kronrod};
 
-#pragma omp parallel for
-    for (int obs_i = 0; obs_i < a.n_obs; obs_i++) {
-        auto panel_start = a.panel_starts[obs_i];
-        auto panel_end = a.panel_starts[obs_i + 1];
-        auto n_panels = panel_end - panel_start;
-        QBXObsInfo obs{a.obs_pts[obs_i * 2 + 0],
-                       a.obs_pts[obs_i * 2 + 1],
-                       a.exp_centers[obs_i * 2 + 0],
-                       a.exp_centers[obs_i * 2 + 1],
-                       a.exp_rs[obs_i],
-                       0,
-                       0,
-                       a.kernel_parameters};
+#pragma omp parallel
+    {
+        std::vector<double> memory_pool((max_adaptive_integrals * 2 + 1) * a.n_interp * n_kernel_outputs, 0.0);
 
-        bool converged = false;
-        obs.p_start = 0;
-        std::vector<double> integral(n_panels * a.n_interp * ndim, 0.0);
+#pragma omp for
+        for (int obs_i = 0; obs_i < a.n_obs; obs_i++) {
+            auto panel_start = a.panel_starts[obs_i];
+            auto panel_end = a.panel_starts[obs_i + 1];
+            auto n_panels = panel_end - panel_start;
+            QBXObsInfo obs{a.obs_pts[obs_i * 2 + 0],
+                           a.obs_pts[obs_i * 2 + 1],
+                           a.exp_centers[obs_i * 2 + 0],
+                           a.exp_centers[obs_i * 2 + 1],
+                           a.exp_rs[obs_i],
+                           0,
+                           0,
+                           a.kernel_parameters};
 
-        int p_step = 4;
-        bool failed = false;
-        while (!converged and obs.p_start <= a.max_p) {
-            obs.p_end = std::min(obs.p_start + p_step, a.max_p + 1);
+            int p_step = 15;
+            bool converged = false;
+            bool failed = false;
+            obs.p_start = 0;
+            std::vector<double> temp_out(n_panels * Nv);
 
-            std::vector<double> temp_out(n_panels * Nv, 0.0);
-            int n_subsets = 0;
-            for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
-                auto panel_idx = a.panels[panel_offset + panel_start];
-                double* temp_out_ptr = &temp_out[panel_offset * Nv];
-                auto result = adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd,
-                                                 panel_idx, coefficient_tol);
-                double max_err = result.first;
-                int n_integrals = result.second;
-
-                if (n_integrals == max_adaptive_integrals) {
-                    if (max_err > 1000 * coefficient_tol) {
-                        double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
-                                                (a.n_interp / 2) * 2 + 0];
-                        double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
-                                                (a.n_interp / 2) * 2 + 1];
-                        std::cout << "max fail! " << obs.x << " " << obs.y << " "
-                                  << srcx << " " << srcy << " " << panel_idx << " "
-                                  << n_integrals << std::endl;
-                        std::cout << "exp: " << obs.expx << " " << obs.expy << " "
-                                  << obs.expr << std::endl;
-                        std::cout << "max err: " << max_err
-                                  << "   tol: " << coefficient_tol << std::endl;
-                    }
-                    if (max_err > 10 * coefficient_tol) {
-                        failed = true;
-                    }
+            while (!converged and obs.p_start <= a.max_p) {
+                obs.p_end = std::min(obs.p_start + p_step, a.max_p + 1);
+                p_step = 10;
+                for (int i = 0; i < n_panels * Nv; i++) {
+                    temp_out[i] = 0;
                 }
 
-                n_subsets += result.second;
-            }
+                int n_subsets = 0;
+                for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
+                    auto panel_idx = a.panels[panel_offset + panel_start];
+                    double* temp_out_ptr = &temp_out[panel_offset * Nv];
+                    auto result =
+                        adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
+                                           coefficient_tol, memory_pool.data());
+                    double max_err = result.first;
+                    int n_integrals = result.second;
 
-            // Add the integral and calculate series convergence.
-            std::array<double, ndim> p_end_integral{};
-            for (int pt_idx = 0; pt_idx < n_panels * a.n_interp; pt_idx++) {
+                    if (n_integrals == max_adaptive_integrals) {
+                        if (max_err > 1000 * coefficient_tol) {
+                            double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
+                                                    (a.n_interp / 2) * 2 + 0];
+                            double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
+                                                    (a.n_interp / 2) * 2 + 1];
+                            std::cout << "max fail! " << obs.x << " " << obs.y << " "
+                                      << srcx << " " << srcy << " " << panel_idx << " "
+                                      << n_integrals << std::endl;
+                            std::cout << "exp: " << obs.expx << " " << obs.expy << " "
+                                      << obs.expr << std::endl;
+                            std::cout << "max err: " << max_err
+                                      << "   tol: " << coefficient_tol << std::endl;
+                        }
+                        if (max_err > 10 * coefficient_tol) {
+                            failed = true;
+                        }
+                    }
+
+                    n_subsets += result.second;
+                }
+
+                // Add the integral and calculate series convergence.
+                std::array<double, ndim> p_end_integral{};
+
+                for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
+                    auto panel_idx = a.panels[panel_offset + panel_start];
+                    double* out_ptr =
+                        &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
+
+                    for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
+                        for (int d = 0; d < ndim; d++) {
+                            int k =
+                                panel_offset * a.n_interp * ndim + pt_idx * ndim + d;
+                            double all_but_last_term = temp_out[2 * k];
+                            double last_term = temp_out[2 * k + 1];
+                            out_ptr[pt_idx * ndim + d] += all_but_last_term + last_term;
+                            if (a.safety_mode) {
+                                p_end_integral[d] += fabs(last_term);
+                            } else {
+                                p_end_integral[d] += last_term;
+                            }
+                        }
+                    }
+                }
+                a.n_subsets[obs_i] = n_subsets;
+
+                converged = true;
                 for (int d = 0; d < ndim; d++) {
-                    int k = pt_idx * ndim + d;
-                    double all_but_last_term = temp_out[2 * k];
-                    double last_term = temp_out[2 * k + 1];
-                    integral[k] += all_but_last_term + last_term;
-                    if (a.safety_mode) {
-                        p_end_integral[d] += fabs(last_term);
-                    } else {
-                        p_end_integral[d] += last_term;
+                    if (fabs(p_end_integral[d]) >= truncation_tol) {
+                        converged = false;
+                        break;
                     }
                 }
-            }
-            a.n_subsets[obs_i] = n_subsets;
 
-            converged = true;
-            for (int d = 0; d < ndim; d++) {
-                if (fabs(p_end_integral[d]) >= truncation_tol) {
-                    converged = false;
-                    break;
-                }
+                obs.p_start = obs.p_end;
             }
 
-            obs.p_start = obs.p_end;
-        }
-
-        a.failed[obs_i] = failed;
-        a.p[obs_i] = obs.p_end - 1;
-
-        for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
-            auto panel_idx = a.panels[panel_offset + panel_start];
-            double* integral_ptr = &integral[panel_offset * a.n_interp * ndim];
-            double* out_ptr =
-                &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
-            for (int k = 0; k < a.n_interp * ndim; k++) {
-                out_ptr[k] += integral_ptr[k];
-            }
+            a.failed[obs_i] = failed;
+            a.p[obs_i] = obs.p_end - 1;
         }
     }
 }
@@ -475,11 +491,12 @@ void local_qbx_elastic_H(const LocalQBXArgs& a) {
 
 void cpp_choose_expansion_circles(
     double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
-    double* offset_vector, double* src_pts, double* interp_mat,
-    int n_interp, int nq, long* panels, long* panel_starts, long* nearest_panel_idx,
-    double* singularities, long* nearby_singularities, long* nearby_singularity_starts,
+    double* offset_vector, double* src_pts, double* interp_mat, int n_interp, int nq,
+    long* panels, long* panel_starts, long* nearest_panel_idx, double* singularities,
+    long* nearby_singularities, long* nearby_singularity_starts,
     double nearby_safety_ratio, double singularity_safety_ratio) {
 
+#pragma omp parallel for
     for (int i = 0; i < n_obs; i++) {
         double obsx = obs_pts[i * 2 + 0];
         double obsy = obs_pts[i * 2 + 1];
@@ -494,13 +511,13 @@ void cpp_choose_expansion_circles(
         auto panel_end = panel_starts[i + 1];
 
         auto sing_start = nearby_singularity_starts[i];
-        auto sing_end = nearby_singularity_starts[i+1];
+        auto sing_end = nearby_singularity_starts[i + 1];
 
         auto violation_fnc = [&](double dangerx, double dangery, double safety_ratio) {
             double dx = expx - dangerx;
             double dy = expy - dangery;
             double dist2 = dx * dx + dy * dy;
-            if (dist2 < (safety_ratio*safety_ratio) * R * R) {
+            if (dist2 < (safety_ratio * safety_ratio) * R * R) {
                 double sx = obsx - dangerx;
                 double sy = obsy - dangery;
                 double S = sqrt(sx * sx + sy * sy);
@@ -532,7 +549,8 @@ void cpp_choose_expansion_circles(
                 double singx = singularities[singularity_idx * 2 + 0];
                 double singy = singularities[singularity_idx * 2 + 1];
                 auto violation = violation_fnc(singx, singy, singularity_safety_ratio);
-                // std::cout << "sing: " << si << " " << singx << " " << singy << std::endl;
+                // std::cout << "sing: " << si << " " << singx << " " << singy <<
+                // std::endl;
                 if (violation != 1.0) {
                     return violation;
                 }
@@ -549,8 +567,10 @@ void cpp_choose_expansion_circles(
                     double srcy = 0;
                     for (int interp_idx = 0; interp_idx < nq; interp_idx++) {
                         auto src_pt_idx = panel_idx * nq + interp_idx;
-                        srcx += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 0];
-                        srcy += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 1];
+                        srcx += interp_mat[pt_idx * nq + interp_idx] *
+                                src_pts[src_pt_idx * 2 + 0];
+                        srcy += interp_mat[pt_idx * nq + interp_idx] *
+                                src_pts[src_pt_idx * 2 + 1];
                     }
                     auto violation = violation_fnc(srcx, srcy, nearby_safety_ratio);
                     if (violation != 1.0) {
@@ -576,7 +596,7 @@ void cpp_choose_expansion_circles(
         }
 
         exp_rs[i] = R;
-        exp_centers[i*2+0]=expx;
-        exp_centers[i*2+1]=expy;
+        exp_centers[i * 2 + 0] = expx;
+        exp_centers[i * 2 + 1] = expy;
     }
 }

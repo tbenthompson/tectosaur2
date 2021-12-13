@@ -276,6 +276,8 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
 
 #pragma omp parallel
     {
+        std::vector<double> memory_pool((max_adaptive_integrals * 2 + 1) * a.n_interp * ndim * 2, 0.0);
+
         int thread_idx = omp_get_thread_num();
         int n_threads = omp_get_num_threads();
         int n_integrals = a.panel_obs_pts_starts[a.n_src_panels];
@@ -303,7 +305,7 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
             if (a.adaptive) {
                 std::vector<double> integral(a.n_interp * ndim);
                 auto result =
-                    adaptive_integrate(integral.data(), obs, kernel_fnc, sd, cur_panel, a.tol);
+                    adaptive_integrate(integral.data(), obs, kernel_fnc, sd, cur_panel, a.tol, memory_pool.data());
                 n_subsets = result.second;
                 for (int i = 0; i < a.n_interp * ndim; i++) {
                     out_ptr[i] += a.mult * integral[i];

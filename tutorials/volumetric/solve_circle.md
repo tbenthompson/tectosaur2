@@ -5,9 +5,9 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.11.5
 kernelspec:
-  display_name: Python 3
+  display_name: Python 3 (ipykernel)
   language: python
   name: python3
 ---
@@ -56,26 +56,30 @@ u^H &= g - v|_{\partial \Omega}  ~~ \textrm{on} ~~ \partial \Omega
 So, first, I need to compute $g - v|_{\partial \Omega}$
 
 ```{code-cell} ipython3
-import numpy as np
-import matplotlib.pyplot as plt
-import common
-import sympy as sp
+:tags: [remove-cell]
 
-%config InlineBackend.figure_format='retina'
+from tectosaur2.nb_config import setup
 
-n_q = 200
-circle_rule = list(common.trapezoidal_rule(n_q))
-
-t = sp.symbols("t")
-theta = sp.pi * (t + 1)
-circle_rule[1] *= np.pi
-
-sym_circle = common.symbolic_surface(t, sp.cos(theta), sp.sin(theta))
-circle = common.symbolic_eval(t, circle_rule[0], sym_circle)
+setup()
 ```
 
 ```{code-cell} ipython3
-np.sum(np.cos((circle_rule[0] + 1) * np.pi) ** 4 * circle_rule[1])
+import numpy as np
+import matplotlib.pyplot as plt
+import sympy as sp
+
+from tectosaur2 import integrate_term, refine_surfaces, gauss_rule
+from tectosaur2.laplace2d import double_layer
+```
+
+```{code-cell} ipython3
+nq = 10
+qx, qw = gauss_rule(nq)
+
+t = sp.symbols("t")
+theta = sp.pi * (t + 1)
+circle = refine_surfaces([(t, sp.cos(theta), sp.sin(theta))], (qx,qw))
+circle.n_pts, circle.n_panels
 ```
 
 ```{code-cell} ipython3
@@ -83,82 +87,30 @@ np.sum(np.cos((circle_rule[0] + 1) * np.pi) ** 4 * circle_rule[1])
 def soln_fnc(x, y):
     return 2 + x + y
 
-bcs = soln_fnc(circle[0], circle[1])
+bcs = soln_fnc(circle.pts[:, 0], circle.pts[:, 1])
 ```
 
 ```{code-cell} ipython3
-kappa = 3
-qbx_p = 8
-mult = 1.0
-
-if kappa != 1:
-    refined_circle_rule = list(common.trapezoidal_rule(kappa * circle_rule[0].shape[0]))
-    refined_circle_rule[1] *= np.pi
-    refined_circle = common.symbolic_eval(t, refined_circle_rule[0], sym_circle)
-else:
-    refined_circle_rule = circle_rule
-    refined_circle = circle
-
-qbx_center_x, qbx_center_y, qbx_r = common.qbx_choose_centers(
-    circle, circle_rule, mult=mult, direction=-1.0
-)
+A,report = integrate_term(double_layer, circle.pts, circle, limit_direction=-0.02, return_report=True)
 ```
 
 ```{code-cell} ipython3
-plt.plot(circle[0], circle[1])
-plt.quiver(circle[0], circle[1], circle[2], circle[3])
-plt.plot(qbx_center_x, qbx_center_y, "ro")
+
+from tectosaur2.debug import plot_centers
+plot_centers(report, [0.9, 1.1], [-0.1, 0.1])
 ```
 
 ```{code-cell} ipython3
-qbx_expand = common.qbx_expand_matrix(
-    common.double_layer_matrix,
-    refined_circle,
-    refined_circle_rule,
-    qbx_center_x,
-    qbx_center_y,
-    qbx_r,
-    qbx_p=qbx_p,
-)
-qbx_eval = common.qbx_eval_matrix(
-    circle[0][None, :],
-    circle[1][None, :],
-    qbx_center_x,
-    qbx_center_y,
-    qbx_p=qbx_p,
-)[0]
-A_raw = np.real(np.sum(qbx_eval[:, None, :, None] * qbx_expand, axis=2))
-A_raw = A_raw[:, 0, :]
+surf_density = np.linalg.solve(np.eye(A.shape[0]) + A[:,0,:,0], bcs)
 ```
 
 ```{code-cell} ipython3
-interp_matrix = np.zeros((A_raw.shape[1], A_raw.shape[0]))
-
-for i in range(refined_circle_rule[0].shape[0]):
-    offset = i % kappa
-    if offset == 0:
-        match = i // kappa
-        interp_matrix[i, match] = 1.0
-    else:
-        below = i // kappa
-        above = below + 1
-        if above == interp_matrix.shape[1]:
-            above = 0
-        interp_matrix[i, below] = (kappa - offset) / kappa
-        interp_matrix[i, above] = offset / kappa
-
-plt.plot(circle_rule[0], bcs)
-plt.plot(refined_circle_rule[0], interp_matrix.dot(bcs))
+surf_density
 ```
 
 ```{code-cell} ipython3
-A = A_raw.dot(interp_matrix)
-surf_density = np.linalg.solve(A, bcs)
-```
-
-```{code-cell} ipython3
-plt.plot(bcs)
-plt.plot(surf_density)
+plt.plot(circle.quad_pts, bcs)
+plt.plot(circle.quad_pts, surf_density)
 plt.show()
 ```
 
@@ -179,37 +131,20 @@ correct = soln_fnc(obsx, obsy)
 ```
 
 ```{code-cell} ipython3
-u_rough = (
-    common.double_layer_matrix(circle, circle_rule, obsx.flatten(), obsy.flatten())
-    .dot(surf_density)
-    .reshape(obsx.shape)
-)
+%%time
+interior_disp_mat = integrate_term(double_layer, obs2d, circle)
 ```
 
 ```{code-cell} ipython3
-refined_density = interp_matrix.dot(surf_density)
+import line_profiler
 ```
 
 ```{code-cell} ipython3
-u_smooth = common.interior_eval(
-    common.double_layer_matrix,
-    circle,
-    circle_rule,
-    surf_density,
-    obsx.flatten(),
-    obsy.flatten(),
-    kappa=kappa,
-    offset_mult=mult,
-    qbx_p=qbx_p,
-    quad_rule_qbx=refined_circle_rule,
-    surface_qbx=refined_circle,
-    slip_qbx=refined_density,
-    visualize_centers=True,
-).reshape(obsx.shape)
+%lprun -f integrate_term integrate_term(double_layer, obs2d, circle)
 ```
 
 ```{code-cell} ipython3
-u_soln = u_smooth
+u_soln = interior_disp_mat[:, 0, :, 0].dot(surf_density).reshape(obsx.shape)
 ```
 
 ```{code-cell} ipython3
@@ -239,7 +174,7 @@ for i, to_plot in enumerate([u_soln, u_soln, correct]):
         levels=levels,
         extend="both",
     )
-    plt.plot(circle[0], circle[1], "k-", linewidth=1.5)
+    plt.plot(circle.pts[0], circle.pts[1], "k-", linewidth=1.5)
     plt.colorbar(cntf)
     plt.xlim(zoomx)
     plt.ylim(zoomy)
@@ -260,7 +195,7 @@ plt.contour(
     levels=levels,
     extend="both",
 )
-plt.plot(circle[0], circle[1], "k-", linewidth=1.5)
+plt.plot(circle.pts[0], circle.pts[1], "k-", linewidth=1.5)
 plt.colorbar(cntf)
 plt.xlim(zoomx)
 plt.ylim(zoomy)

@@ -56,7 +56,7 @@ def integrate_term(
     # step 1: figure out which observation points need to use QBX and which need
     # to use nearfield integration
     src_tree = scipy.spatial.KDTree(combined_src.pts)
-    closest_dist, closest_idx = src_tree.query(obs_pts)
+    closest_dist, closest_idx = src_tree.query(obs_pts, workers=-1)
     closest_panel = closest_idx // combined_src.panel_order
     closest_panel_length = combined_src.panel_length[closest_panel]
     use_qbx = closest_dist < K.d_qbx * closest_panel_length
@@ -74,7 +74,7 @@ def integrate_term(
     #
     # I also set the minimum order equal to six. Using a low order quadrature
     # rule in the adaptive integration is really slow.
-    kronrod_n = max(combined_src.qx.shape[0] + 1, 6)
+    kronrod_n = max(combined_src.qx.shape[0], 6)
     kronrod_rule = quadpy.c1.gauss_kronrod(kronrod_n)
     kronrod_qx = kronrod_rule.points
     kronrod_qw = kronrod_rule.weights
@@ -95,7 +95,10 @@ def integrate_term(
         # TODO: use ckdtree directly via its C++/cython interface to avoid
         # python list construction
         qbx_panel_src_pts = src_tree.query_ball_point(
-            qbx_obs_pts, (K.d_cutoff + 0.5) * qbx_panel_L, return_sorted=True
+            qbx_obs_pts,
+            (K.d_cutoff + 0.5) * qbx_panel_L,
+            return_sorted=True,
+            workers=-1,
         )
 
         (
@@ -129,7 +132,7 @@ def integrate_term(
         singularities = np.asarray(singularities, dtype=np.float64)
         singularity_tree = scipy.spatial.KDTree(singularities)
         nearby_singularities = singularity_tree.query_ball_point(
-            qbx_obs_pts, (singularity_safety_ratio + 0.5) * qbx_panel_L
+            qbx_obs_pts, (singularity_safety_ratio + 0.5) * qbx_panel_L, workers=-1
         )
         nearby_singularities_starts = np.zeros(n_qbx + 1, dtype=int)
         nearby_singularities_starts[1:] = np.cumsum(
@@ -142,8 +145,8 @@ def integrate_term(
         interpolator = build_interpolator(combined_src.qx)
         n_interp = 30
         Im = build_interp_matrix(interpolator, np.linspace(-1, 1, n_interp))
-        exp_rs = qbx_panel_L * 0.5
-        offset_vector = direction[:, None] * qbx_normals
+        exp_rs = qbx_panel_L * 0.5 * np.abs(direction)
+        offset_vector = np.sign(direction[:, None]) * qbx_normals
         exp_centers = qbx_obs_pts + offset_vector * exp_rs[:, None]
         choose_expansion_circles(
             exp_centers,

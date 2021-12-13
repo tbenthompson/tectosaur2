@@ -16,8 +16,10 @@ if sys.platform == "win32":
     extra_link_args = ["/openmp"]
 else:
     extra_compile_args = [
-        "-fopenmp",
+        # "-g",
+        # "-Og",
         "-O3",
+        "-fopenmp",
         "-ffast-math",
         "--std=c++17",
         "-Wno-unreachable-code",

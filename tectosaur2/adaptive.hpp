@@ -1,6 +1,6 @@
 #pragma once
-#include <vector>
 #include <iostream>
+#include <vector>
 
 struct SourceData {
     double* src_pts;
@@ -21,8 +21,9 @@ struct SourceData {
 };
 
 template <typename K, typename T>
-void integrate_domain(double* out, const T& obs, const K& kernel_fnc, const SourceData& a, int panel_idx,
-                      double xhat_left, double xhat_right) {
+void integrate_domain(double* out, const T& obs, const K& kernel_fnc,
+                      const SourceData& a, int panel_idx, double xhat_left,
+                      double xhat_right) {
 
     constexpr size_t n_kernel_outputs =
         std::tuple_size<decltype(kernel_fnc(T{}, 0, 0, 0, 0))>::value;
@@ -52,7 +53,8 @@ void integrate_domain(double* out, const T& obs, const K& kernel_fnc, const Sour
             double srcny = a.src_normals[src_pt_idx * 2 + 1];
             double srcjac = a.src_jacobians[src_pt_idx];
             auto kernel = kernel_fnc(obs, srcx, srcy, srcnx, srcny);
-            double srcmult = srcjac * a.src_param_width[panel_idx] * (xhat_right - xhat_left) * 0.25;
+            double srcmult =
+                srcjac * a.src_param_width[panel_idx] * (xhat_right - xhat_left) * 0.25;
 
             for (size_t d = 0; d < n_kernel_outputs; d++) {
                 int entry = matching_k * n_kernel_outputs * 2 + d * 2;
@@ -105,8 +107,8 @@ void integrate_domain(double* out, const T& obs, const K& kernel_fnc, const Sour
         // Step 4: call the kernel and integrate with the interpolated source
         // location.
         auto kernel = kernel_fnc(obs, srcx, srcy, srcnx, srcny);
-        double srcmult = srcjac * a.src_param_width[panel_idx] *
-                         (xhat_right - xhat_left) * 0.25;
+        double srcmult =
+            srcjac * a.src_param_width[panel_idx] * (xhat_right - xhat_left) * 0.25;
         for (size_t d = 0; d < n_kernel_outputs; d++) {
             kernel[d] *= srcmult;
         }
@@ -141,14 +143,15 @@ struct EstimatedIntegral {
     double xhat_left;
     double xhat_right;
     double max_err;
-    std::vector<double> value;
+    double* value_ptr;
 };
 
 constexpr int max_adaptive_integrals = 100;
 
 template <typename K, typename T>
-std::pair<double, int> adaptive_integrate(double* out, const T& obs, const K& kernel_fnc,
-                                        const SourceData& a, int panel_idx, double tol) {
+std::pair<double, int>
+adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceData& a,
+                   int panel_idx, double tol, double* memory_pool) {
 
     constexpr size_t n_kernel_outputs =
         std::tuple_size<decltype(kernel_fnc(T{}, 0, 0, 0, 0))>::value;
@@ -157,15 +160,18 @@ std::pair<double, int> adaptive_integrate(double* out, const T& obs, const K& ke
 
     // We store twice as many values here because we're storing both an integral
     // and an error estimate.
-    std::vector<double> integral(Nv * 2, 0.0);
+    double* integral_ptr = &memory_pool[0];
+    for (int i = 0; i < Nv * 2; i++) {
+        integral_ptr[i] = 0;
+    }
     double max_err = 0;
 
-    integrate_domain(integral.data(), obs, kernel_fnc, a, panel_idx, -1, 1);
+    integrate_domain(integral_ptr, obs, kernel_fnc, a, panel_idx, -1, 1);
     for (int i = 0; i < Nv; i++) {
-        integral[2 * i + 1] = fabs(integral[2 * i + 1]);
-        max_err = std::max(integral[2 * i + 1], max_err);
+        integral_ptr[2 * i + 1] = fabs(integral_ptr[2 * i + 1]);
+        max_err = std::max(integral_ptr[2 * i + 1], max_err);
     }
-    EstimatedIntegral initial_integral{-1, 1, max_err, integral};
+    EstimatedIntegral initial_integral{-1, 1, max_err, integral_ptr};
 
     std::vector<EstimatedIntegral> next_integrals;
     auto heap_compare = [](auto& x, auto& y) { return x.max_err < y.max_err; };
@@ -173,34 +179,50 @@ std::pair<double, int> adaptive_integrate(double* out, const T& obs, const K& ke
 
     int integral_idx = 0;
     for (; integral_idx < max_adaptive_integrals; integral_idx++) {
+
+        if (max_err < tol) {
+            break;
+        }
+
         // std::cout << integral_idx << " " << max_err << std::endl;
         auto& cur_integral = next_integrals.front();
 
         double midpt = (cur_integral.xhat_right + cur_integral.xhat_left) * 0.5;
-        EstimatedIntegral left_child{cur_integral.xhat_left, midpt, 0};
-        left_child.value.resize(Nv * 2);
-        integrate_domain(left_child.value.data(), obs, kernel_fnc, a, panel_idx,
+        EstimatedIntegral left_child{cur_integral.xhat_left, midpt, 0,
+                                     &memory_pool[Nv * 2 * (1 + integral_idx * 2)]};
+        for (int i = 0; i < Nv * 2; i++) {
+            left_child.value_ptr[i] = 0;
+        }
+        integrate_domain(left_child.value_ptr, obs, kernel_fnc, a, panel_idx,
                          cur_integral.xhat_left, midpt);
 
-        EstimatedIntegral right_child{midpt, cur_integral.xhat_right, 0};
-        right_child.value.resize(Nv * 2);
-        integrate_domain(right_child.value.data(), obs, kernel_fnc, a, panel_idx, midpt,
+        EstimatedIntegral right_child{midpt, cur_integral.xhat_right, 0,
+                                      &memory_pool[Nv * 2 * (2 + integral_idx * 2)]};
+        for (int i = 0; i < Nv * 2; i++) {
+            right_child.value_ptr[i] = 0;
+        }
+        integrate_domain(right_child.value_ptr, obs, kernel_fnc, a, panel_idx, midpt,
                          cur_integral.xhat_right);
 
         // Update the integral and its corresponding error estimate.
         max_err = 0;
         for (int i = 0; i < Nv; i++) {
-            right_child.value[2*i+1] = fabs(right_child.value[2*i+1]);
-            left_child.value[2*i+1] = fabs(left_child.value[2*i+1]);
-            auto right_err = right_child.value[2*i+1];
-            auto left_err = left_child.value[2*i+1];
-            integral[2 * i] += (
-                -cur_integral.value[2 * i] + left_child.value[2 * i] + right_child.value[2 * i]
-            );
-            integral[2 * i + 1] += -cur_integral.value[2 * i + 1] + left_err + right_err;
+            right_child.value_ptr[2 * i + 1] = fabs(right_child.value_ptr[2 * i + 1]);
+            left_child.value_ptr[2 * i + 1] = fabs(left_child.value_ptr[2 * i + 1]);
+            auto right_err = right_child.value_ptr[2 * i + 1];
+            auto left_err = left_child.value_ptr[2 * i + 1];
+            integral_ptr[2 * i] +=
+                (-cur_integral.value_ptr[2 * i] + left_child.value_ptr[2 * i] +
+                 right_child.value_ptr[2 * i]);
+            integral_ptr[2 * i + 1] +=
+                -cur_integral.value_ptr[2 * i + 1] + left_err + right_err;
             left_child.max_err = std::max(left_child.max_err, left_err);
             right_child.max_err = std::max(right_child.max_err, right_err);
-            max_err = std::max(integral[2 * i + 1], max_err);
+            max_err = std::max(integral_ptr[2 * i + 1], max_err);
+        }
+
+        if (max_err < tol) {
+            break;
         }
 
         // Update heap by removing the top entry that we just processed and
@@ -211,14 +233,10 @@ std::pair<double, int> adaptive_integrate(double* out, const T& obs, const K& ke
         std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
         next_integrals.push_back(std::move(right_child));
         std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-
-        if (max_err < tol) {
-            break;
-        }
     }
 
     for (int i = 0; i < Nv; i++) {
-        out[i] += integral[2*i];
+        out[i] += integral_ptr[2 * i];
     }
 
     return std::make_pair(max_err, integral_idx);
