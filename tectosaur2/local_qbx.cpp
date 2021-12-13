@@ -354,7 +354,8 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
 #pragma omp parallel
     {
-        std::vector<double> memory_pool((max_adaptive_integrals * 2 + 1) * a.n_interp * n_kernel_outputs, 0.0);
+        std::vector<double> memory_pool(
+            (max_adaptive_integrals * 2 + 1) * a.n_interp * n_kernel_outputs * 2, 0.0);
 
 #pragma omp for
         for (int obs_i = 0; obs_i < a.n_obs; obs_i++) {
