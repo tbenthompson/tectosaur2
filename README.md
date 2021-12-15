@@ -2,7 +2,14 @@
 
 Using JupyterBook!
 
-### Process
+### Development installation instructions
+
+1. `mamba env create`
+2. `pip install -e .`
+3. Launch a jupyter notebook or jupyter lab instance. Or use VSCode or some other notebook editor to open the notebooks.
+
+
+### Building the tutorial documents
 
 1. `mamba env create`
 1. Install PyCUDA manually `mamba install -y pycuda`.

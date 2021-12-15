@@ -410,7 +410,6 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                         }
                         if (max_err > 10 * coefficient_tol) {
                             failed = true;
-                            std::cout << "failed: " << obs_i << std::endl;
                         }
                     }
 
