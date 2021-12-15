@@ -15,16 +15,16 @@ class ElasticU(Kernel):
         self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
-    def direct(self, obs_pts, src):
+    def kernel(self, obs_pts, src_pts, src_normals):
         d = [
-            obs_pts[:, 0, None] - src.pts[None, :, 0],
-            obs_pts[:, 1, None] - src.pts[None, :, 1],
+            obs_pts[:, 0, None] - src_pts[None, :, 0],
+            obs_pts[:, 1, None] - src_pts[None, :, 1],
         ]
         r2 = d[0] * d[0] + d[1] * d[1]
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
-        S = np.empty((obs_pts.shape[0], 2, src.n_pts, 2))
+        S = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 2))
         for d_obs in range(2):
             for d_src in range(2):
                 S[:, d_obs, :, d_src] = self.disp_C1 * (
@@ -32,8 +32,6 @@ class ElasticU(Kernel):
                     + d[d_obs] * d[d_src] / r2
                 )
                 S[:, d_obs, :, d_src][too_close] = 0
-
-        S *= (src.jacobians * src.quad_wts)[None, None, :, None]
         return S
 
 
@@ -49,33 +47,32 @@ class ElasticT(Kernel):
         self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
-    def direct(self, obs_pts, src):
+    def kernel(self, obs_pts, src_pts, src_normals):
         d = [
-            obs_pts[:, 0, None] - src.pts[None, :, 0],
-            obs_pts[:, 1, None] - src.pts[None, :, 1],
+            obs_pts[:, 0, None] - src_pts[None, :, 0],
+            obs_pts[:, 1, None] - src_pts[None, :, 1],
         ]
         r2 = d[0] * d[0] + d[1] * d[1]
         too_close = r2 <= 1e-16
         r2[too_close] = 1
         r = np.sqrt(r2)
 
-        drdn = (d[0] * src.normals[None, :, 0] + d[1] * src.normals[None, :, 1]) / r
+        drdn = (d[0] * src_normals[None, :, 0] + d[1] * src_normals[None, :, 1]) / r
 
-        T = np.empty((obs_pts.shape[0], 2, src.n_pts, 2))
+        T = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 2))
         for d_obs in range(2):
             for d_src in range(2):
                 t1 = self.trac_C2 * (d_obs == d_src) + 2 * d[d_obs] * d[d_src] / r2
                 t2 = (
                     self.trac_C2
                     * (
-                        src.normals[None, :, d_src] * d[d_obs]
-                        - src.normals[None, :, d_obs] * d[d_src]
+                        src_normals[None, :, d_src] * d[d_obs]
+                        - src_normals[None, :, d_obs] * d[d_src]
                     )
                     / r
                 )
                 T[:, d_obs, :, d_src] = -(self.trac_C1 / r) * (t1 * drdn - t2)
                 T[:, d_obs, :, d_src][too_close] = 0
-        T *= (src.jacobians * src.quad_wts)[None, None, :, None]
         return T
 
 
@@ -91,10 +88,10 @@ class ElasticA(Kernel):
         self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
-    def direct(self, obs_pts, src):
+    def kernel(self, obs_pts, src_pts, src_normals):
         d = [
-            obs_pts[:, 0, None] - src.pts[None, :, 0],
-            obs_pts[:, 1, None] - src.pts[None, :, 1],
+            obs_pts[:, 0, None] - src_pts[None, :, 0],
+            obs_pts[:, 1, None] - src_pts[None, :, 1],
         ]
         r2 = d[0] * d[0] + d[1] * d[1]
         too_close = r2 <= 1e-16
@@ -102,7 +99,7 @@ class ElasticA(Kernel):
         r = np.sqrt(r2)
         dr = [d[0] / r, d[1] / r]
 
-        A = np.empty((obs_pts.shape[0], 3, src.n_pts, 2))
+        A = np.empty((obs_pts.shape[0], 3, src_pts.shape[0], 2))
 
         voigt_lookup = [[0, 2], [2, 1]]
 
@@ -122,8 +119,6 @@ class ElasticA(Kernel):
                     t2 = 2 * dr[d_obs1] * dr[d_src] * dr[d_obs2]
                     A[:, voigt, :, d_src] = C * (t1 + t2)
                     A[:, voigt, :, d_src][too_close] = 0
-
-        A *= (src.jacobians * src.quad_wts)[None, None, :, None]
         return A
 
 
@@ -138,21 +133,21 @@ class ElasticH(Kernel):
         self.parameters = np.array([poisson_ratio], dtype=np.float64)
         super().__init__(**kwargs)
 
-    def direct(self, obs_pts, src):
+    def kernel(self, obs_pts, src_pts, src_normals):
         d = [
-            obs_pts[:, 0, None] - src.pts[None, :, 0],
-            obs_pts[:, 1, None] - src.pts[None, :, 1],
+            obs_pts[:, 0, None] - src_pts[None, :, 0],
+            obs_pts[:, 1, None] - src_pts[None, :, 1],
         ]
         r2 = d[0] * d[0] + d[1] * d[1]
         too_close = r2 <= 1e-16
         r2[too_close] = 1
         r = np.sqrt(r2)
 
-        srcn = [src.normals[None, :, 0], src.normals[None, :, 1]]
+        srcn = [src_normals[None, :, 0], src_normals[None, :, 1]]
         dr = [d[0] / r, d[1] / r]
         drdn = (d[0] * srcn[0] + d[1] * srcn[1]) / r
 
-        H = np.empty((obs_pts.shape[0], 3, src.n_pts, 2))
+        H = np.empty((obs_pts.shape[0], 3, src_pts.shape[0], 2))
 
         d_stress_lookup = [[0, 2], [2, 1]]
 
@@ -195,8 +190,6 @@ class ElasticH(Kernel):
                     t4 = -(1 - 4 * self.poisson_ratio) * srcn[d_src] * obsn[d_obs]
                     H[:, d_stress, :, d_src] = (C / r2) * (t1 + t2 + t3 + t4)
                     H[:, d_stress, :, d_src][too_close] = 0
-
-        H *= (src.jacobians * src.quad_wts)[None, None, :, None]
         return H
 
 

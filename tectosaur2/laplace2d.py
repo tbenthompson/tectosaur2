@@ -19,18 +19,16 @@ class SingleLayer(Kernel):
     src_dim = 1
     obs_dim = 1
 
-    def direct(self, obs_pts, src):
-
-        dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
-        dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
+    def kernel(self, obs_pts, src_pts, src_normals=None):
+        dx = obs_pts[:, 0, None] - src_pts[None, :, 0]
+        dy = obs_pts[:, 1, None] - src_pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
         G = -(1.0 / (4 * np.pi)) * np.log(r2)
         G[too_close] = 0
-
-        return (G * src.jacobians * src.quad_wts[None, :])[:, None, :, None]
+        return G[:, None, :, None]
 
 
 class DoubleLayer(Kernel):
@@ -38,12 +36,12 @@ class DoubleLayer(Kernel):
     src_dim = 1
     obs_dim = 1
 
-    def direct(self, obs_pts, src):
+    def kernel(self, obs_pts, src_pts, src_normals):
         """
         Compute the entries of the matrix that forms the double layer potential.
         """
-        dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
-        dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
+        dx = obs_pts[:, 0, None] - src_pts[None, :, 0]
+        dy = obs_pts[:, 1, None] - src_pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
         too_close = r2 <= 1e-16
         r2[too_close] = 1
@@ -52,11 +50,11 @@ class DoubleLayer(Kernel):
         integrand = (
             -1.0
             / (2 * np.pi * r2)
-            * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1])
+            * (dx * src_normals[None, :, 0] + dy * src_normals[None, :, 1])
         )
         integrand[too_close] = 0.0
 
-        return (integrand * src.jacobians * src.quad_wts[None, :])[:, None, :, None]
+        return integrand[:, None, :, None]
 
 
 class AdjointDoubleLayer(Kernel):
@@ -64,22 +62,21 @@ class AdjointDoubleLayer(Kernel):
     src_dim = 1
     obs_dim = 2
 
-    def direct(self, obs_pts, src):
-        dx = obs_pts[:, None, 0] - src.pts[None, :, 0]
-        dy = obs_pts[:, None, 1] - src.pts[None, :, 1]
+    def kernel(self, obs_pts, src_pts, src_normals=None):
+        dx = obs_pts[:, None, 0] - src_pts[None, :, 0]
+        dy = obs_pts[:, None, 1] - src_pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
-        out = np.empty((obs_pts.shape[0], 2, src.n_pts, 1))
+        out = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 1))
         out[:, 0, :, 0] = dx
         out[:, 1, :, 0] = dy
 
         C = -1.0 / (2 * np.pi * r2)
         C[too_close] = 0
 
-        # multiply by the scaling factor, jacobian and quadrature weights
-        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :, None]
+        return out * C[:, None, :, None]
 
 
 class Hypersingular(Kernel):
@@ -87,27 +84,26 @@ class Hypersingular(Kernel):
     src_dim = 1
     obs_dim = 2
 
-    def direct(self, obs_pts, src):
-        dx = obs_pts[:, 0, None] - src.pts[None, :, 0]
-        dy = obs_pts[:, 1, None] - src.pts[None, :, 1]
+    def kernel(self, obs_pts, src_pts, src_normals):
+        dx = obs_pts[:, 0, None] - src_pts[None, :, 0]
+        dy = obs_pts[:, 1, None] - src_pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
         too_close = r2 <= 1e-16
         r2[too_close] = 1
 
-        A = 2 * (dx * src.normals[None, :, 0] + dy * src.normals[None, :, 1]) / r2
+        A = 2 * (dx * src_normals[None, :, 0] + dy * src_normals[None, :, 1]) / r2
         C = -1.0 / (2 * np.pi * r2)
         C[too_close] = 0
 
-        out = np.empty((obs_pts.shape[0], 2, src.n_pts, 1))
+        out = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 1))
 
         # The definition of the hypersingular kernel.
         # unscaled sigma_xz component
-        out[:, 0, :, 0] = src.normals[None, :, 0] - A * dx
+        out[:, 0, :, 0] = src_normals[None, :, 0] - A * dx
         # unscaled sigma_xz component
-        out[:, 1, :, 0] = src.normals[None, :, 1] - A * dy
+        out[:, 1, :, 0] = src_normals[None, :, 1] - A * dy
 
-        # multiply by the scaling factor, jacobian and quadrature weights
-        return out * (C * (src.jacobians * src.quad_wts[None, :]))[:, None, :, None]
+        return out * C[:, None, :, None]
 
 
 single_layer = SingleLayer(d_cutoff=2.0, d_up=1.5, d_qbx=0.3, default_tol=1e-13)

@@ -24,6 +24,12 @@ class Kernel:
         if not hasattr(self, "parameters"):
             self.parameters = np.array([], dtype=np.float64)
 
+    def direct(self, obs_pts, src):
+        return (
+            self.kernel(obs_pts, src.pts, src.normals)
+            * (src.jacobians * src.quad_wts)[None, None, :, None]
+        )
+
 
 def integrate_term(
     K,
