@@ -58,6 +58,7 @@ def integrate_term(
     ndim = K.obs_dim * K.src_dim
     report = dict(combined_src=combined_src)
     report["srcs"] = srcs
+    report["obs_pts"] = obs_pts
 
     # step 1: figure out which observation points need to use QBX and which need
     # to use nearfield integration
@@ -163,7 +164,6 @@ def integrate_term(
             Im,
             qbx_panels,
             qbx_panel_starts,
-            closest_panel,
             singularities,
             nearby_singularities,
             nearby_singularities_starts,
@@ -195,6 +195,7 @@ def integrate_term(
             qbx_panels,
             qbx_panel_starts,
         )
+        report["integration_failed"] = report["integration_failed"].astype(bool)
         if np.any(report["integration_failed"]):
             warnings.warn(
                 "Some integrals failed to converge during adaptive integration. "

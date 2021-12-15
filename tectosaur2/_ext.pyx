@@ -57,7 +57,7 @@ cdef extern from "local_qbx.cpp":
 
     cdef void cpp_choose_expansion_circles(double*, double*, double*, int,
                                         double*, double*, double*, int,
-                                        int, long*, long*, long*, double*,
+                                        int, long*, long*, double*,
                                         long*, long*, double, double)
 
 
@@ -277,7 +277,6 @@ def choose_expansion_circles(
     double[:,::1] interp_mat,
     long[::1] panels,
     long[::1] panel_starts,
-    long[::1] nearest_panel_idx,
     double[:,::1] singularities,
     long[::1] nearby_singularities,
     long[::1] nearby_singularity_starts,
@@ -297,7 +296,6 @@ def choose_expansion_circles(
         interp_mat.shape[1],
         &panels[0],
         &panel_starts[0],
-        &nearest_panel_idx[0],
         &singularities[0,0],
         &nearby_singularities[0],
         &nearby_singularity_starts[0],

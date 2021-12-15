@@ -493,7 +493,7 @@ void local_qbx_elastic_H(const LocalQBXArgs& a) {
 void cpp_choose_expansion_circles(
     double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
     double* offset_vector, double* src_pts, double* interp_mat, int n_interp, int nq,
-    long* panels, long* panel_starts, long* nearest_panel_idx, double* singularities,
+    long* panels, long* panel_starts, double* singularities,
     long* nearby_singularities, long* nearby_singularity_starts,
     double nearby_safety_ratio, double singularity_safety_ratio) {
 
@@ -519,24 +519,7 @@ void cpp_choose_expansion_circles(
             double dy = expy - dangery;
             double dist2 = dx * dx + dy * dy;
             if (dist2 < (safety_ratio * safety_ratio) * R * R) {
-                double sx = obsx - dangerx;
-                double sy = obsy - dangery;
-                double S = sqrt(sx * sx + sy * sy);
-                double Rn = sqrt(dist2);
-
-                // it would be possible to solve for the exact correct R here.
-                // but this approximation is pretty good. This is derived by
-                // drawing the geometry of observation point and then using
-                // the triangle rule to compute an upper bound on the
-                // distance That is upper bound is multiplied by 1.5 so
-                // that the upper bound isn't used when a more careful
-                // computation would be needed. In that situation, the
-                // 0.75 multiple is used instead and a couple iterations
-                // may be needed. This heuristic works especially well because
-                // most "violations" come from source points that are
-                // orthogonally translated along the source surface from the
-                // observation point.
-                return std::min(0.75, 1.5 * S / ((safety_ratio - 1) * Rn));
+                return 0.6;
             }
             return 1.0;
         };
@@ -559,9 +542,6 @@ void cpp_choose_expansion_circles(
 
             for (int pi = panel_start; pi < panel_end; pi++) {
                 auto panel_idx = panels[pi];
-                if (panel_idx == nearest_panel_idx[i]) {
-                    continue;
-                }
 
                 for (int pt_idx = 0; pt_idx < n_interp; pt_idx++) {
                     double srcx = 0;
