@@ -2,40 +2,35 @@ name: tectosaur2
 channels:
   - conda-forge
 dependencies:
-  - clangxx
-  - pre-commit
   - jupyterlab
-  - cython
   - numpy
   - scipy
   - matplotlib
   - sympy
+  - pandas
+
+  - quadpy
+  - psutil
+  - pytest
+  - pre-commit
+  - black
+  - line_profiler
+
+  - cython
+  - cxx-compiler
   - mamba
   - pip
-  - pyproj
-  # - gdal
-  - gmsh
-  # - pycuda
-  - k3d
-  - black
-  - jupyter-book
-  - psutil
-  - pandas
-  - line_profiler
-  - boto3
-  - ipdb
-  - jupyterlab_code_formatter
-  - quadpy
-  - jupyterlab-lsp
-  - python-lsp-server
-  - ipympl
+
   - cutde
+  - boto3
+  - pyproj
+  - gmsh
+  - k3d
+  # - pycuda
+  # - gdal
+
+  - jupyter-book
   - pip:
-    - jupyter-book >= 0.11
     - pygmsh<7
     - sphinxcontrib-bibtex >= 2.2.0
     - sphinx-sitemap
-    - loopy
-    - boxtree
-    # - okada_wrapper
-    - tanh-sinh

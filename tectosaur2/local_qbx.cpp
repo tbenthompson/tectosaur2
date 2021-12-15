@@ -410,6 +410,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                         }
                         if (max_err > 10 * coefficient_tol) {
                             failed = true;
+                            std::cout << "failed: " << obs_i << std::endl;
                         }
                     }
 
@@ -566,7 +567,6 @@ void cpp_choose_expansion_circles(
         for (int j = 0; j < max_iter; j++) {
             double violation = find_violations();
 
-            // std::cout << "violation:" << violation << std::endl;
             if (violation == 1.0) {
                 break;
             }

@@ -223,7 +223,7 @@ def test_safety_mode():
     # perfect step function in stress.
     t = sp.var("t")
     surf = refine_surfaces(
-        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.2)]
+        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.4)]
     )
     displacement = 1 - np.abs(surf.pts[:, 0])
     mat, report = integrate_term(
