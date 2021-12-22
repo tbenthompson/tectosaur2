@@ -5,7 +5,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.11.5
 kernelspec:
   display_name: Python 3
   language: python
@@ -36,12 +36,20 @@ Also:
 ## Setup
 
 ```{code-cell} ipython3
+:tags: [remove-cell]
+
+from tectosaur2.nb_config import setup
+
+setup()
+```
+
+```{code-cell} ipython3
 import numpy as np
 import matplotlib.pyplot as plt
-import common
 import sympy as sp
 
-%config InlineBackend.figure_format='retina'
+from tectosaur2 import gauss_rule
+from tectosaur2.laplace2d import single_layer
 ```
 
 ```{code-cell} ipython3
@@ -69,29 +77,19 @@ ethridge_soln_fnc = sp.lambdify((x, y), ethridge_sym_soln, "numpy")
 ethridge_laplacian_fnc = sp.lambdify((x, y), ethridge_sym_laplacian, "numpy")
 ```
 
-```{code-cell} ipython3
-C = 1.0 / (4 * np.pi)
-def fundamental_soln_matrix(obs_pts, src_pts):
-    dx = obs_pts[:, None, 0] - src_pts[None, :, 0]
-    dy = obs_pts[:, None, 1] - src_pts[None, :, 1]
-    r2 = (dx ** 2) + (dy ** 2)
-    G = C * np.log(r2)
-    return G[:, None, :]
-```
-
 ## Singular quadrature, poor convergence.
 
 ```{code-cell} ipython3
 def run(obs_pt, nq):
-    q_vol, qw_vol = common.gauss_rule(nq)
+    q_vol, qw_vol = gauss_rule(nq)
 
     qx_vol, qy_vol = np.meshgrid(q_vol, q_vol)
     q2d_vol = np.array([qx_vol.flatten(), qy_vol.flatten()]).T.copy()
     q2d_vol_wts = (qw_vol[:, None] * qw_vol[None, :]).flatten()
-    fxy = ethridge_laplacian_fnc(q2d_vol[:, 0], q2d_vol[:, 1])
+    fxy = -ethridge_laplacian_fnc(q2d_vol[:, 0], q2d_vol[:, 1])
 
     u_particular = (
-        (fundamental_soln_matrix(obs_pt, q2d_vol) * q2d_vol_wts[None, None, :])
+        (single_layer.kernel(obs_pt, q2d_vol)[:,0,:,0] * q2d_vol_wts[None, :])
         .dot(fxy)
         .reshape(obs_pt.shape[0])
     )
@@ -102,7 +100,7 @@ def run(obs_pt, nq):
 obs_pt = np.array([[-0.1, -0.1]])
 correct = ethridge_soln_fnc(obs_pt[0, 0], obs_pt[0, 1])
 
-steps = np.arange(2, 500, 6)
+steps = np.arange(2, 1200, 10)
 ests = np.array([run(obs_pt, s) for s in steps])
 
 difference = np.linalg.norm(ests - correct, axis=1) / np.linalg.norm(correct)
@@ -281,10 +279,10 @@ plt.show()
 ## A box code
 
 ```{code-cell} ipython3
-q1 = clencurt_2d(5)
-q2 = clencurt_2d(9)
-interp1 = cheblob(5)
-interp2 = cheblob(9)
+q1 = clencurt_2d(4)
+q2 = clencurt_2d(7)
+interp1 = cheblob(4)
+interp2 = cheblob(7)
 ```
 
 ```{code-cell} ipython3
@@ -598,7 +596,6 @@ def balance_21(tree, f, plot_progress=False):
         else:
             # If no cells were refined, then proceed down the tree to the next level
             i += 1
-
 ```
 
 ```{code-cell} ipython3
@@ -721,6 +718,7 @@ boxes = {
 ```{code-cell} ipython3
 def nearfield_box(I, Fv, flipx, flipy, rotxy):
     # NOTE: The transpose is necessary simply because the definition of the basis functions here is the transpose of the definition in precompute. I should fix this!
+    N = int(np.sqrt(Fv.shape[0]))
     Fv = Fv.reshape((N,N)).T
 
     n_rot = {

@@ -10,7 +10,7 @@ python -m http.server -d _build/html &> /dev/null &
 
 while true
 do
-{ git ls-files; git ls-files . --exclude-standard --others; } | entr -d jupyter-book build .
+{ git ls-files; git ls-files . --exclude-standard --others; } | entr -d ./update
 done
 
 wait

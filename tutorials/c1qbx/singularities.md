@@ -5,7 +5,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.11.5
 kernelspec:
   display_name: Python 3
   language: python
@@ -281,14 +281,6 @@ plt.show()
 
 
 
-
-
-
-
-
-
-
-
 ```
 
 ```{code-cell} ipython3
@@ -369,7 +361,6 @@ def approach_test(obs_pts, slip):
 ```
 
 ```{code-cell} ipython3
-
 seq1 = []
 yvs = np.linspace(-1.1, 1.1, 23)
 for yv in yvs:

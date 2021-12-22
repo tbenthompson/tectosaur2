@@ -1,5 +1,4 @@
-Boundary integral method tutorials
-============================
+# Integral equation tutorials
 
 <img src="tdes/sa_mesh.svg" width="350px"><img src="c1qbx/qbx_single.svg" width="350px">
 
@@ -14,8 +13,7 @@ Over the last few decades, the key parts of a general-purpose boundary integral 
 * Direct hierarchical inverse methods {cite:p}`Bebendorf2004, HodlrLib, Greengard2009, Coulier2017` allow for $O(n)$ inversion of the superficially dense BIE matrices.
 * Embedded boundary methods {cite:p}`Ethridge2001, Biros2004` allow for handling body forces and nonlinearities. Smooth function extension methods {cite:p}`Fryklund2018` make this approach accurate.
 
-However, these methods have not become mainstream yet. The only paper I am aware of that combines most of these methods is {cite:t}`Askham2017` but the source is not available.
-
+However, these methods have not become mainstream yet. Recent papers have combined most of these methods {cite:p}`Askham2017` but none of these papers have provided source much less a detailed explanation of how to build a practical implementation.
 
 This "book" will walk through implementing each of these methods in practical applications. Most of the applications will be to earthquake science problems, however there will be other examples where it makes more sense.
 

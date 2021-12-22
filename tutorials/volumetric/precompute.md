@@ -5,7 +5,7 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.11.5
 kernelspec:
   display_name: Python 3
   language: python
@@ -19,6 +19,7 @@ kernelspec:
 ## Setting up a test problem
 
 ```{code-cell} ipython3
+import numpy as np
 import matplotlib.pyplot as plt
 import sympy as sp
 
@@ -30,7 +31,7 @@ import sympy as sp
 ```{code-cell} ipython3
 :tags: []
 
-N = 9
+N = 7
 chebyshev_pts = [sp.cos(sp.pi * i / (N - 1)) for i in range(N)][::-1]
 chebyshev_pts_np = np.array([float(p) for p in chebyshev_pts])
 x = sp.var("x")
@@ -185,6 +186,7 @@ def get_inputs(obs_scale, obs_offsetx, obs_offsety):
     return inputs
 
 
+multiprocessing.set_start_method('fork')
 def coincident_grid():
     inputs = get_inputs(1, 0, 0)
     p = multiprocessing.Pool(5)
@@ -308,9 +310,9 @@ yrange = [-1.5, 6]
 def size_and_aspect():
     plt.xlim(*xrange)
     plt.ylim(*yrange)
-    plt.axis("off")
+    # plt.axis("off")
     ax = plt.gca()
-    ax.set_axis_off()
+    # ax.set_axis_off()
     plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
     plt.margins(0, 0)
     ax.xaxis.set_major_locator(plt.NullLocator())
@@ -425,6 +427,10 @@ grid_filenames = [
     "data/adj6_grid.npy",
 ]
 raw_grids = np.array([np.load(g, allow_pickle=True) for g in grid_filenames])
+```
+
+```{code-cell} ipython3
+[raw_grids[i].shape for i in range(7)]
 ```
 
 The estimated error is extremely small for all the integrals!
@@ -690,5 +696,8 @@ for i, mult in enumerate([1, 2, 4, 8, 16]):
 7. Reverse the scaling via the equations above.
 
 ```{code-cell} ipython3
-np.save("data/nearfield_integrals.npy", np.array([basis_integrals, all_integrals], dtype=object))
+to_save = np.empty(2, object)
+to_save[0] = basis_integrals
+to_save[1] = all_integrals
+np.save("data/nearfield_integrals.npy", to_save)
 ```

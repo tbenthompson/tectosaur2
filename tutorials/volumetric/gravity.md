@@ -5,19 +5,19 @@ jupytext:
     extension: .md
     format_name: myst
     format_version: 0.13
-    jupytext_version: 1.10.3
+    jupytext_version: 1.13.4
 kernelspec:
   display_name: Python 3
   language: python
   name: python3
 ---
 
-```{code-cell} ipython3
+```{code-cell}
 %load_ext autoreload
 %autoreload 2
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 import numpy as np
 import matplotlib.pyplot as plt
 import common
@@ -50,7 +50,7 @@ def slip_fnc(xhat):
 plt.plot(slip_fnc(np.linspace(-1, 1, 100)))
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 qr_fault = common.gauss_rule(50)
 fault = fault_fnc(qr_fault[0])
 
@@ -67,19 +67,19 @@ A = A[:, 0, :]
 B = B[:, 0, :]
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 slip = slip_fnc(qr_fault[0])
 v = B.dot(slip)
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 surf_disp = np.linalg.solve(A - 0.5 * np.eye(A.shape[0]), v)
 
 plt.plot(surf_disp)
 plt.show()
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 def hypersingular_matrix(surface, quad_rule, obsx, obsy):
     srcx, srcy, srcnx, srcny, curve_jacobian = surface
 
@@ -100,7 +100,7 @@ def hypersingular_matrix(surface, quad_rule, obsx, obsy):
     return integrand * curve_jacobian * quad_rule[1][None, :]
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 def interior_eval(
     kernel,
     src_surface,
@@ -158,7 +158,7 @@ def interior_eval(
     return disp_qbx
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 nobs = 100
 zoomx = [-2.5, 2.5]
 zoomy = [-5.1, -0.1]
@@ -216,7 +216,7 @@ plt.ylim(zoomy)
 plt.show()
 ```
 
-```{code-cell} ipython3
+```{code-cell}
 nobs = 100
 zoomx = [-2.5, 2.5]
 zoomy = [-5.1, -0.1]
