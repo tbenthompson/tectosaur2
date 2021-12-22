@@ -11,7 +11,6 @@ execute:
   execute_notebooks: false
   timeout: 60000
 
-
 # Define the name of the latex output file for PDF builds
 latex:
   latex_documents:
@@ -24,21 +23,28 @@ bibtex_bibfiles:
 # Information about where the book exists on the web
 repository:
   url: https://github.com/tbenthompson/BIE_book  # Online location of your book
+  path_to_book: ./tutorials
   branch: master  # Which branch of the repository should be used when creating links (optional)
-
-launch_buttons:
-  binderhub_url: 'false'
 
 # Add GitHub buttons to your book
 # See https://jupyterbook.org/customize/config.html#add-a-link-to-your-repository
 html:
-  use_issues_button: true
-  use_repository_button: true
-  comments:
-    hypothesis: true
+  use_edit_page_button      : false  # Whether to add an "edit this page" button to pages. If `true`, repository information in repository: must be filled in
+  use_repository_button     : false  # Whether to add a link to your repository button
+  use_issues_button         : false  # Whether to add an "open an issue" button
+  use_fullscreen_button: false
+  use_multitoc_numbering    : false   # Continuous numbering across parts/chapters
   extra_navbar: ""
   google_analytics_id: UA-114592151-1
   baseurl: https://tbenthompson.com/book/
+
+launch_buttons:
+  notebook_interface        : classic  # The interface interactive links will activate ["classic", "jupyterlab"]
+  binderhub_url             : ""  # The URL of the BinderHub (e.g., https://mybinder.org)
+  jupyterhub_url            : ""  # The URL of the JupyterHub (e.g., https://datahub.berkeley.edu)
+  thebe                     : false  # Add a thebe button to pages (requires the repository to run on Binder)
+  colab_url                 : "" # The URL of Google Colab (https://colab.research.google.com)
+
 
 sphinx:
   config:

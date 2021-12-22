@@ -4,15 +4,15 @@ format: jb-book
 root: intro
 parts:
   - caption: "The TDE sequence: triangular dislocation elements"
-    numbered: false
+    numbered: true
     chapters:
-    - file: tdes/sa_tdes
-    - file: tdes/sa_geometry
-    - file: tdes/free_matvec
-    - file: tdes/low_rank
-    - file: tdes/hmatrix
+    - file: tdes/part1_sa_tdes
+    - file: tdes/part2_sa_geometry
+    - file: tdes/part3_free_matvec
+    - file: tdes/part4_low_rank
+    - file: tdes/part5_hmatrix
   - caption: "The QBX sequence: quadrature by expansion"
-    numbered: false
+    numbered: true
     chapters:
     - file: c1qbx/part1_nearfield
     - file: c1qbx/part2_screw_dislocation
@@ -20,15 +20,19 @@ parts:
     - file: c1qbx/part4_surface_intersection.ipynb
     - file: c1qbx/part5_viscoelastic.ipynb
     - file: c1qbx/part6_qd.ipynb
-    # - file: c1qbx/solve_circle
-    # - file: c1qbx/mms_circle
+    - file: c1qbx/part7_qd_two_faults.ipynb
+    - file: c1qbx/part8_thrust_qd.ipynb
+  - caption: "The volumetric sequence: beyond boundaries"
+    numbered: true
+    chapters:
+    - file: volumetric/part1_solve_circle
+    - file: volumetric/part2_mms_circle
+    - file: volumetric/part3_mms_box
     # - file: c1qbx/box_code
     # - file: c1qbx/viscoelastic
-#     - file: c1qbx/mms_box
 #     - file: c1qbx/gravity
 #     - file: c1qbx/part4_splines
   - caption: Back matter
-    numbered: false
     chapters:
     - file: references
     - file: thanks
