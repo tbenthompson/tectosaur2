@@ -49,7 +49,7 @@ launch_buttons:
 sphinx:
   config:
     bibtex_reference_style: author_year
-    mathjax_path: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+    # mathjax_path: https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
     html_baseurl: 'https://tbenthompson.com/book/'
   extra_extensions:
     - sphinx_sitemap

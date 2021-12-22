@@ -105,6 +105,7 @@ main.bd-content #main-content dl.field-list dd:not(:last-child) {
 }
 
 /* Adds dark mode */
+/*
 @media (prefers-color-scheme: dark) {
   :root {
     --pst-color-primary: 221, 221, 221;
@@ -184,6 +185,7 @@ main.bd-content #main-content dl.field-list dd:not(:last-child) {
     background: none !important;
   }
 }
+*/
 
 p.card-text {
   margin-top: 0px;
