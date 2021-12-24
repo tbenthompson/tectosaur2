@@ -1,0 +1,3 @@
+find . -name "*.md" -mmin -2 -not -path "*/.ipynb_checkpoints/*" -not -path "./_build/*" -exec python sync_notebooks.py {} \;
+jupyter-book build .
+./refresh

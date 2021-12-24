@@ -19,7 +19,9 @@ from tectosaur2.laplace2d import (
 from tectosaur2.mesh import (
     apply_interp_mat,
     barycentric_deriv,
-    build_interp_wts,
+    barycentric_eval,
+    build_interp_matrix,
+    trapezoidal_rule,
     unit_circle,
     upsample,
 )
@@ -53,14 +55,25 @@ kernel_types = [
 ]
 
 
-def test_barycentric():
-    qx, qw = gauss_rule(5)
-    interp_wts = build_interp_wts(qx)
-    f = lambda x: x ** 2
+def test_interpolation():
+    qx, qw, interp_wts = gauss_rule(5)
+    f = lambda x: x ** 3
     eval_x = np.linspace(-1, 1, 100)
+    finterp = barycentric_eval(eval_x, qx, interp_wts, f(qx))
+    np.testing.assert_allclose(finterp, f(eval_x))
+
     deriv = barycentric_deriv(eval_x, qx, interp_wts, f(qx))
-    correct = 2 * eval_x
+    correct = 3 * eval_x ** 2
     np.testing.assert_allclose(deriv, correct)
+
+    interp_mat = build_interp_matrix(qx, interp_wts, eval_x)
+    finterp_mat = interp_mat.dot(f(qx))
+    np.testing.assert_allclose(finterp_mat, f(eval_x))
+
+    qx, qw, interp_wts = trapezoidal_rule(5)
+    f = lambda x: np.cos(x * np.pi)
+    eval_x = np.linspace(-1, 1, 100)
+    finterp = barycentric_eval(eval_x, qx, interp_wts, f(qx))
 
 
 @pytest.mark.parametrize("K_type", kernel_types)

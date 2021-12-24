@@ -1,0 +1,13 @@
+#!/bin/sh
+exec <"$0" || exit; read v; read v; exec /usr/bin/osascript - "$@"; exit
+# The line above allows the rest of the file to be written in plain AppleScript.
+
+# tell application "Google Chrome" to tell the active tab of its first window
+#     reload
+# end tell
+tell application "Safari"
+    tell window 1
+        set myTab to tab 1
+        tell myTab to do JavaScript "location.reload();"
+    end tell
+end tell

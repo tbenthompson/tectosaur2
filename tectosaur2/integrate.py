@@ -4,7 +4,7 @@ import numpy as np
 import quadpy
 import scipy.spatial
 
-from tectosaur2.mesh import build_interp_matrix, build_interpolator, concat_meshes
+from tectosaur2.mesh import build_interp_matrix, concat_meshes
 
 from ._ext import (
     choose_expansion_circles,
@@ -149,9 +149,10 @@ def integrate_term(
             nearby_singularities, dtype=int, casting="unsafe"
         )
 
-        interpolator = build_interpolator(combined_src.qx)
         n_interp = 30
-        Im = build_interp_matrix(interpolator, np.linspace(-1, 1, n_interp))
+        Im = build_interp_matrix(
+            combined_src.qx, combined_src.interp_wts, np.linspace(-1, 1, n_interp)
+        )
         exp_rs = qbx_panel_L * 0.5 * np.abs(direction)
         offset_vector = np.sign(direction[:, None]) * qbx_normals
         exp_centers = qbx_obs_pts + offset_vector * exp_rs[:, None]

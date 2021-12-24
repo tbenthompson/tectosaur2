@@ -31,8 +31,7 @@ class PanelSurface:
 
     def __init__(
         self,
-        qx,
-        qw,
+        quad_rule,
         quad_pts,
         quad_wts,
         pts,
@@ -42,9 +41,9 @@ class PanelSurface:
         panel_bounds,
         panel_edges,
     ):
-        self.qx = qx
-        self.qw = qw
-        self.interp_wts = build_interp_wts(self.qx)
+        self.qx = quad_rule[0]
+        self.qw = quad_rule[1]
+        self.interp_wts = quad_rule[2]
 
         self.quad_pts = quad_pts
         self.quad_wts = quad_wts
@@ -64,7 +63,7 @@ class PanelSurface:
         self.panel_length = np.sum(
             (self.quad_wts * self.jacobians).reshape((-1, self.panel_order)), axis=1
         )
-        self.panel_radius = np.min(self.radius.reshape((-1, qx.shape[0])), axis=1)
+        self.panel_radius = np.min(self.radius.reshape((-1, self.qx.shape[0])), axis=1)
 
     @property
     def panel_order(self):
@@ -81,8 +80,7 @@ class PanelSurface:
 
 def concat_meshes(meshes):
     return PanelSurface(
-        meshes[0].qx,
-        meshes[0].qw,
+        (meshes[0].qx, meshes[0].qw, meshes[0].interp_wts),
         np.concatenate([s.quad_pts for s in meshes]),
         np.concatenate([s.quad_wts for s in meshes]),
         np.concatenate([s.pts for s in meshes]),
@@ -94,28 +92,7 @@ def concat_meshes(meshes):
     )
 
 
-def gauss_rule(n):
-    """
-    The n-point gauss quadrature rule on [-1, 1].
-    Returns tuple of (points, weights)
-    """
-    k = np.arange(1.0, n)
-    a_band = np.zeros((2, n))
-    a_band[1, 0 : (n - 1)] = k / np.sqrt(4 * k * k - 1)  # noqa: E203
-    x, V = scipy.linalg.eig_banded(a_band, lower=True)
-    w = 2 * np.real(np.power(V[0, :], 2))
-    return x, w
-
-
-def trapezoidal_rule(n):
-    """
-    The n-point trapezoidal rule on [-1, 1].
-    Returns tuple of (points, weights)
-    """
-    return np.linspace(-1.0, 1.0, n + 1)[:-1], np.full(n, 2.0 / n)
-
-
-def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
+def panelize_symbolic_surface(t, x, y, panel_bounds, quad_rule):
     """
     Construct a surface out of a symbolic parametrized curve splitting the curve parameter at
     `panel_bounds` into subcomponent. `panel_bounds` is expected to be a list of ranges of
@@ -143,6 +120,8 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
 
     panel_parameter_width = panel_bounds[:, 1] - panel_bounds[:, 0]
 
+    qx = quad_rule[0]
+    qw = quad_rule[1]
     quad_pts = (
         panel_bounds[:, 0, None]
         + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
@@ -163,8 +142,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, qx, qw):
     radius_of_curvature = surf_vals[5]
 
     return PanelSurface(
-        qx,
-        qw,
+        quad_rule,
         quad_pts,
         quad_wts,
         pts,
@@ -224,7 +202,7 @@ def refine_surfaces(
     # defined from an input segment geometry rather than from a symbolic
     # curve specification.
     cur_surfs = [
-        panelize_symbolic_surface(*sym_surfs[j], cur_panels[j], *quad_rule)
+        panelize_symbolic_surface(*sym_surfs[j], cur_panels[j], quad_rule)
         for j in range(len(sym_surfs))
     ]
 
@@ -312,7 +290,7 @@ def refine_surfaces(
 
             # Step 5) If
             cur_surfs[j] = panelize_symbolic_surface(
-                *sym_surfs[j], cur_panels[j], *quad_rule
+                *sym_surfs[j], cur_panels[j], quad_rule
             )
 
         if not did_refine:
@@ -337,17 +315,23 @@ def unit_circle(quad_rule, max_curvature=0.5, control_points=None):
     )
 
 
-def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
+def build_stage2_panel_surf(surf, stage2_panels, quad_rule):
     in_panel_idx = stage2_panels[:, 0].astype(int)
     left_param = stage2_panels[:, 1][:, None]
     right_param = stage2_panels[:, 2][:, None]
 
+    qx = quad_rule[0]
+    qw = quad_rule[1]
     out_relative_nodes = (
         left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
     )
 
     interp_mat = build_panel_interp_matrix(
-        surf.n_panels, surf.qx, stage2_panels[:, 0].astype(int), out_relative_nodes
+        surf.n_panels,
+        surf.qx,
+        surf.interp_wts,
+        stage2_panels[:, 0].astype(int),
+        out_relative_nodes,
     )
 
     quad_pts = (
@@ -375,8 +359,7 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
 
     return (
         PanelSurface(
-            qx,
-            qw,
+            quad_rule,
             quad_pts,
             quad_wts,
             pts,
@@ -390,7 +373,35 @@ def build_stage2_panel_surf(surf, stage2_panels, qx, qw):
     )
 
 
+def gauss_rule(n):
+    """
+    The n-point gauss quadrature rule on [-1, 1].
+    Returns tuple of (points, weights)
+    """
+    k = np.arange(1.0, n)
+    a_band = np.zeros((2, n))
+    a_band[1, 0 : (n - 1)] = k / np.sqrt(4 * k * k - 1)  # noqa: E203
+    x, V = scipy.linalg.eig_banded(a_band, lower=True)
+    w = 2 * np.real(np.power(V[0, :], 2))
+    return x, w, build_interp_wts(x)
+
+
+def trapezoidal_rule(n):
+    """
+    The n-point trapezoidal rule on [-1, 1].
+    Returns tuple of (points, weights)
+    """
+    return np.linspace(-1.0, 1.0, n + 1)[:-1], np.full(n, 2.0 / n), np.ones(n)
+
+
 def build_interp_wts(x):
+    """
+    Construct the barycentric interpolation weights for a particular set of
+    interpolation points on a non-periodic interval.
+    IMPORTANT: this will not work correctly for interpolation on a periodic
+    interval. This is important when using a trapezoidal quadrature rule on a
+    periodic surface.
+    """
     dist = x[:, None] - x[None, :]
     np.fill_diagonal(dist, 1.0)
     weights = 1.0 / np.prod(dist, axis=1)
@@ -404,6 +415,9 @@ def barycentric_eval(eval_pts, interp_pts, interp_wts, fnc_vals):
 
 
 def barycentric_deriv(eval_pts, interp_pts, interp_wts, fnc_vals):
+    """
+    Evaluate the derivative of a function via barycentric interpolation.
+    """
     dist = eval_pts[:, None] - interp_pts[None, :]
     kernel = interp_wts[None, :] / dist
     dkernel = -interp_wts[None, :] / (dist ** 2)
@@ -413,49 +427,18 @@ def barycentric_deriv(eval_pts, interp_pts, interp_wts, fnc_vals):
     ) / (np.sum(kernel, axis=1) ** 2)
 
 
-def build_interpolator(in_xhat):
-    """
-    Interpolate the function f(in_xhat) at the values f(out_xhat).
-
-    `f`: An array consisting of f(in_xhat[i])
-    `in_xhat`: The function inputs for which values are known already.
-    `out_xhat`: The function inputs for which values are desired.
-
-    Note that the in_xhat ordering is randomly permuted. This is a simple trick
-    to improve numerical stability. A PR has been merged to scipy to implement
-    this permutation within scipy.interpolate.BarycentricInterpolator but the new
-    functionality has not yet been released. The Cinv scaling is also included
-    in the PR.
-    """
-    permutation = np.random.permutation(in_xhat.shape[0])
-    permuted_in_xhat = in_xhat[permutation]
-    C = (np.max(permuted_in_xhat) - np.min(permuted_in_xhat)) / 4.0
-    Cinv = 1.0 / C
-    interp = scipy.interpolate.BarycentricInterpolator(
-        Cinv * permuted_in_xhat, np.zeros_like(in_xhat)
-    )
-    interp.Cinv = Cinv
-    interp.permutation = permutation
-    return interp
-
-
-def interpolate_fnc(interpolator, f, out_xhat):
-    interpolator.set_yi(f[interpolator.permutation])
-    return interpolator(interpolator.Cinv * out_xhat)
-
-
-def build_interp_matrix(interpolator, out_xhat):
+def build_interp_matrix(in_xhat, in_bary_wts, out_xhat):
     # This code is based on the code in
     # scipy.interpolate.BarycentricInterpolator._evaluate but modified to
     # construct a matrix.
-    dist = (interpolator.Cinv * out_xhat[:, None]) - interpolator.xi
+    dist = out_xhat[:, None] - in_xhat
 
     # Remove zeros so we don't divide by zero.
     z = dist == 0
     dist[z] = 1
 
     # The barycentric interpolation formula
-    dist = interpolator.wi / dist
+    dist = in_bary_wts / dist
     interp_matrix = dist / np.sum(dist, axis=-1)[:, None]
 
     # Handle points where out_xhat is in an entry in interpolator.xi
@@ -463,10 +446,7 @@ def build_interp_matrix(interpolator, out_xhat):
     interp_matrix[r[:-1]] = 0
     interp_matrix[r[:-1], r[-1]] = 1.0
 
-    # Invert the permutation so that the matrix can be used without extra knowledge
-    inv_permutation = np.empty_like(interpolator.permutation)
-    inv_permutation[interpolator.permutation] = np.arange(inv_permutation.shape[0])
-    return np.ascontiguousarray(interp_matrix[:, inv_permutation])
+    return np.ascontiguousarray(interp_matrix)
 
 
 def symbolic_eval(t, tvals, e):
@@ -476,14 +456,14 @@ def symbolic_eval(t, tvals, e):
     return result
 
 
-def build_panel_interp_matrix(in_n_panels, in_qx, panel_idxs, out_qx):
+def build_panel_interp_matrix(in_n_panels, in_qx, in_bary_wts, panel_idxs, out_qx):
     n_out_panels = out_qx.shape[0]
     shape = (n_out_panels * out_qx.shape[1], in_n_panels * in_qx.shape[0])
     indptr = np.arange(n_out_panels + 1)
     indices = panel_idxs
     interp_mat_data = []
     for i in range(n_out_panels):
-        single_panel_interp = build_interp_matrix(build_interpolator(in_qx), out_qx[i])
+        single_panel_interp = build_interp_matrix(in_qx, in_bary_wts, out_qx[i])
         interp_mat_data.append(single_panel_interp)
     return scipy.sparse.bsr_matrix((interp_mat_data, indices, indptr), shape)
 
@@ -511,7 +491,7 @@ def upsample(src, kappa):
     stage2_panels[:, 1] = -1
     stage2_panels[:, 2] = 1
     src_refined, interp_mat = build_stage2_panel_surf(
-        src, stage2_panels, *gauss_rule(src.panel_order * kappa)
+        src, stage2_panels, gauss_rule(src.panel_order * kappa)
     )
     return src_refined, interp_mat
 

@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# In Firefox, install the Live Reload extension and set up a rule for:
-# Host URL: http://localhost:8000/*
-# Source file URLs: http://localhost:8000/*
+# Open the refresh script and modify it for your browser/platform...
 
 trap "kill 0" EXIT
 
