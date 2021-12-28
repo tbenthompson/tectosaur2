@@ -3,6 +3,10 @@
 format: jb-book
 root: intro
 parts:
+  - caption: "The problem space"
+    numbered: true
+    chapters:
+    - file: fault_problems
   - caption: "The TDE sequence: triangular dislocation elements"
     numbered: true
     chapters:
@@ -16,12 +20,12 @@ parts:
     chapters:
     - file: c1qbx/part1_nearfield
     - file: c1qbx/part2_screw_dislocation
-    - file: c1qbx/part3_topo_solver
-    - file: c1qbx/part4_surface_intersection.ipynb
-    - file: c1qbx/part5_viscoelastic.ipynb
-    - file: c1qbx/part6_qd.ipynb
-    - file: c1qbx/part7_qd_two_faults.ipynb
-    - file: c1qbx/part8_thrust_qd.ipynb
+    - file: c1qbx/part3_surface_intersection
+    - file: c1qbx/part4_topography
+    - file: c1qbx/part5_viscoelastic
+    - file: c1qbx/part6_qd
+    - file: c1qbx/part7_qd_two_faults
+    - file: c1qbx/part8_thrust_qd
   - caption: "The volumetric sequence: beyond boundaries"
     numbered: true
     chapters:

@@ -8,6 +8,6 @@ exec <"$0" || exit; read v; read v; exec /usr/bin/osascript - "$@"; exit
 tell application "Safari"
     tell window 1
         set myTab to tab 1
-        tell myTab to do JavaScript "location.reload();"
+        tell myTab to do JavaScript "location.reload(true);"
     end tell
 end tell

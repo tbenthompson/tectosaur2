@@ -2,16 +2,20 @@ import sys
 import os.path
 import subprocess
 
-ipynb = sys.argv[1]
-dir, filename = os.path.split(ipynb)
+input_filename = sys.argv[1]
+
+dir, filename = os.path.split(input_filename)
 filebase, ext = os.path.splitext(filename)
-md_dir = os.path.join(dir, "md")
-md_file = os.path.join(md_dir, filebase + ".md")
 
-cmd1 = ["jupytext", "-s", "-o", md_file, ipynb]
-print(cmd1)
-subprocess.run(cmd1)
+print(ext)
+if ext == ".ipynb":
+    md_dir = os.path.join(dir, "md")
+    md_file = os.path.join(md_dir, filebase + ".md")
 
-cmd2 = ["jupytext", "-s", "-o", ipynb, md_file]
-print(cmd2)
-subprocess.run(cmd2)
+    cmd1 = ["jupytext", "-s", "-o", md_file, ipynb]
+    print(cmd1)
+    subprocess.run(cmd1)
+elif ext == ".md":
+    cmd2 = ["jupytext", "-s", "-o", ipynb, md_file]
+    print(cmd2)
+    subprocess.run(cmd2)
