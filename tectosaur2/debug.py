@@ -19,3 +19,19 @@ def plot_centers(report, xrange, yrange, failed=False):
     plt.axis("scaled")
     plt.xlim(xrange)
     plt.ylim(yrange)
+
+
+def plot_max_order_reached(report):
+    for s in report["srcs"]:
+        plt.plot(s.pts[:, 0], s.pts[:, 1], "k-o")
+
+    cs = report["exp_centers"][report["max_order_reached"]]
+    rs = report["exp_rs"][report["max_order_reached"]]
+    op = report["obs_pts"][report["use_qbx"]][report["max_order_reached"]]
+
+    plt.plot(op[:, 0], op[:, 1], "m.", markersize=10)
+    plt.plot(cs[:, 0], cs[:, 1], "b.", markersize=10)
+    for i in range(cs.shape[0]):
+        # if (xrange[0] < cs[i, 0] < xrange[1]) and (yrange[0] < cs[i, 1] < yrange[1]):
+        plt.gca().add_patch(plt.Circle(cs[i], rs[i], color="k", fill=False))
+    plt.axis("scaled")

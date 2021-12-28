@@ -1,7 +1,16 @@
+# flake8: noqa
 import numpy as np
 
-from .integrate import integrate_term  # noqa: F401
-from .mesh import gauss_rule, refine_surfaces, trapezoidal_rule  # noqa: F401
+from .integrate import integrate_term
+from .mesh import (
+    gauss_rule,
+    panelize_symbolic_surface,
+    pts_grid,
+    refine_surfaces,
+    trapezoidal_rule,
+    unit_circle,
+    upsample,
+)
 
 
 def tensor_dot(A, x):

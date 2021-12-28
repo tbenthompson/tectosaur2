@@ -400,13 +400,19 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                                                     (a.n_interp / 2) * 2 + 0];
                             double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
                                                     (a.n_interp / 2) * 2 + 1];
-                            std::cout << "max fail! " << obs.x << " " << obs.y << " "
-                                      << srcx << " " << srcy << " " << panel_idx << " "
-                                      << n_integrals << std::endl;
-                            std::cout << "exp: " << obs.expx << " " << obs.expy << " "
-                                      << obs.expr << std::endl;
-                            std::cout << "max err: " << max_err
-                                      << "   tol: " << coefficient_tol << std::endl;
+                            std::cout
+                                << "Integration failed for observation point (" << obs.x
+                                << ", " << obs.y << ") "
+                                << ", source panel center at: (" << srcx << ", "
+                                << srcy << "), panel_idx: " << panel_idx
+                                << ", n_integrals: " << n_integrals << std::endl;
+                            std::cout
+                                << "Expansion center: (" << obs.expx << ", " << obs.expy
+                                << ") with expansion radius: " << obs.expr << std::endl;
+                            std::cout << "The maximum estimated coefficient error: "
+                                      << max_err
+                                      << " with tolerance: " << coefficient_tol
+                                      << std::endl;
                         }
                         if (max_err > 10 * coefficient_tol) {
                             failed = true;
@@ -490,12 +496,14 @@ void local_qbx_elastic_H(const LocalQBXArgs& a) {
     _local_qbx_integrals(elastic_H_qbx, a);
 }
 
-void cpp_choose_expansion_circles(
-    double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
-    double* offset_vector, double* src_pts, double* interp_mat, int n_interp, int nq,
-    long* panels, long* panel_starts, double* singularities,
-    long* nearby_singularities, long* nearby_singularity_starts,
-    double nearby_safety_ratio, double singularity_safety_ratio) {
+void cpp_choose_expansion_circles(double* exp_centers, double* exp_rs, double* obs_pts,
+                                  int n_obs, double* offset_vector, double* src_pts,
+                                  double* interp_mat, int n_interp, int nq,
+                                  long* panels, long* panel_starts,
+                                  double* singularities, long* nearby_singularities,
+                                  long* nearby_singularity_starts,
+                                  double nearby_safety_ratio,
+                                  double singularity_safety_ratio) {
 
 #pragma omp parallel for
     for (int i = 0; i < n_obs; i++) {

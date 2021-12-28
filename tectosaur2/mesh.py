@@ -51,7 +51,10 @@ class PanelSurface:
         self.normals = normals
         self.jacobians = jacobians
         self.radius = radius
+
+        # TODO: replace panel_bounds with panel_edges
         self.panel_bounds = panel_bounds
+
         self.panel_edges = panel_edges
         self.panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
         self.panel_sizes = np.full(self.panel_bounds.shape[0], self.panel_order)
@@ -92,16 +95,24 @@ def concat_meshes(meshes):
     )
 
 
-def panelize_symbolic_surface(t, x, y, panel_bounds, quad_rule):
+def panelize_symbolic_surface(t, x, y, quad_rule, panel_bounds=None, n_panels=None):
     """
     Construct a surface out of a symbolic parametrized curve splitting the curve parameter at
-    `panel_bounds` into subcomponent. `panel_bounds` is expected to be a list of ranges of
+    `panel_bounds` into subcomponents. `panel_bounds` is expected to be a list of ranges of
     the parameter `t` that spans from [-1, 1]. For example:
     `panel_bounds = [(-1,-0.5),(-0.5,0),(0,1)]` would split the surface into three panels extending from
     1. t = -1 to t = -0.5
     2. t=-0.5 to t=0
     3. t=0 to t=1.
+
+    If `panel_bounds` is None, then the `n_panels` parameter is used the evenly
+    split the parameter space into panels.
     """
+    if panel_bounds is None:
+        assert n_panels is not None
+        panel_edges = np.linspace(-1, 1, n_panels + 1)
+        panel_bounds = np.stack((panel_edges[:-1], panel_edges[1:]), axis=1)
+
     dxdt = sp.diff(x, t)
     dydt = sp.diff(y, t)
 
@@ -109,6 +120,7 @@ def panelize_symbolic_surface(t, x, y, panel_bounds, quad_rule):
 
     dx2dt2 = sp.diff(dxdt, t)
     dy2dt2 = sp.diff(dydt, t)
+
     # A small factor is added to the radius of curvature denominator
     # so that we don't divide by zero when a surface is flat.
     radius = np.abs(jacobian ** 3 / (dxdt * dy2dt2 - dydt * dx2dt2 + 1e-16))
@@ -177,6 +189,15 @@ def refine_surfaces(
     control_points=None,
     max_iter=30,
 ):
+    """
+    Why does `refine_surfaces` process multiple surfaces at once? Why not just
+    process each surface individually? If two surfaces are very close to each
+    other and one has panels that are ten times larger than the panels of the
+    other surface, then the numerical integration will struggle to compute
+    accurate results. As a result, it's important that either the mesh set up
+    function handles all the relevant surfaces at once or the user explicitly
+    ensures that nearby panels are similar in size.
+    """
     n_surfs = len(sym_surfs)
 
     # cur_panels will track the current refinement level of the panels in each surface
@@ -202,7 +223,7 @@ def refine_surfaces(
     # defined from an input segment geometry rather than from a symbolic
     # curve specification.
     cur_surfs = [
-        panelize_symbolic_surface(*sym_surfs[j], cur_panels[j], quad_rule)
+        panelize_symbolic_surface(*sym_surfs[j], quad_rule, cur_panels[j])
         for j in range(len(sym_surfs))
     ]
 
@@ -290,7 +311,9 @@ def refine_surfaces(
 
             # Step 5) If
             cur_surfs[j] = panelize_symbolic_surface(
-                *sym_surfs[j], cur_panels[j], quad_rule
+                *sym_surfs[j],
+                quad_rule,
+                cur_panels[j],
             )
 
         if not did_refine:

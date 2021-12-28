@@ -203,7 +203,8 @@ def integrate_term(
                 "This an indication of a problem in either the integration or the "
                 "problem formulation."
             )
-        if np.any(report["p"] == K.max_p):
+        report["max_order_reached"] = report["p"] == K.max_p
+        if np.any(report["max_order_reached"]):
             warnings.warn(
                 "Some expanded integrals reached maximum expansion order."
                 " These integrals may be inaccurate."
