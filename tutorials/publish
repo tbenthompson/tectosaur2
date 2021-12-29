@@ -3,6 +3,7 @@ target_repo=~/Dropbox/active/tbenthompson_site
 target_dir=static/book
 
 conda activate tectosaur2
+jupyter book build .
 
 # Gather a locked environment.
 conda env export > ./environment.lock.yml
