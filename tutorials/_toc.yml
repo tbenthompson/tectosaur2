@@ -1,20 +1,18 @@
-# Table of content
-# Learn more at https://jupyterbook.org/customize/toc.html
 format: jb-book
 root: intro
 parts:
-  - caption: "The problem space"
-    numbered: true
-    chapters:
-    - file: fault_problems
+  # - caption: "The problem space"
+  #   numbered: true
+  #   chapters:
+  #   - file: fault_problems
   - caption: "The TDE sequence: triangular dislocation elements"
     numbered: true
     chapters:
-    - file: tdes/part1_sa_tdes
-    - file: tdes/part2_sa_geometry
-    - file: tdes/part3_free_matvec
-    - file: tdes/part4_low_rank
-    - file: tdes/part5_hmatrix
+    - file: tdes/sa_tdes
+    - file: tdes/sa_geometry
+    - file: tdes/free_matvec
+    - file: tdes/low_rank
+    - file: tdes/hmatrix
   - caption: "The QBX sequence: quadrature by expansion"
     numbered: true
     chapters:
