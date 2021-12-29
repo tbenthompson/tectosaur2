@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 from .integrate import Kernel
@@ -83,17 +85,20 @@ class Hypersingular(Kernel):
     name = "hypersingular"
     src_dim = 1
     obs_dim = 2
+    C = -1.0 / (2 * np.pi)
 
     def kernel(self, obs_pts, src_pts, src_normals):
         dx = obs_pts[:, 0, None] - src_pts[None, :, 0]
         dy = obs_pts[:, 1, None] - src_pts[None, :, 1]
         r2 = dx ** 2 + dy ** 2
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            invr2 = 1 / r2
         too_close = r2 <= 1e-16
-        r2[too_close] = 1
+        invr2[too_close] = 0
 
-        A = 2 * (dx * src_normals[None, :, 0] + dy * src_normals[None, :, 1]) / r2
-        C = -1.0 / (2 * np.pi * r2)
-        C[too_close] = 0
+        A = 2 * (dx * src_normals[None, :, 0] + dy * src_normals[None, :, 1]) * invr2
+        B = self.C * invr2
 
         out = np.empty((obs_pts.shape[0], 2, src_pts.shape[0], 1))
 
@@ -103,7 +108,7 @@ class Hypersingular(Kernel):
         # unscaled sigma_xz component
         out[:, 1, :, 0] = src_normals[None, :, 1] - A * dy
 
-        return out * C[:, None, :, None]
+        return out * B[:, None, :, None]
 
 
 single_layer = SingleLayer(d_cutoff=2.0, d_up=1.5, d_qbx=0.3, default_tol=1e-13)

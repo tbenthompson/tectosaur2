@@ -11,7 +11,7 @@ cdef extern from "local_qbx.cpp":
     cdef struct LocalQBXArgs:
         double* mat
         int* p
-        int* failed;
+        double* integration_error
         int* n_subsets
         int n_obs
         int n_src
@@ -82,11 +82,11 @@ def local_qbx_integrals(
     n_subsets_np = np.empty(obs_pts.shape[0], dtype=np.int32)
     cdef int[::1] n_subsets = n_subsets_np
 
-    failed_np = np.empty(obs_pts.shape[0], dtype=np.int32)
-    cdef int[::1] failed = failed_np
+    integration_error_np = np.empty(obs_pts.shape[0], dtype=np.float64)
+    cdef double[::1] integration_error = integration_error_np
 
     cdef LocalQBXArgs args = LocalQBXArgs(
-        &mat[0,0,0], &p[0], &failed[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
+        &mat[0,0,0], &p[0], &integration_error[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
         &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_panel_lengths[0], &src_param_width[0], src.n_panels,
@@ -115,13 +115,14 @@ def local_qbx_integrals(
     else:
         raise Exception("Unknown kernel name.")
 
-    return p_np, failed_np, n_subsets_np
+    return p_np, integration_error_np, n_subsets_np
 
 
 cdef extern from "nearfield.cpp":
     cdef struct NearfieldArgs:
         double* mat
         int* n_subsets
+        double* integration_error
         int n_obs
         int n_src
         double* obs_pts
@@ -179,14 +180,17 @@ def nearfield_integrals(
     n_subsets_np = np.zeros(obs_pts.shape[0], dtype=np.int32)
     cdef int[::1] n_subsets = n_subsets_np
 
+    integration_error_np = np.zeros(obs_pts.shape[0], dtype=np.float64)
+    cdef double[::1] integration_error = integration_error_np
+
     cdef NearfieldArgs args = NearfieldArgs(
-        &mat[0,0,0], &n_subsets[0], obs_pts.shape[0], src.n_pts, &obs_pts[0,0],
-        &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
-        &src_panel_lengths[0], &src_param_width[0], src.n_panels,
-        &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
-        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
-        mult, tol, adaptive,
-        &panel_obs_pts[0], &panel_obs_pts_starts[0], &kernel_parameters[0]
+        &mat[0,0,0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
+        src.n_pts, &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0],
+        &src_jacobians[0], &src_panel_lengths[0], &src_param_width[0],
+        src.n_panels, &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
+        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0],
+        kronrod_qx.shape[0], mult, tol, adaptive, &panel_obs_pts[0],
+        &panel_obs_pts_starts[0], &kernel_parameters[0]
     )
 
     if kernel_name == "single_layer":
@@ -208,7 +212,7 @@ def nearfield_integrals(
     else:
         raise Exception("Unknown kernel name.")
 
-    return n_subsets_np
+    return n_subsets_np, integration_error_np
 
 def identify_nearfield_panels(int n_obs, src_pts, int n_src_panels, int source_order):
     cdef long[:] src_pts_starts = np.zeros(n_obs + 1, dtype=int)

@@ -9,6 +9,7 @@
 #include <omp.h>
 
 constexpr double C = 1.0 / (2 * M_PI);
+constexpr double HC = -1.0 / (2 * M_PI);
 constexpr double C2 = 1.0 / (4 * M_PI);
 constexpr double too_close = 1e-16;
 
@@ -73,7 +74,7 @@ inline std::array<double, 2> hypersingular(const NearfieldObsInfo& obs, double s
     }
 
     double A = 2 * (dx * srcnx + dy * srcny) * invr2;
-    double B = -C * invr2;
+    double B = HC * invr2;
     return {B * (srcnx - A * dx), B * (srcny - A * dy)};
 }
 
@@ -232,6 +233,7 @@ inline std::array<double, 6> elastic_H(const NearfieldObsInfo& obs, double srcx,
 struct NearfieldArgs {
     double* mat;
     int* n_subsets;
+    double* integration_error;
     int n_obs;
     int n_src;
 
@@ -302,10 +304,12 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
                                  a.kernel_parameters};
 
             int n_subsets;
+            double max_err;
             if (a.adaptive) {
                 std::vector<double> integral(a.n_interp * ndim);
                 auto result =
                     adaptive_integrate(integral.data(), obs, kernel_fnc, sd, cur_panel, a.tol, memory_pool.data());
+                max_err = result.first;
                 n_subsets = result.second;
                 for (int i = 0; i < a.n_interp * ndim; i++) {
                     out_ptr[i] += a.mult * integral[i];
@@ -327,6 +331,11 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
             // atomic instruction.
 #pragma omp atomic
             a.n_subsets[obs_i] += n_subsets;
+
+            #pragma omp critical
+            {
+                a.integration_error[obs_i] = std::max(a.integration_error[obs_i], max_err);
+            }
         }
     }
 }

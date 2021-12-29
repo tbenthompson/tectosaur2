@@ -10,7 +10,7 @@ struct LocalQBXArgs {
     // out parameters
     double* mat;
     int* p;
-    int* failed;
+    double* integration_error;
     int* n_subsets;
 
     // input parameters
@@ -373,8 +373,8 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
             int p_step = 15;
             bool converged = false;
-            bool failed = false;
             obs.p_start = 0;
+            a.integration_error[obs_i] = 0;
             std::vector<double> temp_out(n_panels * Nv);
 
             while (!converged and obs.p_start <= a.max_p) {
@@ -391,35 +391,29 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                     auto result =
                         adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
                                            coefficient_tol, memory_pool.data());
-                    double max_err = result.first;
-                    int n_integrals = result.second;
-
-                    if (n_integrals == max_adaptive_integrals) {
-                        if (max_err > 1000 * coefficient_tol) {
-                            double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
-                                                    (a.n_interp / 2) * 2 + 0];
-                            double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
-                                                    (a.n_interp / 2) * 2 + 1];
-                            std::cout
-                                << "Integration failed for observation point (" << obs.x
-                                << ", " << obs.y << ") "
-                                << ", source panel center at: (" << srcx << ", "
-                                << srcy << "), panel_idx: " << panel_idx
-                                << ", n_integrals: " << n_integrals << std::endl;
-                            std::cout
-                                << "Expansion center: (" << obs.expx << ", " << obs.expy
-                                << ") with expansion radius: " << obs.expr << std::endl;
-                            std::cout << "The maximum estimated coefficient error: "
-                                      << max_err
-                                      << " with tolerance: " << coefficient_tol
-                                      << std::endl;
-                        }
-                        if (max_err > 10 * coefficient_tol) {
-                            failed = true;
-                        }
-                    }
-
                     n_subsets += result.second;
+                    double max_err = result.first;
+                    a.integration_error[obs_i] = std::max(a.integration_error[obs_i], max_err);
+
+                    // if (max_err > 1000 * coefficient_tol) {
+                        // double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
+                        //                         (a.n_interp / 2) * 2 + 0];
+                        // double srcy = a.src_pts[panel_idx * a.n_interp * 2 +
+                        //                         (a.n_interp / 2) * 2 + 1];
+                        // std::cout
+                        //     << "Integration failed for observation point (" << obs.x
+                        //     << ", " << obs.y << ") "
+                        //     << ", source panel center at: (" << srcx << ", "
+                        //     << srcy << "), panel_idx: " << panel_idx
+                        //     << ", n_integrals: " << n_integrals << std::endl;
+                        // std::cout
+                        //     << "Expansion center: (" << obs.expx << ", " << obs.expy
+                        //     << ") with expansion radius: " << obs.expr << std::endl;
+                        // std::cout << "The maximum estimated coefficient error: "
+                        //           << max_err
+                        //           << " with tolerance: " << coefficient_tol
+                        //           << std::endl;
+                    // }
                 }
 
                 // Add the integral and calculate series convergence.
@@ -458,7 +452,6 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                 obs.p_start = obs.p_end;
             }
 
-            a.failed[obs_i] = failed;
             a.p[obs_i] = obs.p_end - 1;
         }
     }

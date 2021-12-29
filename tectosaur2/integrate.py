@@ -177,8 +177,8 @@ def integrate_term(
         qbx_mat = np.zeros((qbx_obs_pts.shape[0], combined_src.n_pts, ndim))
         (
             report["p"],
-            report["integration_failed"],
-            report["n_subsets"],
+            report["qbx_integration_error"],
+            report["qbx_n_subsets"],
         ) = local_qbx_integrals(
             K.name,
             K.parameters,
@@ -196,13 +196,19 @@ def integrate_term(
             qbx_panels,
             qbx_panel_starts,
         )
-        report["integration_failed"] = report["integration_failed"].astype(bool)
-        if np.any(report["integration_failed"]):
+
+        # The integration_error is the maximum error from any of the integrals
+        # passed to the adaptive quadrature routine.
+        report["qbx_integration_failed"] = (
+            report["qbx_integration_error"] > tol
+        ).astype(bool)
+        if np.any(report["qbx_integration_failed"]):
             warnings.warn(
                 "Some integrals failed to converge during adaptive integration. "
                 "This an indication of a problem in either the integration or the "
                 "problem formulation."
             )
+
         report["max_order_reached"] = report["p"] == K.max_p
         if np.any(report["max_order_reached"]):
             warnings.warn(
@@ -243,6 +249,7 @@ def integrate_term(
 
     n_nearfield = np.sum(use_nearfield)
     report["n_nearfield"] = n_nearfield
+    report["use_nearfield"] = use_nearfield
     if n_nearfield > 0:
         nearfield_obs_pts = obs_pts[use_nearfield]
 
@@ -255,7 +262,10 @@ def integrate_term(
         panel_obs_pts = np.concatenate(panel_obs_pts, dtype=int, casting="unsafe")
 
         nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], combined_src.n_pts, ndim))
-        nearfield_integrals(
+        (
+            report["nearfield_n_subsets"],
+            report["nearfield_integration_error"],
+        ) = nearfield_integrals(
             K.name,
             K.parameters,
             nearfield_mat,
@@ -270,6 +280,15 @@ def integrate_term(
             tol,
             adaptive=True,
         )
+        report["nearfield_integration_failed"] = (
+            report["nearfield_integration_error"] > tol
+        ).astype(bool)
+        if np.any(report["nearfield_integration_failed"]):
+            warnings.warn(
+                "Some integrals failed to converge during adaptive integration. "
+                "This an indication of a problem in either the integration or the "
+                "problem formulation."
+            )
 
         # setting adaptive=False prevents refinement which is what we want to
         # cancel out the direct component terms

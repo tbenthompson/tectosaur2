@@ -1,5 +1,6 @@
 #pragma once
 #include <iostream>
+#include <queue>
 #include <vector>
 
 struct SourceData {
@@ -24,7 +25,6 @@ template <typename K, typename T>
 void integrate_domain(double* out, const T& obs, const K& kernel_fnc,
                       const SourceData& a, int panel_idx, double xhat_left,
                       double xhat_right) {
-
     constexpr size_t n_kernel_outputs =
         std::tuple_size<decltype(kernel_fnc(T{}, 0, 0, 0, 0))>::value;
 
@@ -146,7 +146,7 @@ struct EstimatedIntegral {
     double* value_ptr;
 };
 
-constexpr int max_adaptive_integrals = 100;
+constexpr int max_adaptive_integrals = 2000;
 
 template <typename K, typename T>
 std::pair<double, int>
@@ -171,11 +171,12 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
         integral_ptr[2 * i + 1] = fabs(integral_ptr[2 * i + 1]);
         max_err = std::max(integral_ptr[2 * i + 1], max_err);
     }
-    EstimatedIntegral initial_integral{-1, 1, max_err, integral_ptr};
 
-    std::vector<EstimatedIntegral> next_integrals;
-    auto heap_compare = [](auto& x, auto& y) { return x.max_err < y.max_err; };
-    next_integrals.push_back(initial_integral);
+    auto cmp = [](auto& x, auto& y) { return x.max_err < y.max_err; };
+    std::priority_queue<EstimatedIntegral, std::vector<EstimatedIntegral>,
+                        decltype(cmp)>
+        next_integrals(cmp);
+    next_integrals.emplace(EstimatedIntegral{-1, 1, max_err, integral_ptr});
 
     int integral_idx = 0;
     for (; integral_idx < max_adaptive_integrals; integral_idx++) {
@@ -184,8 +185,9 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
             break;
         }
 
-        // std::cout << integral_idx << " " << max_err << std::endl;
-        auto& cur_integral = next_integrals.front();
+        // OPTIMIZATION POTENTIAL: The memory used for cur_integral could be
+        // recycled during the next iteration of the loop.
+        auto& cur_integral = next_integrals.top();
 
         double midpt = (cur_integral.xhat_right + cur_integral.xhat_left) * 0.5;
         EstimatedIntegral left_child{cur_integral.xhat_left, midpt, 0,
@@ -206,7 +208,9 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
 
         // Update the integral and its corresponding error estimate.
         max_err = 0;
+        // std::cout << std::endl;
         for (int i = 0; i < Nv; i++) {
+            // std::cout << integral_idx << " " << i << " " << cur_integral.value_ptr[2*i+1] << std::endl;
             right_child.value_ptr[2 * i + 1] = fabs(right_child.value_ptr[2 * i + 1]);
             left_child.value_ptr[2 * i + 1] = fabs(left_child.value_ptr[2 * i + 1]);
             auto right_err = right_child.value_ptr[2 * i + 1];
@@ -227,12 +231,9 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
 
         // Update heap by removing the top entry that we just processed and
         // adding the two new children.
-        std::pop_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-        next_integrals.pop_back();
-        next_integrals.push_back(std::move(left_child));
-        std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
-        next_integrals.push_back(std::move(right_child));
-        std::push_heap(next_integrals.begin(), next_integrals.end(), heap_compare);
+        next_integrals.pop();
+        next_integrals.push(std::move(left_child));
+        next_integrals.push(std::move(right_child));
     }
 
     for (int i = 0; i < Nv; i++) {
