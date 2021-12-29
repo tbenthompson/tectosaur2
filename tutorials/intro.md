@@ -23,9 +23,12 @@ At the moment, there are three sequences:
     * Then, in sections 3, 4 and 5, I explain how to combine modern fast methods like H-matrices and adaptive cross approximation with TDEs.
 2. The QBX sequence: Quadrature by expansion is an elegant approach for numerically integrating the singular integrals in boundary integral equations. Combined with a $C^1$ mesh discretization, fast methods and embedded boundary methods, we can build a fast, robust and general PDE solver. Based on these ideas, I will sketch out what I think the next generation of boundary integral equation methods will look like.
     * In sections 1 and 2, I will explain how to use QBX to evaluate nearfield integrals and then demonstrate QBX on a variety of interesting geometries.
-    <!-- * In section 3, I will extend QBX from nearfield integrals to directly evaluating singular boundary integral equations. That will allow us to solve a BEM problem. -->
-    <!-- * In section 4, I will introduce basis splines as a method for general purpose $C^1$ mesh discretization. -->
-    <!-- * In section 5, I will introduce body force integrals and solve a simple time-dependent viscoelastic earthquake problem. -->
+    * In section 3, I will extend QBX from nearfield integrals to directly evaluating singular boundary integral equations, which will allow us to reproduce classical solutions for the displacement resulting from a fault in an elastic half space. That will allow us to solve a BEM problem.
+    * In section 4, I will play with topography by extending the code from section 3 to calculate the displacement due to a fault below a mountain.
+    * In section 5, I will solve a simple time-dependent viscoelastic earthquake problem.
+    * In section 6, I will demonstrate how to simulate earthquake cycles by solving the SCEC SEAS BP1-QD benchmark problem. Both sections 7 and 8 have code that is largely copy pasted from section 6. So section 6 is one of the more important sections.
+    * In section 7, I will demonstrate earthquake cycle simulation on two interacting faults.
+    * In section 8, I will demonstrate earthquake cycle simulation for a thrust fault.
 3. The volumetric sequence: Volumetric integral equations extend the potential of integral equation well beyond the classically narrow domain of boundary integral equations. Most nonlinear or inhomogeneous problems can be solved. This section is still mostly under construction, but the plan is to demonstrate how to solve a range of nonlinear problems in earthquake physics with a particular focus on plastic yielding.
 
 ## Prerequisites
@@ -35,3 +38,7 @@ The tutorials here are directed at a fairly experienced audience. Some prior kno
 * **Applied math skills**: multi-variable calculus, basic partial differential equations, numerical linear algebra. Do you know what it means to "Use an LU decomposition to solve the linear system resulting from a finite difference discretization of the Poisson equation?" I'll try to provide references when I'm discussing more technical topics.
 
 It will also be helpful but not necessary to have some familiarity with earthquake and crustal deformation modeling because many of the examples are drawn from that field. Earthquake and Volcano deformation by Segall {cite:p}`segallEarthquakeVolcanoDeformation2010` is a good introduction and reference.
+
+## Notes
+
+* If a section's title is prefixed with "[DRAFT]", then it's less finished, possibly consisting only of a bunch of uncommented unexplained but probably correct code. I've put these sections up because I think they're probably useful to someone even in their unfinished form. In general, I won't put up draft sections unless I think the code is correct. The draftyness refers just to the state of the writing. Also, all of the tutorials are, in some sense, draft form. I expect that corrections and better or expanded explanations will be common.

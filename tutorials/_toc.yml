@@ -31,11 +31,10 @@ parts:
     chapters:
     - file: volumetric/part1_solve_circle
     - file: volumetric/part2_mms_circle
-    - file: volumetric/part3_mms_box
-    # - file: c1qbx/box_code
-    # - file: c1qbx/viscoelastic
-#     - file: c1qbx/gravity
-#     - file: c1qbx/part4_splines
+    # - file: volumetric/part3_mms_box
+    # - file: volumetric/box_code
+#     - file: volumetric/gravity
+#     - file: volumetric/part4_splines
   - caption: Back matter
     chapters:
     - file: references

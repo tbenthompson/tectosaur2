@@ -3,6 +3,7 @@ import numpy as np
 
 from .integrate import integrate_term
 from .mesh import (
+    concat_meshes,
     gauss_rule,
     panelize_symbolic_surface,
     pts_grid,
