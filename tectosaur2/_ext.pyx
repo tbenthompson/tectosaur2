@@ -56,7 +56,7 @@ cdef extern from "local_qbx.cpp":
     cdef void local_qbx_elastic_H(const LocalQBXArgs&)
 
     cdef void cpp_choose_expansion_circles(double*, double*, double*, int,
-                                        double*, double*, double*, int,
+                                        double*, long*, double*, double*, int,
                                         int, long*, long*, double*,
                                         long*, long*, double, double)
 
@@ -277,6 +277,7 @@ def choose_expansion_circles(
     double[:] exp_rs,
     double[:,::1] obs_pts,
     double[:,::1] offset_vector,
+    long[::1] owner_panel_idx,
     double[:,::1] src_pts,
     double[:,::1] interp_mat,
     long[::1] panels,
@@ -294,6 +295,7 @@ def choose_expansion_circles(
         &obs_pts[0,0],
         obs_pts.shape[0],
         &offset_vector[0,0],
+        &owner_panel_idx[0],
         &src_pts[0,0],
         &interp_mat[0,0],
         interp_mat.shape[0],

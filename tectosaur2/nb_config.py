@@ -16,10 +16,35 @@ def import_and_display_fnc(module_name, fnc_name):
     display(Code(inspect.getsource(f), language="python"))
 
 
+def git_root():
+    import git
+
+    repo = git.Repo(".", search_parent_directories=True)
+    return repo.working_tree_dir
+
+
 def magic(text):
     ipy = get_ipython()
     if ipy is not None:
         ipy.magic(text)
+
+
+def cython(flags, *, code=None, file=None):
+    if not cython.loaded:
+        magic("load_ext cython")
+        cython.loaded = True
+
+    if code is None:
+        if file is None:
+            raise ValueError(
+                "Either the 'code' or the 'file' parameter must be provided."
+            )
+        with open(file, "r") as f:
+            code = f.read()
+    get_ipython().run_cell_magic("cython", flags, code)
+
+
+cython.loaded = False
 
 
 def configure_mpl_fast():

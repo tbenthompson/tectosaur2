@@ -146,7 +146,7 @@ struct EstimatedIntegral {
     double* value_ptr;
 };
 
-constexpr int max_adaptive_integrals = 2000;
+constexpr int max_adaptive_integrals = 100;
 
 template <typename K, typename T>
 std::pair<double, int>
@@ -178,9 +178,8 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
         next_integrals(cmp);
     next_integrals.emplace(EstimatedIntegral{-1, 1, max_err, integral_ptr});
 
-    int integral_idx = 0;
+    int integral_idx = 1;
     for (; integral_idx < max_adaptive_integrals; integral_idx++) {
-
         if (max_err < tol) {
             break;
         }
@@ -206,11 +205,10 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
         integrate_domain(right_child.value_ptr, obs, kernel_fnc, a, panel_idx, midpt,
                          cur_integral.xhat_right);
 
+
         // Update the integral and its corresponding error estimate.
         max_err = 0;
-        // std::cout << std::endl;
         for (int i = 0; i < Nv; i++) {
-            // std::cout << integral_idx << " " << i << " " << cur_integral.value_ptr[2*i+1] << std::endl;
             right_child.value_ptr[2 * i + 1] = fabs(right_child.value_ptr[2 * i + 1]);
             left_child.value_ptr[2 * i + 1] = fabs(left_child.value_ptr[2 * i + 1]);
             auto right_err = right_child.value_ptr[2 * i + 1];
@@ -223,6 +221,16 @@ adaptive_integrate(double* out, const T& obs, const K& kernel_fnc, const SourceD
             left_child.max_err = std::max(left_child.max_err, left_err);
             right_child.max_err = std::max(right_child.max_err, right_err);
             max_err = std::max(integral_ptr[2 * i + 1], max_err);
+            // if (i == 0) {
+            //     std::cout.precision(17);
+            //     std::cout << integral_idx << " " << integral_ptr[2*i] << " " << integral_ptr[2*i+1] << " " << left_child.value_ptr[2 * i] +
+            //      right_child.value_ptr[2 * i] << " " <<
+            //     cur_integral.value_ptr[2 * i + 1] << " " <<
+            //     -cur_integral.value_ptr[2 * i] + left_child.value_ptr[2 * i] +
+            //                     right_child.value_ptr[2 * i]
+            //     <<  std::endl;
+            //     std::cout << left_child.value_ptr[2 * i] << " " << right_child.value_ptr[2 * i] << std::endl;
+            // }
         }
 
         if (max_err < tol) {

@@ -233,10 +233,14 @@ def test_safety_mode():
     # in derivative will cause the stress field to have a step function. This
     # will fail to integrate correctly without safety mode and will lead to
     # ringing in the stress component. With safety mode, there should be a
-    # perfect step function in stress.
+    # precise step function in stress.
+    # The downside of safety mode is that there's a dramatic loss of precision
+    # with hypersingular integrals. Safety mode moves expansion centers closer
+    # to the source surface. This increases the degree of numerical precision
+    # loss caused by the singularity.
     t = sp.var("t")
     surf = refine_surfaces(
-        [(t, t, 0 * t)], gauss_rule(12), control_points=[(0, 0, 0, 0.4)]
+        [(t, t, 0 * t)], gauss_rule(2), control_points=[(0, 0, 0.5, 0.5)]
     )
     displacement = 1 - np.abs(surf.pts[:, 0])
     mat, report = integrate_term(
@@ -250,6 +254,10 @@ def test_safety_mode():
         return_report=True,
     )
     stress = -2 * tensor_dot(mat, displacement)
+    import matplotlib.pyplot as plt
+
+    plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
+    plt.show()
     np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 
     # from tectosaur2.debug import plot_centers

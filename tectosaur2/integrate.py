@@ -161,6 +161,7 @@ def integrate_term(
             exp_rs,
             qbx_obs_pts,
             offset_vector,
+            closest_panel[use_qbx].copy(),
             combined_src.pts,
             Im,
             qbx_panels,
@@ -168,7 +169,7 @@ def integrate_term(
             singularities,
             nearby_singularities,
             nearby_singularities_starts,
-            nearby_safety_ratio=2.0 if safety_mode else 0.9999,
+            nearby_safety_ratio=1.5 if safety_mode else 0.9999,
             singularity_safety_ratio=singularity_safety_ratio,
         )
 

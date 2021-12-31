@@ -1,7 +1,17 @@
 import numpy as np
 
 
-def ACA_plus(n_rows, n_cols, calc_rows, calc_cols, eps, max_iter=None, verbose=False):
+def ACA_plus(
+    n_rows,
+    n_cols,
+    calc_rows,
+    calc_cols,
+    eps,
+    row_dim=3,
+    col_dim=3,
+    max_iter=None,
+    verbose=False,
+):
     """
     Run the ACA+ plus algorithm on a matrix implicitly defined by the
     row and column computation functions passed as arguments.
@@ -67,24 +77,24 @@ def ACA_plus(n_rows, n_cols, calc_rows, calc_cols, eps, max_iter=None, verbose=F
         # When a row gets used in the approximation, we will need to
         # reset to use a different reference row. Just, increment!
         while True:
-            Iref = (Iref + 3) % n_rows
-            Iref -= Iref % 3
+            Iref = (Iref + row_dim) % n_rows
+            Iref -= Iref % row_dim
             if Iref not in prevIstar:
                 break
 
         # Grab the "row" (actually three rows corresponding to the
         # x, y, and z components for a single observation point)
-        return calc_residual_rows(Iref, Iref + 3), Iref
+        return calc_residual_rows(Iref, Iref + row_dim), Iref
 
     # Same function as above but for the reference column
     def reset_reference_col(Jref):
         while True:
-            Jref = (Jref + 3) % n_cols
-            Jref -= Jref % 3
+            Jref = (Jref + col_dim) % n_cols
+            Jref -= Jref % col_dim
             if Jref not in prevJstar:
                 break
 
-        return calc_residual_cols(Jref, Jref + 3), Jref
+        return calc_residual_cols(Jref, Jref + col_dim), Jref
 
     # If we haven't converged before running for max_iter, we'll stop anyway.
     if max_iter is None:
@@ -97,10 +107,10 @@ def ACA_plus(n_rows, n_cols, calc_rows, calc_cols, eps, max_iter=None, verbose=F
     RJstar = np.zeros(n_rows)
 
     # Choose our starting random reference row and column.
-    # These will get incremented by 3 inside reset_reference_row
+    # These will get incremented by row_dim/col_dim inside reset_reference_row
     # so pre-subtract that.
-    Iref = np.random.randint(n_rows) - 3
-    Jref = np.random.randint(n_cols) - 3
+    Iref = np.random.randint(n_rows) - row_dim
+    Jref = np.random.randint(n_cols) - col_dim
     # And collect the corresponding blocks of rows/columns
     RIref, Iref = reset_reference_row(Iref)
     RJref, Jref = reset_reference_col(Jref)
@@ -172,23 +182,23 @@ def ACA_plus(n_rows, n_cols, calc_rows, calc_cols, eps, max_iter=None, verbose=F
 
         # If we pivoted on the reference row, then choose a new reference row.
         # Remember that we are using a x,y,z vector "row" or
-        # set of 3 rows in an algebraic sense.
-        if Iref <= Istar < Iref + 3:
+        # set of row_dim rows in an algebraic sense.
+        if Iref <= Istar < Iref + row_dim:
             RIref, Iref = reset_reference_row(Iref)
         else:
             # If we didn't change the reference row of the residual matrix "R",
             # update the row to account for the new components of the approximation.
-            RIref -= us[-1][Iref : Iref + 3][:, None] * vs[-1][None, :]
+            RIref -= us[-1][Iref : Iref + row_dim][:, None] * vs[-1][None, :]
 
         # If we pivoted on the reference column, then choose a new reference column.
         # Remember that we are using a x,y,z vector "column" or
-        # set of 3 columns in an algebraic sense.
-        if Jref <= Jstar < Jref + 3:
+        # set of col_dim columns in an algebraic sense.
+        if Jref <= Jstar < Jref + col_dim:
             RJref, Jref = reset_reference_col(Jref)
         else:
             # If we didn't change the reference column of the residual matrix "R",
             # update the column to account for the new components of the approximation.
-            RJref -= vs[-1][Jref : Jref + 3][None, :] * us[-1][:, None]
+            RJref -= vs[-1][Jref : Jref + col_dim][None, :] * us[-1][:, None]
 
     # Return the left and right approximation matrices.
     # The approximate is such that:
