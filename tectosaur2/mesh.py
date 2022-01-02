@@ -41,6 +41,7 @@ class PanelSurface:
         panel_bounds,
         panel_edges,
     ):
+        self.quad_rule = quad_rule
         self.qx = quad_rule[0]
         self.qw = quad_rule[1]
         self.interp_wts = quad_rule[2]
@@ -138,7 +139,6 @@ def panelize_symbolic_surface(t, x, y, quad_rule, panel_bounds=None, n_panels=No
         panel_bounds[:, 0, None]
         + panel_parameter_width[:, None] * (qx[None, :] + 1) * 0.5
     ).flatten()
-    quad_wts = (panel_parameter_width[:, None] * qw[None, :] * 0.5).flatten()
 
     surf_vals = [
         symbolic_eval(t, quad_pts, v) for v in [x, y, nx, ny, jacobian, radius]
@@ -152,6 +152,8 @@ def panelize_symbolic_surface(t, x, y, quad_rule, panel_bounds=None, n_panels=No
     normals = np.hstack((surf_vals[2][:, None], surf_vals[3][:, None]))
     jacobians = surf_vals[4]
     radius_of_curvature = surf_vals[5]
+
+    quad_wts = (panel_parameter_width[:, None] * qw[None, :] * 0.5).ravel() * jacobians
 
     return PanelSurface(
         quad_rule,
@@ -363,10 +365,6 @@ def build_stage2_panel_surf(surf, stage2_panels, quad_rule):
         * (out_relative_nodes + 1)
         * 0.5
     ).ravel()
-    quad_wts = (
-        (qw[None, :] * 0.25 * (right_param - left_param))
-        * surf.panel_parameter_width[in_panel_idx, None]
-    ).ravel()
 
     pts = interp_mat.dot(surf.pts)
     normals = interp_mat.dot(surf.normals)
@@ -379,6 +377,11 @@ def build_stage2_panel_surf(surf, stage2_panels, quad_rule):
         * 0.5
         * surf.panel_parameter_width[in_panel_idx, None]
     )
+
+    quad_wts = (
+        (qw[None, :] * 0.25 * (right_param - left_param))
+        * surf.panel_parameter_width[in_panel_idx, None]
+    ).ravel() * jacobians
 
     return (
         PanelSurface(

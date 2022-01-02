@@ -27,7 +27,7 @@ class Kernel:
     def direct(self, obs_pts, src):
         return (
             self.kernel(obs_pts, src.pts, src.normals)
-            * (src.jacobians * src.quad_wts)[None, None, :, None]
+            * src.quad_wts[None, None, :, None]
         )
 
 

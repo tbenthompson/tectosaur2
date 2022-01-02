@@ -200,7 +200,7 @@ def global_qbx_self(
             src_high.normals,
             m,
         )
-        out += term * (src_high.quad_wts * src_high.jacobians)[None, None, :, None]
+        out += term * (src_high.quad_wts)[None, None, :, None]
 
     out_mat = apply_interp_mat(out, interp_mat_high)
     if return_report:
