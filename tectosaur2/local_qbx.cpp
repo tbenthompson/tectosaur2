@@ -20,7 +20,6 @@ struct LocalQBXArgs {
     double* src_pts;
     double* src_normals;
     double* src_jacobians;
-    double* src_panel_lengths;
     double* src_param_width;
     int n_src_panels;
 
@@ -56,9 +55,6 @@ struct QBXObsInfo {
     int p_end;
     double* kernel_parameters;
 };
-
-// I could go with a fixed p. That would make the
-//
 
 // Assuming an adaptive p the order of loops has to look like:
 // given an observation point... and a set of QBX source panels
@@ -347,7 +343,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
     int Nv = a.n_interp * n_kernel_outputs;
 
     SourceData sd{a.src_pts,           a.src_normals,     a.src_jacobians,
-                  a.src_panel_lengths, a.src_param_width, a.n_src_panels,
+                  a.src_param_width, a.n_src_panels,
                   a.interp_qx,         a.interp_wts,      a.n_interp,
                   a.kronrod_qx,        a.kronrod_qw,      a.kronrod_qw_gauss,
                   a.n_kronrod};

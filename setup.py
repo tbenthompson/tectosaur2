@@ -13,7 +13,7 @@ with open(path.join(here, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 debug = os.environ.get("TCT_DEBUG", "0") == "1"
-print(debug)
+print("Debug flag: ", debug)
 
 if sys.platform == "win32":
     # debug currently not implemented on windows. easy to do...
@@ -33,19 +33,24 @@ else:
 
     extra_link_args = ["-fopenmp"]
 
-extension_args = dict(
-    include_dirs=[np.get_include()],
-    extra_compile_args=extra_compile_args,
-    extra_link_args=extra_link_args,
-    depends=["tectosaur2/adaptive.hpp"],
-    language="c++",
-)
-
 ext_modules = [
     Extension(
         name="tectosaur2._ext",
         sources=["tectosaur2/_ext.pyx"],
-        **extension_args,
+        include_dirs=[np.get_include()],
+        extra_compile_args=extra_compile_args,
+        extra_link_args=extra_link_args,
+        depends=["tectosaur2/adaptive.hpp", "tectosaur2/direct_kernels.hpp"],
+        language="c++",
+    ),
+    Extension(
+        name="tectosaur2.hmatrix.aca_ext",
+        sources=["tectosaur2/hmatrix/aca_ext.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=extra_compile_args,
+        extra_link_args=extra_link_args,
+        depends=["tectosaur2/direct_kernels.hpp"],
+        language="c++",
     ),
 ]
 

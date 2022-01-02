@@ -3,19 +3,23 @@ import warnings
 import numpy as np
 import pytest
 import sympy as sp
-
-from tectosaur2 import gauss_rule, integrate_term, refine_surfaces, tensor_dot
-from tectosaur2._ext import nearfield_integrals
-from tectosaur2.elastic2d import ElasticA, ElasticH, ElasticT, ElasticU
-from tectosaur2.global_qbx import global_qbx_self
-from tectosaur2.laplace2d import (
+from kernels import (
     AdjointDoubleLayer,
     DoubleLayer,
+    ElasticA,
+    ElasticH,
+    ElasticT,
+    ElasticU,
     Hypersingular,
     SingleLayer,
     double_layer,
     hypersingular,
+    kernel_types,
 )
+
+from tectosaur2 import gauss_rule, integrate_term, refine_surfaces, tensor_dot
+from tectosaur2._ext import nearfield_integrals
+from tectosaur2.global_qbx import global_qbx_self
 from tectosaur2.mesh import (
     apply_interp_mat,
     barycentric_deriv,
@@ -25,34 +29,6 @@ from tectosaur2.mesh import (
     unit_circle,
     upsample,
 )
-
-
-def elasticU(**kwargs):
-    return ElasticU(0.3, **kwargs)
-
-
-def elasticT(**kwargs):
-    return ElasticT(0.2, **kwargs)
-
-
-def elasticA(**kwargs):
-    return ElasticA(0.2, **kwargs)
-
-
-def elasticH(**kwargs):
-    return ElasticH(0.35, **kwargs)
-
-
-kernel_types = [
-    SingleLayer,
-    DoubleLayer,
-    AdjointDoubleLayer,
-    Hypersingular,
-    elasticU,
-    elasticT,
-    elasticA,
-    elasticH,
-]
 
 
 def test_interpolation():
@@ -198,7 +174,7 @@ def test_integrate_self(K_type):
     tol = 1e-13
     if K_type is Hypersingular:
         tol = 5e-13
-    elif K_type is elasticH:
+    elif K_type is ElasticH:
         tol = 1e-11
     local_qbx, report = integrate_term(
         K_type(d_cutoff=4.0), src.pts, src, tol=tol, return_report=True
@@ -234,10 +210,16 @@ def test_safety_mode():
     # will fail to integrate correctly without safety mode and will lead to
     # ringing in the stress component. With safety mode, there should be a
     # precise step function in stress.
+    #
     # The downside of safety mode is that there's a dramatic loss of precision
     # with hypersingular integrals. Safety mode moves expansion centers closer
     # to the source surface. This increases the degree of numerical precision
     # loss caused by the singularity.
+    #
+    # This problem can be partially ameliorated by using lower order elements.
+    # High order elements cause problems with safety_mode because the nodes
+    # cluster near the edges of panels. This causes the expansion centers near
+    # panel edges to be very close to the panel causing floating point error.
     t = sp.var("t")
     surf = refine_surfaces(
         [(t, t, 0 * t)], gauss_rule(2), control_points=[(0, 0, 0.5, 0.5)]
@@ -254,10 +236,11 @@ def test_safety_mode():
         return_report=True,
     )
     stress = -2 * tensor_dot(mat, displacement)
-    import matplotlib.pyplot as plt
 
-    plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
+    # plt.show()
+
     np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 
     # from tectosaur2.debug import plot_centers

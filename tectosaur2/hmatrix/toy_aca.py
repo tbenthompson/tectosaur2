@@ -11,6 +11,8 @@ def ACA_plus(
     col_dim=3,
     max_iter=None,
     verbose=False,
+    Iref0=None,
+    Jref0=None,
 ):
     """
     Run the ACA+ plus algorithm on a matrix implicitly defined by the
@@ -109,13 +111,24 @@ def ACA_plus(
     # Choose our starting random reference row and column.
     # These will get incremented by row_dim/col_dim inside reset_reference_row
     # so pre-subtract that.
-    Iref = np.random.randint(n_rows) - row_dim
-    Jref = np.random.randint(n_cols) - col_dim
+    Iref = Iref0
+    if Iref is None:
+        Iref = np.random.randint(n_rows)
+    Iref -= row_dim
+    Jref = Jref0
+    if Jref is None:
+        Jref = np.random.randint(n_cols)
+    Jref -= col_dim
+
     # And collect the corresponding blocks of rows/columns
     RIref, Iref = reset_reference_row(Iref)
     RJref, Jref = reset_reference_col(Jref)
 
     for k in range(max_iter):
+        if verbose:
+            print(Iref, RIref[0, :5])
+            print(Jref, RJref[:5, 0])
+
         # These two lines find the column in RIref with the largest entry (step 1 above).
         maxabsRIref = np.max(np.abs(RIref), axis=0)
         Jstar = argmax_not_in_list(maxabsRIref, prevJstar)

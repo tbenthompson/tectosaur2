@@ -21,7 +21,6 @@ cdef extern from "local_qbx.cpp":
         double* src_pts
         double* src_normals
         double* src_jacobians
-        double* src_panel_lengths
         double* src_param_width
         int n_src_panels
 
@@ -71,7 +70,6 @@ def local_qbx_integrals(
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
     cdef double[::1] src_jacobians = src.jacobians
-    cdef double[::1] src_panel_lengths = src.panel_length
     cdef double[::1] src_param_width = src.panel_parameter_width
     cdef double[::1] interp_qx = src.qx
     cdef double[::1] interp_wts = src.interp_wts
@@ -89,7 +87,7 @@ def local_qbx_integrals(
         &mat[0,0,0], &p[0], &integration_error[0], &n_subsets[0], obs_pts.shape[0], src.n_pts,
         &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
-        &src_panel_lengths[0], &src_param_width[0], src.n_panels,
+        &src_param_width[0], src.n_panels,
         &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
         &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
         &exp_centers[0,0], &exp_rs[0],
@@ -130,7 +128,6 @@ cdef extern from "nearfield.cpp":
         double* src_pts
         double* src_normals
         double* src_jacobians
-        double* src_panel_lengths
         double* src_param_width
         int n_src_panels
 
@@ -172,7 +169,6 @@ def nearfield_integrals(
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
     cdef double[::1] src_jacobians = src.jacobians
-    cdef double[::1] src_panel_lengths = src.panel_length
     cdef double[::1] src_param_width = src.panel_parameter_width
     cdef double[::1] interp_qx = src.qx
     cdef double[::1] interp_wts = src.interp_wts
@@ -186,7 +182,7 @@ def nearfield_integrals(
     cdef NearfieldArgs args = NearfieldArgs(
         &mat[0,0,0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
         src.n_pts, &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0],
-        &src_jacobians[0], &src_panel_lengths[0], &src_param_width[0],
+        &src_jacobians[0], &src_param_width[0],
         src.n_panels, &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
         &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0],
         kronrod_qx.shape[0], mult, tol, adaptive, &panel_obs_pts[0],

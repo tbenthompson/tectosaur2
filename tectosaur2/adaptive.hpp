@@ -7,7 +7,6 @@ struct SourceData {
     double* src_pts;
     double* src_normals;
     double* src_jacobians;
-    double* src_panel_lengths;
     double* src_param_width;
     int n_src_panels;
 
