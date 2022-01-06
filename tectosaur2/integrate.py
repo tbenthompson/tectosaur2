@@ -53,14 +53,14 @@ def integrate_term(
 
     combined_src = concat_meshes(srcs)
 
-    # step 1: construct the farfield matrix!
+    # STEP 1: construct the farfield matrix!
     mat = K.direct(obs_pts, combined_src)
     ndim = K.obs_dim * K.src_dim
     report = dict(combined_src=combined_src)
     report["srcs"] = srcs
     report["obs_pts"] = obs_pts
 
-    # step 1: figure out which observation points need to use QBX and which need
+    # STEP 2: figure out which observation points need to use QBX and which need
     # to use nearfield integration
     src_tree = scipy.spatial.KDTree(combined_src.pts)
     closest_dist, closest_idx = src_tree.query(obs_pts, workers=-1)
@@ -177,9 +177,19 @@ def integrate_term(
         Im = build_interp_matrix(
             combined_src.qx, combined_src.interp_wts, np.linspace(-1, 1, n_interp)
         )
+        # Produce a first "default" guess of where the expansion centers should
+        # be. The offset distance in the direction of the normal vector will be
+        # half the length of the closest panel. Based on the literature, this
+        # forms a nice balance between requiring low order quadrature to compute
+        # expansion terms while also requiring a fairly small number of expanion
+        # terms for good accuracy.
         exp_rs = qbx_panel_L * 0.5 * np.abs(direction)
         offset_vector = np.sign(direction[:, None]) * qbx_normals
         exp_centers = qbx_obs_pts + offset_vector * exp_rs[:, None]
+
+        # Now that we have collected all the relevant directional, singularity
+        # and nearfield panel information, we can finally calculate the ideal
+        # location for each expansion center.
         choose_expansion_circles(
             exp_centers,
             exp_rs,
@@ -232,16 +242,17 @@ def integrate_term(
         else:
             test_density = np.ones(combined_src.n_pts * ndim)
 
-        # step 5: QBX integrals
+        # step 4: QBX integrals
         # TODO: This could be replaced by a sparse local matrix.
-        qbx_mat = np.zeros((qbx_obs_pts.shape[0], combined_src.n_pts, ndim))
+        qbx_mat = np.zeros(
+            (qbx_obs_pts.shape[0], K.obs_dim, combined_src.n_pts, K.src_dim)
+        )
         (
             report["p"],
             report["qbx_integration_error"],
             report["qbx_n_subsets"],
         ) = local_qbx_integrals(
-            K.name,
-            K.parameters,
+            K,
             qbx_mat,
             qbx_obs_pts,
             combined_src,
@@ -251,7 +262,6 @@ def integrate_term(
             kronrod_qw_gauss,
             exp_centers,
             exp_rs,
-            K.max_p,
             tol,
             qbx_panels,
             qbx_panel_starts,
@@ -278,8 +288,7 @@ def integrate_term(
 
         # step 6: subtract off the direct term whenever a QBX integral is used.
         nearfield_integrals(
-            K.name,
-            K.parameters,
+            K,
             qbx_mat,
             qbx_obs_pts,
             combined_src,
@@ -293,12 +302,7 @@ def integrate_term(
             adaptive=False,
         )
 
-        mat[use_qbx] += np.transpose(
-            qbx_mat.reshape(
-                (qbx_obs_pts.shape[0], combined_src.n_pts, K.obs_dim, K.src_dim)
-            ),
-            (0, 2, 1, 3),
-        )
+        mat[use_qbx] += qbx_mat
 
         report["use_qbx"] = use_qbx
         report["exp_centers"] = exp_centers
@@ -321,13 +325,14 @@ def integrate_term(
         panel_obs_pts_starts[1:] = np.cumsum([len(p) for p in panel_obs_pts])
         panel_obs_pts = np.concatenate(panel_obs_pts, dtype=int, casting="unsafe")
 
-        nearfield_mat = np.zeros((nearfield_obs_pts.shape[0], combined_src.n_pts, ndim))
+        nearfield_mat = np.zeros(
+            (nearfield_obs_pts.shape[0], K.obs_dim, combined_src.n_pts, K.src_dim)
+        )
         (
             report["nearfield_n_subsets"],
             report["nearfield_integration_error"],
         ) = nearfield_integrals(
-            K.name,
-            K.parameters,
+            K,
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,
@@ -353,8 +358,7 @@ def integrate_term(
         # setting adaptive=False prevents refinement which is what we want to
         # cancel out the direct component terms
         nearfield_integrals(
-            K.name,
-            K.parameters,
+            K,
             nearfield_mat,
             nearfield_obs_pts,
             combined_src,
@@ -367,12 +371,7 @@ def integrate_term(
             0.0,
             adaptive=False,
         )
-        mat[use_nearfield] += np.transpose(
-            nearfield_mat.reshape(
-                (nearfield_obs_pts.shape[0], combined_src.n_pts, K.obs_dim, K.src_dim)
-            ),
-            (0, 2, 1, 3),
-        )
+        mat[use_nearfield] += nearfield_mat
 
     mats = []
     col_idx = 0

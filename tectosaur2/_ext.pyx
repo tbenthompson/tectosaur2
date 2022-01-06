@@ -8,6 +8,8 @@ from libcpp.vector cimport vector
 
 
 cdef extern from "local_qbx.cpp":
+
+    # Look in local_qbx.cpp for details on the meaning of parameters.
     cdef struct LocalQBXArgs:
         double* mat
         int* p
@@ -17,6 +19,9 @@ cdef extern from "local_qbx.cpp":
         double* test_density
         int n_obs
         int n_src
+
+        int obs_dim
+        int src_dim
 
         double* obs_pts
 
@@ -62,11 +67,11 @@ cdef extern from "local_qbx.cpp":
 
 
 def local_qbx_integrals(
-    kernel_name, double[::1] kernel_parameters,
-    double[:,:,::1] mat,  double[:,::1] obs_pts, src, double[::1] test_density,
+    kernel,
+    double[:,:,:,::1] mat,  double[:,::1] obs_pts, src, double[::1] test_density,
     double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
     double[:,::1] exp_centers, double[::1] exp_rs,
-    int max_p, double tol, long[:] panels, long[:] panel_starts
+    double tol, long[:] panels, long[:] panel_starts
 ):
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
@@ -84,34 +89,37 @@ def local_qbx_integrals(
     integration_error_np = np.empty(obs_pts.shape[0], dtype=np.float64)
     cdef double[::1] integration_error = integration_error_np
 
+    cdef double[::1] kernel_parameters = kernel.parameters
+
     cdef LocalQBXArgs args = LocalQBXArgs(
-        &mat[0,0,0], &p[0], &integration_error[0], &n_subsets[0],
+        &mat[0,0,0,0], &p[0], &integration_error[0], &n_subsets[0],
         &test_density[0],
         obs_pts.shape[0], src.n_pts,
+        kernel.obs_dim, kernel.src_dim,
         &obs_pts[0,0],
         &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
         &src_param_width[0], src.n_panels,
         &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
         &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
         &exp_centers[0,0], &exp_rs[0],
-        max_p, tol, &panels[0], &panel_starts[0], &kernel_parameters[0]
+        kernel.max_p, tol, &panels[0], &panel_starts[0], &kernel_parameters[0]
     )
 
-    if kernel_name == "single_layer":
+    if kernel.name == "single_layer":
         local_qbx_single_layer(args)
-    elif kernel_name == "double_layer":
+    elif kernel.name == "double_layer":
         local_qbx_double_layer(args)
-    elif kernel_name == "adjoint_double_layer":
+    elif kernel.name == "adjoint_double_layer":
         local_qbx_adjoint_double_layer(args)
-    elif kernel_name == "hypersingular":
+    elif kernel.name == "hypersingular":
         local_qbx_hypersingular(args)
-    elif kernel_name == "elastic_U":
+    elif kernel.name == "elastic_U":
         local_qbx_elastic_U(args)
-    elif kernel_name == "elastic_T":
+    elif kernel.name == "elastic_T":
         local_qbx_elastic_T(args)
-    elif kernel_name == "elastic_A":
+    elif kernel.name == "elastic_A":
         local_qbx_elastic_A(args)
-    elif kernel_name == "elastic_H":
+    elif kernel.name == "elastic_H":
         local_qbx_elastic_H(args)
     else:
         raise Exception("Unknown kernel name.")
@@ -126,6 +134,9 @@ cdef extern from "nearfield.cpp":
         double* integration_error
         int n_obs
         int n_src
+        int obs_dim
+        int src_dim
+
         double* obs_pts
 
         double* src_pts
@@ -162,8 +173,8 @@ cdef extern from "nearfield.cpp":
     cdef void nearfield_elastic_H(const NearfieldArgs&)
 
 def nearfield_integrals(
-    kernel_name, double[::1] kernel_parameters,
-    double[:,:,::1] mat, double[:,::1] obs_pts, src,
+    kernel,
+    double[:,:,:,::1] mat, double[:,::1] obs_pts, src,
     double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
     long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
     double mult, double tol, bool adaptive
@@ -182,31 +193,33 @@ def nearfield_integrals(
     integration_error_np = np.zeros(obs_pts.shape[0], dtype=np.float64)
     cdef double[::1] integration_error = integration_error_np
 
+    cdef double[::1] kernel_parameters = kernel.parameters
+
     cdef NearfieldArgs args = NearfieldArgs(
-        &mat[0,0,0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
-        src.n_pts, &obs_pts[0,0], &src_pts[0,0], &src_normals[0,0],
-        &src_jacobians[0], &src_param_width[0],
-        src.n_panels, &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
-        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0],
-        kronrod_qx.shape[0], mult, tol, adaptive, &panel_obs_pts[0],
-        &panel_obs_pts_starts[0], &kernel_parameters[0]
+        &mat[0,0,0,0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
+        src.n_pts, kernel.obs_dim, kernel.src_dim, &obs_pts[0,0], &src_pts[0,0],
+        &src_normals[0,0], &src_jacobians[0], &src_param_width[0], src.n_panels,
+        &interp_qx[0], &interp_wts[0], interp_qx.shape[0], &kronrod_qx[0],
+        &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0], mult, tol,
+        adaptive, &panel_obs_pts[0], &panel_obs_pts_starts[0],
+        &kernel_parameters[0]
     )
 
-    if kernel_name == "single_layer":
+    if kernel.name == "single_layer":
         nearfield_single_layer(args)
-    elif kernel_name == "double_layer":
+    elif kernel.name == "double_layer":
         nearfield_double_layer(args)
-    elif kernel_name == "adjoint_double_layer":
+    elif kernel.name == "adjoint_double_layer":
         nearfield_adjoint_double_layer(args)
-    elif kernel_name == "hypersingular":
+    elif kernel.name == "hypersingular":
         nearfield_hypersingular(args)
-    elif kernel_name == "elastic_U":
+    elif kernel.name == "elastic_U":
         nearfield_elastic_U(args)
-    elif kernel_name == "elastic_T":
+    elif kernel.name == "elastic_T":
         nearfield_elastic_T(args)
-    elif kernel_name == "elastic_A":
+    elif kernel.name == "elastic_A":
         nearfield_elastic_A(args)
-    elif kernel_name == "elastic_H":
+    elif kernel.name == "elastic_H":
         nearfield_elastic_H(args)
     else:
         raise Exception("Unknown kernel name.")

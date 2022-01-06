@@ -17,6 +17,9 @@ struct NearfieldArgs {
     int n_obs;
     int n_src;
 
+    int obs_dim;
+    int src_dim;
+
     double* obs_pts;
 
     double* src_pts;
@@ -74,9 +77,7 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
                 cur_panel += 1;
             }
 
-            int pt_start = cur_panel * a.n_interp;
             int obs_i = a.panel_obs_pts[integral_idx];
-            double* out_ptr = &a.mat[obs_i * a.n_src * ndim + pt_start * ndim];
 
             DirectObsInfo obs{a.obs_pts[obs_i * 2 + 0], a.obs_pts[obs_i * 2 + 1],
                               a.kernel_parameters};
@@ -89,16 +90,33 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
                                                  cur_panel, a.tol, memory_pool.data());
                 max_err = result.first;
                 n_subsets = result.second;
-                for (int i = 0; i < a.n_interp * ndim; i++) {
-                    out_ptr[i] += a.mult * integral[i];
+
+                for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
+                    for (int d1 = 0; d1 < a.obs_dim; d1++) {
+                        for (int d2 = 0; d2 < a.src_dim; d2++) {
+                            int i = pt_idx * a.obs_dim * a.src_dim + d1 * a.src_dim + d2;
+                            a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
+                                    (cur_panel * a.n_interp + pt_idx)) *
+                                        a.src_dim +
+                                    d2] += a.mult * integral[i];
+                        }
+                    }
                 }
             } else {
                 std::vector<double> integral(2 * a.n_interp * ndim);
                 integrate_domain(integral.data(), obs, kernel_fnc, sd, cur_panel, -1,
                                  1);
                 n_subsets = 1;
-                for (int i = 0; i < a.n_interp * ndim; i++) {
-                    out_ptr[i] += a.mult * integral[2 * i];
+                for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
+                    for (int d1 = 0; d1 < a.obs_dim; d1++) {
+                        for (int d2 = 0; d2 < a.src_dim; d2++) {
+                            int i = pt_idx * a.obs_dim * a.src_dim + d1 * a.src_dim + d2;
+                            a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
+                                    (cur_panel * a.n_interp + pt_idx)) *
+                                        a.src_dim +
+                                    d2] += a.mult * integral[2 * i];
+                        }
+                    }
                 }
             }
 
@@ -110,6 +128,7 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
 #pragma omp atomic
             a.n_subsets[obs_i] += n_subsets;
 
+            // TODO: critical sections sometimes suck. check the performance of this.
 #pragma omp critical
             {
                 a.integration_error[obs_i] =

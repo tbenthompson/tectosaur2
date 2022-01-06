@@ -16,8 +16,16 @@ struct LocalQBXArgs {
     // input parameters
     double* test_density;
 
+    // Number of observation points.
     int n_obs;
+    // The number of source points.
     int n_src;
+
+    // The number of rows in the tensor returned by the kernel function.
+    int obs_dim;
+    // The number of columns in the tensor returned by the kernel function.
+    int src_dim;
+
     double* obs_pts;
     double* src_pts;
     double* src_normals;
@@ -123,9 +131,8 @@ std::array<double, 2> double_layer_qbx(const QBXObsInfo& obs, double srcx, doubl
     return result;
 }
 
-std::array<double, 4> adjoint_double_layer_qbx(const QBXObsInfo& obs, double srcx,
-                                               double srcy, double srcnx,
-                                               double srcny) {
+std::array<double, 4> adjoint_double_layer_qbx(const QBXObsInfo& obs, double srcx, double srcy,
+                                               double srcnx, double srcny) {
     std::complex<double> w = {srcx, srcy};
     std::complex<double> z0 = {obs.expx, obs.expy};
     std::complex<double> z = {obs.x, obs.y};
@@ -139,8 +146,7 @@ std::array<double, 4> adjoint_double_layer_qbx(const QBXObsInfo& obs, double src
             expand = std::pow(obs.expr, m) / (m * (2 * M_PI) * std::pow(w - z0, m));
         }
 
-        std::complex<double> eval =
-            (m / obs.expr) * std::pow((z - z0) / obs.expr, m - 1);
+        std::complex<double> eval = (m / obs.expr) * std::pow((z - z0) / obs.expr, m - 1);
 
         result[0] += result[1];
         result[1] = std::real(expand * eval);
@@ -185,8 +191,8 @@ std::array<double, 4> hypersingular_qbx(const QBXObsInfo& obs, double srcx, doub
     return result;
 }
 
-std::array<double, 8> elastic_U_qbx(const QBXObsInfo& obs, double srcx, double srcy,
-                                    double srcnx, double srcny) {
+std::array<double, 8> elastic_U_qbx(const QBXObsInfo& obs, double srcx, double srcy, double srcnx,
+                                    double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
@@ -224,8 +230,8 @@ std::array<double, 8> elastic_U_qbx(const QBXObsInfo& obs, double srcx, double s
     return result;
 }
 
-std::array<double, 8> elastic_T_qbx(const QBXObsInfo& obs, double srcx, double srcy,
-                                    double srcnx, double srcny) {
+std::array<double, 8> elastic_T_qbx(const QBXObsInfo& obs, double srcx, double srcy, double srcnx,
+                                    double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
@@ -240,8 +246,7 @@ std::array<double, 8> elastic_T_qbx(const QBXObsInfo& obs, double srcx, double s
     auto ratio = (z - z0) / (w - z0);
     for (int m = obs.p_start; m < obs.p_end; m++) {
         std::complex<double> Gp = -std::pow(ratio, m) / (w - z0);
-        std::complex<double> Gpp =
-            (m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        std::complex<double> Gpp = (m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
         auto t1 = kappa * Gp * nw + std::conj(Gp * nw);
         auto t2 = nw * std::conj(Gp) - (w - z) * std::conj(Gpp * nw);
         result[0] += result[1];
@@ -256,8 +261,8 @@ std::array<double, 8> elastic_T_qbx(const QBXObsInfo& obs, double srcx, double s
     return result;
 }
 
-std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double srcy,
-                                     double srcnx, double srcny) {
+std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double srcy, double srcnx,
+                                     double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
@@ -272,11 +277,9 @@ std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double 
     auto ratio = (z - z0) / (w - z0);
     for (int m = obs.p_start; m < obs.p_end; m++) {
         std::complex<double> Gp = std::pow(ratio, m) / (w - z0);
-        std::complex<double> Gpp =
-            -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        std::complex<double> Gpp = -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
         for (int d_src = 0; d_src < 2; d_src++) {
-            auto tw =
-                static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
+            auto tw = static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
             // auto t1 = -kappa * std::conj(tw * Gp) - Gp * tw;
             // auto t2 = -std::conj(Gp) * tw + (w - z) * std::conj(Gpp * tw);
             auto t1 = -Gp * tw - std::conj(Gp * tw);
@@ -292,8 +295,8 @@ std::array<double, 12> elastic_A_qbx(const QBXObsInfo& obs, double srcx, double 
     return result;
 }
 
-std::array<double, 12> elastic_H_qbx(const QBXObsInfo& obs, double srcx, double srcy,
-                                     double srcnx, double srcny) {
+std::array<double, 12> elastic_H_qbx(const QBXObsInfo& obs, double srcx, double srcy, double srcnx,
+                                     double srcny) {
     const std::complex<double> i(0.0, 1.0);
     double poisson_ratio = obs.kernel_parameters[0];
     double kappa = 3 - 4 * poisson_ratio;
@@ -307,13 +310,11 @@ std::array<double, 12> elastic_H_qbx(const QBXObsInfo& obs, double srcx, double 
 
     auto ratio = (z - z0) / (w - z0);
     for (int m = obs.p_start; m < obs.p_end; m++) {
-        std::complex<double> Gpp =
-            -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
-        std::complex<double> Gppp = (m + 1.0) * (m + 2.0) * std::pow(ratio, m) /
-                                    ((w - z0) * (w - z0) * (w - z0));
+        std::complex<double> Gpp = -(m + 1.0) * std::pow(ratio, m) / ((w - z0) * (w - z0));
+        std::complex<double> Gppp =
+            (m + 1.0) * (m + 2.0) * std::pow(ratio, m) / ((w - z0) * (w - z0) * (w - z0));
         for (int d_src = 0; d_src < 2; d_src++) {
-            auto uw =
-                static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
+            auto uw = static_cast<double>(d_src == 0) + static_cast<double>(d_src == 1) * i;
             auto t1 = Gpp * nw * uw + std::conj(Gpp * nw * uw);
             auto t2 = std::conj(Gpp) * (nw * std::conj(uw) + std::conj(nw) * uw) -
                       (w - z) * std::conj(Gppp * nw * uw);
@@ -343,11 +344,9 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
     int Nv = a.n_interp * n_kernel_outputs;
 
-    SourceData sd{a.src_pts,           a.src_normals,     a.src_jacobians,
-                  a.src_param_width, a.n_src_panels,
-                  a.interp_qx,         a.interp_wts,      a.n_interp,
-                  a.kronrod_qx,        a.kronrod_qw,      a.kronrod_qw_gauss,
-                  a.n_kronrod};
+    SourceData sd{a.src_pts,      a.src_normals, a.src_jacobians,    a.src_param_width,
+                  a.n_src_panels, a.interp_qx,   a.interp_wts,       a.n_interp,
+                  a.kronrod_qx,   a.kronrod_qw,  a.kronrod_qw_gauss, a.n_kronrod};
 
 #pragma omp parallel
     {
@@ -385,13 +384,11 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                 for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
                     auto panel_idx = a.panels[panel_offset + panel_start];
                     double* temp_out_ptr = &temp_out[panel_offset * Nv];
-                    auto result =
-                        adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
-                                           coefficient_tol, memory_pool.data());
+                    auto result = adaptive_integrate(temp_out_ptr, obs, kernel_fnc, sd, panel_idx,
+                                                     coefficient_tol, memory_pool.data());
                     n_subsets += result.second;
                     double max_err = result.first;
-                    a.integration_error[obs_i] =
-                        std::max(a.integration_error[obs_i], max_err);
+                    a.integration_error[obs_i] = std::max(a.integration_error[obs_i], max_err);
 
                     // if (max_err > 1000 * coefficient_tol) {
                     // double srcx = a.src_pts[panel_idx * a.n_interp * 2 +
@@ -419,18 +416,21 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
                 for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
                     auto panel_idx = a.panels[panel_offset + panel_start];
-                    double* out_ptr =
-                        &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
                     double* test_ptr = &a.test_density[panel_idx * a.n_interp * ndim];
 
                     for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
-                        for (int d = 0; d < ndim; d++) {
-                            int k =
-                                panel_offset * a.n_interp * ndim + pt_idx * ndim + d;
-                            double all_but_last_term = temp_out[2 * k];
-                            double last_term = temp_out[2 * k + 1];
-                            out_ptr[pt_idx * ndim + d] += all_but_last_term + last_term;
-                            p_end_integral[d] += last_term * test_ptr[pt_idx * ndim + d];
+                        for (int d1 = 0; d1 < a.obs_dim; d1++) {
+                            for (int d2 = 0; d2 < a.src_dim; d2++) {
+                                int d = d1 * a.src_dim + d2;
+                                int k = panel_offset * a.n_interp * ndim + pt_idx * ndim + d;
+                                double all_but_last_term = temp_out[2 * k];
+                                double last_term = temp_out[2 * k + 1];
+                                a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
+                                       (panel_idx * a.n_interp + pt_idx)) *
+                                          a.src_dim +
+                                      d2] += all_but_last_term + last_term;
+                                p_end_integral[d] += last_term * test_ptr[pt_idx * a.src_dim + d2];
+                            }
                         }
                     }
                 }
@@ -452,44 +452,30 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
     }
 }
 
-void local_qbx_single_layer(const LocalQBXArgs& a) {
-    _local_qbx_integrals(single_layer_qbx, a);
-}
+void local_qbx_single_layer(const LocalQBXArgs& a) { _local_qbx_integrals(single_layer_qbx, a); }
 
-void local_qbx_double_layer(const LocalQBXArgs& a) {
-    _local_qbx_integrals(double_layer_qbx, a);
-}
+void local_qbx_double_layer(const LocalQBXArgs& a) { _local_qbx_integrals(double_layer_qbx, a); }
 
 void local_qbx_adjoint_double_layer(const LocalQBXArgs& a) {
     _local_qbx_integrals(adjoint_double_layer_qbx, a);
 }
 
-void local_qbx_hypersingular(const LocalQBXArgs& a) {
-    _local_qbx_integrals(hypersingular_qbx, a);
-}
+void local_qbx_hypersingular(const LocalQBXArgs& a) { _local_qbx_integrals(hypersingular_qbx, a); }
 
-void local_qbx_elastic_U(const LocalQBXArgs& a) {
-    _local_qbx_integrals(elastic_U_qbx, a);
-}
+void local_qbx_elastic_U(const LocalQBXArgs& a) { _local_qbx_integrals(elastic_U_qbx, a); }
 
-void local_qbx_elastic_T(const LocalQBXArgs& a) {
-    _local_qbx_integrals(elastic_T_qbx, a);
-}
+void local_qbx_elastic_T(const LocalQBXArgs& a) { _local_qbx_integrals(elastic_T_qbx, a); }
 
-void local_qbx_elastic_A(const LocalQBXArgs& a) {
-    _local_qbx_integrals(elastic_A_qbx, a);
-}
+void local_qbx_elastic_A(const LocalQBXArgs& a) { _local_qbx_integrals(elastic_A_qbx, a); }
 
-void local_qbx_elastic_H(const LocalQBXArgs& a) {
-    _local_qbx_integrals(elastic_H_qbx, a);
-}
+void local_qbx_elastic_H(const LocalQBXArgs& a) { _local_qbx_integrals(elastic_H_qbx, a); }
 
-void cpp_choose_expansion_circles(
-    double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
-    double* offset_vector, long* owner_panel_idx, double* src_pts, double* interp_mat,
-    int n_interp, int nq, long* panels, long* panel_starts, double* singularities,
-    long* nearby_singularities, long* nearby_singularity_starts,
-    double nearby_safety_ratio, double singularity_safety_ratio) {
+void cpp_choose_expansion_circles(double* exp_centers, double* exp_rs, double* obs_pts, int n_obs,
+                                  double* offset_vector, long* owner_panel_idx, double* src_pts,
+                                  double* interp_mat, int n_interp, int nq, long* panels,
+                                  long* panel_starts, double* singularities,
+                                  long* nearby_singularities, long* nearby_singularity_starts,
+                                  double nearby_safety_ratio, double singularity_safety_ratio) {
 
 #pragma omp parallel for
     for (int i = 0; i < n_obs; i++) {
@@ -545,10 +531,8 @@ void cpp_choose_expansion_circles(
                     double srcy = 0;
                     for (int interp_idx = 0; interp_idx < nq; interp_idx++) {
                         auto src_pt_idx = panel_idx * nq + interp_idx;
-                        srcx += interp_mat[pt_idx * nq + interp_idx] *
-                                src_pts[src_pt_idx * 2 + 0];
-                        srcy += interp_mat[pt_idx * nq + interp_idx] *
-                                src_pts[src_pt_idx * 2 + 1];
+                        srcx += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 0];
+                        srcy += interp_mat[pt_idx * nq + interp_idx] * src_pts[src_pt_idx * 2 + 1];
                     }
                     auto violation = violation_fnc(srcx, srcy, nearby_safety_ratio);
                     if (violation != 1.0) {

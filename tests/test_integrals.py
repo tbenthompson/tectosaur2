@@ -67,12 +67,11 @@ def test_nearfield_far(K_type):
     pts_per_panel = np.concatenate(pts_per_panel)
 
     K = K_type()
-    est_compact = np.zeros((obs_pts.shape[0], src.n_pts, K.obs_dim * K.src_dim))
+    est = np.zeros((obs_pts.shape[0], K.obs_dim, src.n_pts, K.src_dim))
 
     n_subsets = nearfield_integrals(
-        K.name,
-        K.parameters,
-        est_compact,
+        K,
+        est,
         obs_pts,
         src,
         src.qx,
@@ -83,10 +82,6 @@ def test_nearfield_far(K_type):
         1.0,
         3.0,
         adaptive=False,
-    )
-    est = np.transpose(
-        est_compact.reshape((obs_pts.shape[0], src.n_pts, K.obs_dim, K.src_dim)),
-        (0, 2, 1, 3),
     )
 
     assert n_subsets[0] == src.n_panels
