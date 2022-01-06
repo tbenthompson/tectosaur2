@@ -163,7 +163,7 @@ def test_integrate_can_do_global_qbx(K_type):
 
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_integrate_self(K_type):
-    src = unit_circle(gauss_rule(12), max_curvature=2.0)
+    src = unit_circle(gauss_rule(12))
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
         :, : K_type().src_dim
     ]
@@ -173,7 +173,7 @@ def test_integrate_self(K_type):
 
     tol = 1e-13
     if K_type is Hypersingular:
-        tol = 5e-13
+        tol = 1e-12
     elif K_type is ElasticH:
         tol = 1e-11
     local_qbx, report = integrate_term(
@@ -231,16 +231,16 @@ def test_safety_mode():
         surf.pts,
         surf,
         tol=1e-11,
-        safety_mode=displacement,
+        safety_mode=True,
         singularities=[(-1, 0), (1, 0)],
         return_report=True,
     )
     stress = -2 * tensor_dot(mat, displacement)
 
-    import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
-    plt.show()
+    # plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
+    # plt.show()
 
     np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 

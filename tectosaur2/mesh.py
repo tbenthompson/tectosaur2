@@ -60,12 +60,12 @@ class PanelSurface:
         self.panel_parameter_width = self.panel_bounds[:, 1] - self.panel_bounds[:, 0]
         self.panel_sizes = np.full(self.panel_bounds.shape[0], self.panel_order)
         self.panel_start_idxs = np.cumsum(self.panel_sizes) - self.panel_order
-        self.panel_centers = (1.0 / self.panel_parameter_width[:, None]) * np.sum(
+        self.panel_length = np.sum(
+            (self.quad_wts).reshape((-1, self.panel_order)), axis=1
+        )
+        self.panel_centers = (1.0 / self.panel_length[:, None]) * np.sum(
             (self.quad_wts[:, None] * self.pts).reshape((-1, self.panel_order, 2)),
             axis=1,
-        )
-        self.panel_length = np.sum(
-            (self.quad_wts * self.jacobians).reshape((-1, self.panel_order)), axis=1
         )
         self.panel_radius = np.min(self.radius.reshape((-1, self.qx.shape[0])), axis=1)
 
@@ -340,65 +340,6 @@ def unit_circle(quad_rule, max_curvature=0.5, control_points=None):
     )
 
 
-def build_stage2_panel_surf(surf, stage2_panels, quad_rule):
-    in_panel_idx = stage2_panels[:, 0].astype(int)
-    left_param = stage2_panels[:, 1][:, None]
-    right_param = stage2_panels[:, 2][:, None]
-
-    qx = quad_rule[0]
-    qw = quad_rule[1]
-    out_relative_nodes = (
-        left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
-    )
-
-    interp_mat = build_panel_interp_matrix(
-        surf.n_panels,
-        surf.qx,
-        surf.interp_wts,
-        stage2_panels[:, 0].astype(int),
-        out_relative_nodes,
-    )
-
-    quad_pts = (
-        surf.panel_bounds[in_panel_idx, 0, None]
-        + surf.panel_parameter_width[in_panel_idx, None]
-        * (out_relative_nodes + 1)
-        * 0.5
-    ).ravel()
-
-    pts = interp_mat.dot(surf.pts)
-    normals = interp_mat.dot(surf.normals)
-    jacobians = interp_mat.dot(surf.jacobians)
-    radius = interp_mat.dot(surf.radius)
-
-    panel_bounds = (
-        surf.panel_bounds[in_panel_idx, 0, None]
-        + (stage2_panels[:, 1:] + 1)
-        * 0.5
-        * surf.panel_parameter_width[in_panel_idx, None]
-    )
-
-    quad_wts = (
-        (qw[None, :] * 0.25 * (right_param - left_param))
-        * surf.panel_parameter_width[in_panel_idx, None]
-    ).ravel() * jacobians
-
-    return (
-        PanelSurface(
-            quad_rule,
-            quad_pts,
-            quad_wts,
-            pts,
-            normals,
-            jacobians,
-            radius,
-            panel_bounds,
-            None,
-        ),
-        interp_mat,
-    )
-
-
 def gauss_rule(n):
     """
     The n-point gauss quadrature rule on [-1, 1].
@@ -511,15 +452,95 @@ def apply_interp_mat(mat, interp_mat):
         return out
 
 
-def upsample(src, kappa):
-    stage2_panels = np.empty((src.n_panels, 3))
-    stage2_panels[:, 0] = np.arange(src.n_panels)
+def upsample(surf, kappa):
+    """
+    Upsample every panel in surf by a factor of kappa.
+
+    For example, if kappa = 3, and the original quadrature order was 10, then
+    every panel will be replaced by a new panel with quadrature order 30.
+    """
+    stage2_panels = np.empty((surf.n_panels, 3))
+    stage2_panels[:, 0] = np.arange(surf.n_panels)
     stage2_panels[:, 1] = -1
     stage2_panels[:, 2] = 1
-    src_refined, interp_mat = build_stage2_panel_surf(
-        src, stage2_panels, gauss_rule(src.panel_order * kappa)
+    src_refined, interp_mat = upsample_per_panel(
+        surf, stage2_panels, gauss_rule(surf.panel_order * kappa)
     )
     return src_refined, interp_mat
+
+
+def upsample_per_panel(surf, panel_spec, quad_rule):
+    """
+    Upsample panels individually.
+
+    New panels are defined by the panel_spec array where:
+    panel_spec[:, 0] is which panel in original surf object corresponds to the new panel
+    panel_spec[:, 1] is the left edge in parameter space of the new panel in
+        terms of the original panel.
+    panel_spec[:, 2] is the right edge in parameter space of the new panel in
+        terms of the original panel
+
+    The quad_rule parameter allows specifying the quadrature rule on the new panels.
+
+    The combination of panel_spec and quad_rule allows doing either "h" or "p"
+    refinement. For example, specifying two rows of panel_spec as
+    [[0, -1, 0], [0, 0, 1]]
+    would split the original panel 0 into two new panels that are half as long.
+    """
+    in_panel_idx = panel_spec[:, 0].astype(int)
+    left_param = panel_spec[:, 1][:, None]
+    right_param = panel_spec[:, 2][:, None]
+
+    qx = quad_rule[0]
+    qw = quad_rule[1]
+    out_relative_nodes = (
+        left_param + (right_param - left_param) * (qx[None, :] + 1) * 0.5
+    )
+
+    interp_mat = build_panel_interp_matrix(
+        surf.n_panels,
+        surf.qx,
+        surf.interp_wts,
+        panel_spec[:, 0].astype(int),
+        out_relative_nodes,
+    )
+
+    quad_pts = (
+        surf.panel_bounds[in_panel_idx, 0, None]
+        + surf.panel_parameter_width[in_panel_idx, None]
+        * (out_relative_nodes + 1)
+        * 0.5
+    ).ravel()
+
+    pts = interp_mat.dot(surf.pts)
+    normals = interp_mat.dot(surf.normals)
+    jacobians = interp_mat.dot(surf.jacobians)
+    radius = interp_mat.dot(surf.radius)
+
+    panel_bounds = (
+        surf.panel_bounds[in_panel_idx, 0, None]
+        + (panel_spec[:, 1:] + 1) * 0.5 * surf.panel_parameter_width[in_panel_idx, None]
+    )
+
+    quad_wts = (
+        (qw[None, :] * 0.25 * (right_param - left_param))
+        * surf.panel_parameter_width[in_panel_idx, None]
+    ).ravel() * jacobians
+
+    return (
+        PanelSurface(
+            quad_rule,
+            quad_pts,
+            quad_wts,
+            pts,
+            normals,
+            jacobians,
+            radius,
+            panel_bounds,
+            None,
+        ),
+        interp_mat,
+    )
 
 
 def pts_grid(xs, ys):
