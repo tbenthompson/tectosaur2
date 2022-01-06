@@ -8,6 +8,10 @@ from .tree import TempSurface, build_temp_surface, build_tree, traverse
 class HMatrix:
     def __init__(self, kernel, obs_pts, src, tol, remove_randomness=False):
         """
+        One of the primary goals with this HMatrix implementation is to support
+        H-matrix inversion or LU decomposition. This puts some important
+        constraints on the implementation:
+
         It's important that the HMatrix represent the entire operator under
         consideration if we're going to do an approximate LU
         decompositon/inversion. Otherwise, we would be only inverting part of

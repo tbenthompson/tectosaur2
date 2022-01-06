@@ -163,7 +163,7 @@ def test_integrate_can_do_global_qbx(K_type):
 
 @pytest.mark.parametrize("K_type", kernel_types)
 def test_integrate_self(K_type):
-    src = unit_circle(gauss_rule(12))
+    src = unit_circle(gauss_rule(12), max_curvature=2.0)
     density = np.stack((np.cos(src.pts[:, 0]), np.sin(src.pts[:, 0])), axis=1)[
         :, : K_type().src_dim
     ]
@@ -177,7 +177,7 @@ def test_integrate_self(K_type):
     elif K_type is ElasticH:
         tol = 1e-11
     local_qbx, report = integrate_term(
-        K_type(d_cutoff=4.0), src.pts, src, tol=tol, return_report=True
+        K_type(), src.pts, src, tol=tol, return_report=True
     )
     local_v = tensor_dot(local_qbx, density)
 
@@ -222,7 +222,7 @@ def test_safety_mode():
     # panel edges to be very close to the panel causing floating point error.
     t = sp.var("t")
     surf = refine_surfaces(
-        [(t, t, 0 * t)], gauss_rule(2), control_points=[(0, 0, 0.5, 0.5)]
+        [(t, t, 0 * t)], gauss_rule(8), control_points=[(0, 0, 0.5, 0.25)]
     )
     displacement = 1 - np.abs(surf.pts[:, 0])
     mat, report = integrate_term(
@@ -231,15 +231,16 @@ def test_safety_mode():
         surf.pts,
         surf,
         tol=1e-11,
-        safety_mode=True,
+        safety_mode=displacement,
         singularities=[(-1, 0), (1, 0)],
         return_report=True,
     )
     stress = -2 * tensor_dot(mat, displacement)
 
-    # import matplotlib.pyplot as plt
-    # plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
-    # plt.show()
+    import matplotlib.pyplot as plt
+
+    plt.plot(surf.pts[:, 0], np.log10(np.abs(stress[:, 0] + np.sign(surf.pts[:, 0]))))
+    plt.show()
 
     np.testing.assert_allclose(stress[:, 0], -np.sign(surf.pts[:, 0]))
 

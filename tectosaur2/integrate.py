@@ -120,20 +120,38 @@ def integrate_term(
             combined_src.panel_order,
         )
 
-        # step 3: find expansion centers
+        # STEP 3: find expansion centers/radii
+        # In most cases, the simple expansion center will be best. This default
+        # choice is determined by simply moving away from the nearest source
+        # surface in the direction of that source surface's normal.
+        #
+        # But, sometimes, the resulting expansion center will either be
+        # 1) too close to another portion of the source surface.
+        # 2) too close to a user-specified singularity.
+        # In those
+        #
         # TODO: it would be possible to implement a limit_direction='best'
         # option that chooses the side that allows the expansion point to be
         # further from the source surfaces and then returns the side used. then,
         # external knowledge of the integral equation could be used to handle
         # the jump relation and gather the value on the side the user cares
         # about
+
+        # qbx_normals contains the normal vector from the nearest source surface point.
+        # First, we need to determine whether the observation point is on the
+        # positive or negative side of the source surface.
         direction_dot = np.sum(qbx_normals * (qbx_obs_pts - qbx_closest_pts), axis=1)
         direction = np.sign(direction_dot)
+        # If the observation point is precisely *on* the source surface, we use
+        # the user-specified limit_direction parameter to determine which side
+        # of the source surface to expand on.
         on_surface = np.abs(direction) < 1e-13
         direction[on_surface] = limit_direction
 
+        # This section of code identifies the singularities that are near each
+        # observation point. These will be necessary to avoid placing expansion
+        # centers too close to singularities.
         singularity_safety_ratio = 3.0
-
         if singularities is None:
             singularities = np.zeros(shape=(0, 2))
         singularities = np.asarray(singularities, dtype=np.float64)
@@ -141,6 +159,12 @@ def integrate_term(
         nearby_singularities = singularity_tree.query_ball_point(
             qbx_obs_pts, (singularity_safety_ratio + 0.5) * qbx_panel_L, workers=-1
         )
+        # We pack the nearby singularity data into an efficient pair of arrays:
+        # - for observation point 3, the set of nearby singularities will be
+        #   contained in the slice:
+        #     start = nearby_singularities_starts[3]
+        #     end = nearby_singularities_starts[4]
+        #     slice = nearby_singularities[start:end]
         nearby_singularities_starts = np.zeros(n_qbx + 1, dtype=int)
         nearby_singularities_starts[1:] = np.cumsum(
             [len(ns) for ns in nearby_singularities]
@@ -173,6 +197,41 @@ def integrate_term(
             singularity_safety_ratio=singularity_safety_ratio,
         )
 
+        if safety_mode:
+            # The test_density specifies a source density function that will be
+            # multiplied by the matrix entries in order to determine the error
+            # in the adaptive QBX order choice. This is necessary because the
+            # rigorous error bounds are defined in terms of full integration or
+            # matrix vector products rather than matrix entries.
+            #
+            # With safety_mode=False, the test function is all ones. This
+            # essentially assumes that we will be integrating a smooth density.
+            #
+            # With safety_mode=True, the test function is designed so that there
+            # will be a step function at the boundaries between panels. This
+            # forces the integration to use higher order expansions at those points and
+            # results in a matrix that properly integrates density functions
+            # that are discontinuous at panel boundaries. (Discontinuities
+            # within a panel would be nigh impossible to integrate correctly
+            # because the design of a panel inherently assumes that the density
+            # is smooth per panel. If you need discontinuities within a panel, I
+            # would encourage you to use more low order panels, perhaps even
+            # linear panels, N=2.)
+            #
+            # TODO: ideally, we'd use some sort of graph coloring here but a
+            # random value per panel is highly likely to be good enough because
+            # it have a step function in the right places
+            # TODO: another cool feature here would be to allow the user to pass
+            # in a test_density and then automatically identify where the test
+            # density has step functions and edit nearby_safety_ratio for those
+            # intersections and then use the test_density for computing
+            # integration error
+            test_density = np.repeat(
+                np.random.rand(combined_src.n_panels), combined_src.panel_order * ndim
+            )
+        else:
+            test_density = np.ones(combined_src.n_pts * ndim)
+
         # step 5: QBX integrals
         # TODO: This could be replaced by a sparse local matrix.
         qbx_mat = np.zeros((qbx_obs_pts.shape[0], combined_src.n_pts, ndim))
@@ -186,6 +245,7 @@ def integrate_term(
             qbx_mat,
             qbx_obs_pts,
             combined_src,
+            test_density,
             kronrod_qx,
             kronrod_qw,
             kronrod_qw_gauss,
@@ -193,13 +253,12 @@ def integrate_term(
             exp_rs,
             K.max_p,
             tol,
-            safety_mode,
             qbx_panels,
             qbx_panel_starts,
         )
 
-        # The integration_error is the maximum error from any of the integrals
-        # passed to the adaptive quadrature routine.
+        # The integration_error is the maximum error per observation point from
+        # any of the integrals passed to the adaptive quadrature routine.
         report["qbx_integration_failed"] = (
             report["qbx_integration_error"] > tol
         ).astype(bool)

@@ -14,6 +14,8 @@ struct LocalQBXArgs {
     int* n_subsets;
 
     // input parameters
+    double* test_density;
+
     int n_obs;
     int n_src;
     double* obs_pts;
@@ -37,7 +39,6 @@ struct LocalQBXArgs {
 
     int max_p;
     double tol;
-    bool safety_mode;
 
     long* panels;
     long* panel_starts;
@@ -420,6 +421,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                     auto panel_idx = a.panels[panel_offset + panel_start];
                     double* out_ptr =
                         &a.mat[obs_i * a.n_src * ndim + panel_idx * a.n_interp * ndim];
+                    double* test_ptr = &a.test_density[panel_idx * a.n_interp * ndim];
 
                     for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
                         for (int d = 0; d < ndim; d++) {
@@ -428,11 +430,7 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                             double all_but_last_term = temp_out[2 * k];
                             double last_term = temp_out[2 * k + 1];
                             out_ptr[pt_idx * ndim + d] += all_but_last_term + last_term;
-                            if (a.safety_mode) {
-                                p_end_integral[d] += fabs(last_term);
-                            } else {
-                                p_end_integral[d] += last_term;
-                            }
+                            p_end_integral[d] += last_term * test_ptr[pt_idx * ndim + d];
                         }
                     }
                 }
