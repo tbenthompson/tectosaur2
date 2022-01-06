@@ -11,7 +11,9 @@ cdef extern from "local_qbx.cpp":
 
     # Look in local_qbx.cpp for details on the meaning of parameters.
     cdef struct LocalQBXArgs:
-        double* mat
+        double* entries
+        long* rows
+        long* cols
         int* p
         double* integration_error
         int* n_subsets
@@ -68,7 +70,7 @@ cdef extern from "local_qbx.cpp":
 
 def local_qbx_integrals(
     kernel,
-    double[:,:,:,::1] mat,  double[:,::1] obs_pts, src, double[::1] test_density,
+    double[::1] entries,  long[::1] rows, long[::1] cols, double[:,::1] obs_pts, src, double[::1] test_density,
     double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
     double[:,::1] exp_centers, double[::1] exp_rs,
     double tol, long[:] panels, long[:] panel_starts
@@ -92,17 +94,14 @@ def local_qbx_integrals(
     cdef double[::1] kernel_parameters = kernel.parameters
 
     cdef LocalQBXArgs args = LocalQBXArgs(
-        &mat[0,0,0,0], &p[0], &integration_error[0], &n_subsets[0],
-        &test_density[0],
-        obs_pts.shape[0], src.n_pts,
-        kernel.obs_dim, kernel.src_dim,
-        &obs_pts[0,0],
-        &src_pts[0,0], &src_normals[0,0], &src_jacobians[0],
-        &src_param_width[0], src.n_panels,
-        &interp_qx[0], &interp_wts[0], interp_qx.shape[0],
-        &kronrod_qx[0], &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
-        &exp_centers[0,0], &exp_rs[0],
-        kernel.max_p, tol, &panels[0], &panel_starts[0], &kernel_parameters[0]
+        &entries[0], &rows[0], &cols[0], &p[0], &integration_error[0],
+        &n_subsets[0], &test_density[0], obs_pts.shape[0], src.n_pts,
+        kernel.obs_dim, kernel.src_dim, &obs_pts[0,0], &src_pts[0,0],
+        &src_normals[0,0], &src_jacobians[0], &src_param_width[0], src.n_panels,
+        &interp_qx[0], &interp_wts[0], interp_qx.shape[0], &kronrod_qx[0],
+        &kronrod_qw[0], &kronrod_qw_gauss[0], kronrod_qx.shape[0],
+        &exp_centers[0,0], &exp_rs[0], kernel.max_p, tol, &panels[0],
+        &panel_starts[0], &kernel_parameters[0]
     )
 
     if kernel.name == "single_layer":
@@ -129,7 +128,10 @@ def local_qbx_integrals(
 
 cdef extern from "nearfield.cpp":
     cdef struct NearfieldArgs:
-        double* mat
+        double* entries
+        long* rows
+        long* cols
+
         int* n_subsets
         double* integration_error
         int n_obs
@@ -173,10 +175,9 @@ cdef extern from "nearfield.cpp":
     cdef void nearfield_elastic_H(const NearfieldArgs&)
 
 def nearfield_integrals(
-    kernel,
-    double[:,:,:,::1] mat, double[:,::1] obs_pts, src,
-    double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1] kronrod_qw_gauss,
-    long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
+    kernel, double[::1] entries, long[::1] rows, long[::1] cols, double[:,::1]
+    obs_pts, src, double[::1] kronrod_qx, double[::1] kronrod_qw, double[::1]
+    kronrod_qw_gauss, long[::1] panel_obs_pts, long[::1] panel_obs_pts_starts,
     double mult, double tol, bool adaptive
 ):
 
@@ -196,7 +197,7 @@ def nearfield_integrals(
     cdef double[::1] kernel_parameters = kernel.parameters
 
     cdef NearfieldArgs args = NearfieldArgs(
-        &mat[0,0,0,0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
+        &entries[0], &rows[0], &cols[0], &n_subsets[0], &integration_error[0], obs_pts.shape[0],
         src.n_pts, kernel.obs_dim, kernel.src_dim, &obs_pts[0,0], &src_pts[0,0],
         &src_normals[0,0], &src_jacobians[0], &src_param_width[0], src.n_panels,
         &interp_qx[0], &interp_wts[0], interp_qx.shape[0], &kronrod_qx[0],

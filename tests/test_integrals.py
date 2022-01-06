@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 import pytest
+import scipy.sparse
 import sympy as sp
 from kernels import (
     AdjointDoubleLayer,
@@ -67,11 +68,16 @@ def test_nearfield_far(K_type):
     pts_per_panel = np.concatenate(pts_per_panel)
 
     K = K_type()
-    est = np.zeros((obs_pts.shape[0], K.obs_dim, src.n_pts, K.src_dim))
+    # est = np.zeros((obs_pts.shape[0], K.obs_dim, src.n_pts, K.src_dim))
+    entries = np.zeros((obs_pts.shape[0] * src.panel_order * K.obs_dim * K.src_dim))
+    rows = np.empty_like(entries, dtype=np.int64)
+    cols = np.empty_like(entries, dtype=np.int64)
 
     n_subsets = nearfield_integrals(
         K,
-        est,
+        entries,
+        rows,
+        cols,
         obs_pts,
         src,
         src.qx,
@@ -82,6 +88,14 @@ def test_nearfield_far(K_type):
         1.0,
         3.0,
         adaptive=False,
+    )
+    est = (
+        scipy.sparse.coo_matrix(
+            (entries, (rows, cols)),
+            shape=(obs_pts.shape[0] * K.obs_dim, src.n_pts * K.src_dim),
+        )
+        .toarray()
+        .reshape((obs_pts.shape[0], K.obs_dim, src.n_pts, K.src_dim))
     )
 
     assert n_subsets[0] == src.n_panels

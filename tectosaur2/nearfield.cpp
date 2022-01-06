@@ -11,7 +11,10 @@
 #include "direct_kernels.hpp"
 
 struct NearfieldArgs {
-    double* mat;
+    double* entries;
+    long* rows;
+    long* cols;
+
     int* n_subsets;
     double* integration_error;
     int n_obs;
@@ -95,10 +98,13 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
                     for (int d1 = 0; d1 < a.obs_dim; d1++) {
                         for (int d2 = 0; d2 < a.src_dim; d2++) {
                             int i = pt_idx * a.obs_dim * a.src_dim + d1 * a.src_dim + d2;
-                            a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
-                                    (cur_panel * a.n_interp + pt_idx)) *
-                                        a.src_dim +
-                                    d2] += a.mult * integral[i];
+                            int start_offset = ((integral_idx) * a.obs_dim + d1) * a.n_interp * a.src_dim;
+                            int entry_idx = start_offset + pt_idx * a.src_dim + d2;
+                            a.entries[entry_idx] += a.mult * integral[i];
+                            a.rows[entry_idx] = obs_i * a.obs_dim + d1;
+
+                            int col = cur_panel * a.n_interp * a.src_dim + pt_idx * a.src_dim + d2;
+                            a.cols[entry_idx] = col;
                         }
                     }
                 }
@@ -111,10 +117,13 @@ template <typename K> void _nearfield_integrals(K kernel_fnc, const NearfieldArg
                     for (int d1 = 0; d1 < a.obs_dim; d1++) {
                         for (int d2 = 0; d2 < a.src_dim; d2++) {
                             int i = pt_idx * a.obs_dim * a.src_dim + d1 * a.src_dim + d2;
-                            a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
-                                    (cur_panel * a.n_interp + pt_idx)) *
-                                        a.src_dim +
-                                    d2] += a.mult * integral[2 * i];
+                            int start_offset = ((integral_idx) * a.obs_dim + d1) * a.n_interp * a.src_dim;
+                            int entry_idx = start_offset + pt_idx * a.src_dim + d2;
+                            a.entries[entry_idx] += a.mult * integral[2 * i];
+                            a.rows[entry_idx] = obs_i * a.obs_dim + d1;
+
+                            int col = cur_panel * a.n_interp * a.src_dim + pt_idx * a.src_dim + d2;
+                            a.cols[entry_idx] = col;
                         }
                     }
                 }

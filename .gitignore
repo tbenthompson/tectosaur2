@@ -26,4 +26,5 @@ build
 
 # cython
 _ext.cpp
+aca_ext.cpp
 *.so

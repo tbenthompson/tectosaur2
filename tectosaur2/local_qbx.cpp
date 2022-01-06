@@ -8,7 +8,10 @@
 
 struct LocalQBXArgs {
     // out parameters
-    double* mat;
+    double* entries;
+    long* rows;
+    long* cols;
+
     int* p;
     double* integration_error;
     int* n_subsets;
@@ -416,7 +419,6 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
 
                 for (auto panel_offset = 0; panel_offset < n_panels; panel_offset++) {
                     auto panel_idx = a.panels[panel_offset + panel_start];
-                    double* test_ptr = &a.test_density[panel_idx * a.n_interp * ndim];
 
                     for (int pt_idx = 0; pt_idx < a.n_interp; pt_idx++) {
                         for (int d1 = 0; d1 < a.obs_dim; d1++) {
@@ -425,11 +427,15 @@ template <typename K> void _local_qbx_integrals(K kernel_fnc, const LocalQBXArgs
                                 int k = panel_offset * a.n_interp * ndim + pt_idx * ndim + d;
                                 double all_but_last_term = temp_out[2 * k];
                                 double last_term = temp_out[2 * k + 1];
-                                a.mat[((obs_i * a.obs_dim + d1) * a.n_src +
-                                       (panel_idx * a.n_interp + pt_idx)) *
-                                          a.src_dim +
-                                      d2] += all_but_last_term + last_term;
-                                p_end_integral[d] += last_term * test_ptr[pt_idx * a.src_dim + d2];
+
+                                int start_offset = ((panel_start + panel_offset) * a.obs_dim + d1) * a.n_interp * a.src_dim;
+                                int entry_idx = start_offset + pt_idx * a.src_dim + d2;
+                                a.entries[entry_idx] += all_but_last_term + last_term;
+                                a.rows[entry_idx] = obs_i * a.obs_dim + d1;
+
+                                int col = panel_idx * a.n_interp * a.src_dim + pt_idx * a.src_dim + d2;
+                                a.cols[entry_idx] = col;
+                                p_end_integral[d] += last_term * a.test_density[col];
                             }
                         }
                     }
