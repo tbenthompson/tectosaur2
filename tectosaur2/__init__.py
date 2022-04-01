@@ -19,4 +19,7 @@ def tensor_dot(A, x):
     if A.shape[-1] == 1 and x.ndim == 1:
         return A[:, :, :, 0].dot(x)
     assert x.shape[1] == A.shape[3]
-    return np.sum(A * x[None, None, :, :], axis=(2, 3))
+    if isinstance(A, np.ndarray):
+        return np.tensordot(A, x, axes=2)
+    else:
+        return A.tensor_dot(x)

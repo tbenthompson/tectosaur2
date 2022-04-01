@@ -70,25 +70,20 @@ def integrate_term(
     report["srcs"] = srcs
     report["obs_pts"] = obs_pts
 
-    # STEP 2: slice the matrix into its constituent terms.
-    # NOTE: this should probably be removed because it doesn't play nicely with
-    # using an fmm or hmatrix for the farfield. how would we "slice" the
-    # resulting matrix? but this slicing is actually quite necessary for the
-    # current way of solving boundary value problems. what to do about this??
-    # perhaps it is still possible to slice an hmatrix.
-    # I think the answer is to never combine the hmatrices in the first place.
-    # The nearfield matrix construction will be combined, but can be separated
-    # at a later time.
+    # STEP 2: slice the nearfield matrix into its constituent terms and then
+    # construct the farfield matrices.
     mats = []
     col_idx = 0
     for s in srcs:
         # STEP 2a: construct the farfield matrix and combine with the nearfield matrix
+        nearfield_subset = qbx_nearfield_mat[:, :, col_idx : col_idx + s.n_pts, :]
         if farfield == "hmatrix":
-            # M = HMatrix()
-            raise ValueError("Unimplemented")
+            from tectosaur2.hmatrix import HMatrix
+
+            M = HMatrix(K, obs_pts, s, tol, nearfield_subset)
         elif farfield == "direct":
             M = K.direct(obs_pts, s)
-            M += qbx_nearfield_mat[:, :, col_idx : col_idx + s.n_pts, :]
+            M += nearfield_subset
         else:
             raise ValueError("Unsupported farfield acceleration type.")
         mats.append(M)

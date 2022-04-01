@@ -1,10 +1,12 @@
 format: jb-book
 root: intro
 parts:
-  # - caption: "The problem space"
-  #   numbered: true
-  #   chapters:
-  #   - file: fault_problems
+  - caption: "The problem space"
+    numbered: true
+    chapters:
+    - file: overview/bie_design_criteria
+    - file: overview/against_okada
+    - file: overview/fault_problems
   - caption: "The TDE sequence: triangular dislocation elements"
     numbered: true
     chapters:

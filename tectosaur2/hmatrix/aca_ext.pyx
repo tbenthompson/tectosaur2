@@ -88,8 +88,7 @@ def aca_integrals(kernel, double[::1] buffer, int[::1] uv_ptrs, int[::1] n_terms
     """
     cdef double[:,::1] src_pts = src.pts
     cdef double[:,::1] src_normals = src.normals
-    # TODO: weights times jacobians, this should be fixed globally.
-    cdef double[::1] src_weights = src.quad_wts * src.jacobians
+    cdef double[::1] src_weights = src.quad_wts
 
     cdef ACAArgs args = ACAArgs(&buffer[0], &uv_ptrs[0], &n_terms[0], &next_ptr[0],
             &fworkspace[0], &iworkspace[0], kernel.obs_dim, kernel.src_dim, n_blocks,

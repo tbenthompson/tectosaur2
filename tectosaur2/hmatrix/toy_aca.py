@@ -240,7 +240,13 @@ def SVD_recompress(U_ACA, V_ACA, eps):
     W, SIG, Z = np.linalg.svd(UR.dot(VR.T))
 
     frob_K = np.sqrt(np.cumsum(SIG[::-1] ** 2))[::-1]
-    r = np.argmax(frob_K < eps)
+    # np.argmax will return the first entry for which the boolean is true.
+    # however, if the boolean is not true for any value, then the returned value
+    # will be 0. Instead, in this case, we wish to return the full rank matrix.
+    if np.all(frob_K > eps):
+        r = frob_K.shape[0]
+    else:
+        r = np.argmax(frob_K < eps)
 
     U = UQ.dot(W[:, :r] * SIG[:r])
     V = Z[:r, :].dot(VQ.T)
